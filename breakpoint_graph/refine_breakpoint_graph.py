@@ -200,7 +200,9 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
 
 class bam_to_breakpoint_nanopore():
 
-	bamfname = ""
+	sr_bamfh = ""
+	lr_bamfh = ""
+
 	min_sequence_size = -1
 	min_bp_distance_cutoff = 50
 	min_clip_cutoff = 1000
@@ -220,7 +222,6 @@ class bam_to_breakpoint_nanopore():
 	amplicon_intervals = []
 	amplicon_interval_connections = dict()
 	aa_segs_list = []
-	aa_segs_info = []
 	discordant_edges_pos = dict()
 	discordant_edges = []
 	discordant_edges_ = []
@@ -230,8 +231,9 @@ class bam_to_breakpoint_nanopore():
 	new_bp_list_ = []
 	
 
-	def __init__(self, bamfile, aacfile):
-		self.bamfname = bamfile
+	def __init__(self, sr_bamfile, lr_bamfile, aacfile):
+		self.sr_bamfh = pysam.AlignmentFile(sr_bamfile, 'rb')
+		self.lr_bamfh = pysam.AlignmentFile(lr_bamfile, 'rb')
 		with open(aacfile, 'r') as fp:
 			for line in fp:
 				s = line.strip().split()
@@ -241,8 +243,6 @@ class bam_to_breakpoint_nanopore():
 						self.min_sequence_size = int(s[4]) - int(s[3])
 					else:
 						self.min_sequence_size = min(self.min_sequence_size, int(s[4]) - int(s[3]))
-		#print self.amplicon_intervals
-		#print self.min_sequence_size
 
 	
 	def read_graph(self, aagfile):
@@ -259,8 +259,7 @@ class bam_to_breakpoint_nanopore():
 						self.discordant_edges_pos[(chr, lastr, l)] = [0, 0]
 					lastchr = chr
 					lastr = r
-					self.aa_segs_list.append([chr, l, r])
-					self.aa_segs_info.append([s[3], s[4], s[5], s[6]])
+					self.aa_segs_list.append([chr, l, r, s[4], -1, r - l + 1])
 					self.min_sequence_size = min(self.min_sequence_size, r - l)
 				if s[0] == 'discordant':
 					t = s[1].split('->')
@@ -297,25 +296,24 @@ class bam_to_breakpoint_nanopore():
 
 	def fetch(self):
 		start_time = time.time()
-		with pysam.AlignmentFile(self.bamfname, 'rb') as fh:
-			for read in fh.fetch():
-				rn = read.query_name
-				if read.flag < 256 and rn not in self.read_length:
-					self.read_length[rn] = read.query_length
-				try:
-					sa_list = read.get_tag('SA:Z:')[:-1].split(';')
-					for sa in sa_list:
-						try:
-							if sa not in self.chimeric_alignments[rn]:
-								self.chimeric_alignments[rn].append(sa) 
-						except:
-							self.chimeric_alignments[rn] = [sa]
-				except:
-					pass
-				rcs = read.get_cigar_stats()[0]
-				if rn not in self.chimeric_alignments and (rcs[4] > self.min_clip_cutoff or rcs[5] > self.min_clip_cutoff):
-					#print read.cigartuples
-					self.large_clip_alignments[rn] = (read.cigartuples[0], read.cigartuples[-1])
+		for read in self.lr_bamfh.fetch():
+			rn = read.query_name
+			if read.flag < 256 and rn not in self.read_length:
+				self.read_length[rn] = read.query_length
+			try:
+				sa_list = read.get_tag('SA:Z:')[:-1].split(';')
+				for sa in sa_list:
+					try:
+						if sa not in self.chimeric_alignments[rn]:
+							self.chimeric_alignments[rn].append(sa) 
+					except:
+						self.chimeric_alignments[rn] = [sa]
+			except:
+				pass
+			rcs = read.get_cigar_stats()[0]
+			if rn not in self.chimeric_alignments and (rcs[4] > self.min_clip_cutoff or rcs[5] > self.min_clip_cutoff):
+				#print read.cigartuples
+				self.large_clip_alignments[rn] = (read.cigartuples[0], read.cigartuples[-1])
 		print("--- %s seconds ---" % (time.time() - start_time))
 		for r in self.chimeric_alignments.keys():
 			rl = self.read_length[r]
@@ -511,7 +509,7 @@ class bam_to_breakpoint_nanopore():
 						elif seg[2] - self.min_bp_distance_cutoff < bp[4] < seg[2] and (em == 1 or ep + em == 0):
 							self.new_bp_list_[bpi][4] = seg[2] + 1
 							nsplit[1] = 0
-			print bp, nsplit
+			#print bp, nsplit
 			for segi in range(len(self.aa_segs_list)):	
 				seg = self.aa_segs_list[segi]
 				if nsplit[0] == 1 and bp[0] == seg[0] and seg[1] < int(bp[1]) < seg[2]:
@@ -536,13 +534,12 @@ class bam_to_breakpoint_nanopore():
 							split_seg[segi].append((int(bp[4]) - 1, int(bp[4]), bpi, 4, '-'))
 						except:
 							split_seg[segi] = [(int(bp[4]) - 1, int(bp[4]), bpi, 4, '-')]
-		print split_seg
+		#print split_seg
 		new_segs = dict()
 		for segi in split_seg:
-			print split_seg[segi]
+			#print split_seg[segi]
 			split_seg[segi].sort(key = lambda item: item[0])
-			sseg = self.aa_segs_list[segi]
-			sinfo = self.aa_segs_info[segi]	
+			sseg = self.aa_segs_list[segi]	
 			new_segs[segi] = []
 			lssi = 0
 			del_list = []
@@ -557,68 +554,79 @@ class bam_to_breakpoint_nanopore():
 					del_list.append(ssi)
 				else:
 					lssi = ssi
-			print del_list[::-1]
+			#print del_list[::-1]
 			for dssi in del_list[::-1]:
 				del split_seg[segi][dssi]
-			print split_seg[segi]
+			#print split_seg[segi]
 			for ssi in range(len(split_seg[segi])):
 				if ssi == 0:
-					new_segs[segi].append(([sseg[0], sseg[1], split_seg[segi][ssi][0]], 
-								[sinfo[0], sinfo[1], int(split_seg[segi][ssi][0]) - int(sseg[1]), '*']))
+					new_segs[segi].append([sseg[0], sseg[1], split_seg[segi][ssi][0], -1, -1,  
+								int(split_seg[segi][ssi][0]) - int(sseg[1]) + 1])
 				else:
-					new_segs[segi].append(([sseg[0], split_seg[segi][ssi - 1][1], split_seg[segi][ssi][0]], 
-								[sinfo[0], sinfo[1], int(split_seg[segi][ssi][0]) - \
-								int(split_seg[segi][ssi - 1][1]), '*']))
-			new_segs[segi].append(([sseg[0], split_seg[segi][-1][1], sseg[2]], 
-					[sinfo[0], sinfo[1], int(sseg[2]) - int(split_seg[segi][-1][1]), '*']))
-		#print new_segs
+					new_segs[segi].append([sseg[0], split_seg[segi][ssi - 1][1], split_seg[segi][ssi][0], 
+								-1, -1, int(split_seg[segi][ssi][0]) - \
+								int(split_seg[segi][ssi - 1][1]) + 1])
+			new_segs[segi].append([sseg[0], split_seg[segi][-1][1], sseg[2], -1, -1, 
+					int(sseg[2]) - int(split_seg[segi][-1][1]) + 1])
 		for segi in sorted(split_seg.keys())[::-1]:
 			del self.aa_segs_list[segi]
-			del self.aa_segs_info[segi]
 			for nsi in range(len(new_segs[segi])):
-				nseg = new_segs[segi][nsi]
-				self.aa_segs_list.insert(segi + nsi, nseg[0])
-				self.aa_segs_info.insert(segi + nsi, nseg[1])
-		#print self.aa_segs_list
+				self.aa_segs_list.insert(segi + nsi, new_segs[segi][nsi])
+
+
+	def assign_cov_sequence(self):
+		for seg in self.aa_segs_list:
+			if seg[3] == -1:
+				seg[3] = sum([sum(nc) for nc in self.sr_bamfh.count_coverage(seg[0], seg[1], seg[2] + 1)]) \
+						/ max(1.0, float(seg[2] - seg[1] + 1))
+			if seg[4] == -1:
+				seg[4] = sum([sum(nc) for nc in self.lr_bamfh.count_coverage(seg[0], seg[1], seg[2] + 1)]) \
+						/ max(1.0, float(seg[2] - seg[1] + 1))
 
 
 	def output_breakpoint_graph(self, ogfile):
 		with open(ogfile, 'w') as fp:
-			fp.write("SequenceEdge: StartPosition, EndPosition, PredictedCopyCount, AverageCoverage, Size, NumberReadsMapped\n")
+			fp.write("SequenceEdge: StartPosition, EndPosition, AverageCoverageSR, AverageCoverageLR, Size\n")
 			for segi in range(len(self.aa_segs_list)):
 				sseg = self.aa_segs_list[segi]
-				sinfo = self.aa_segs_info[segi]
-				fp.write("sequence\t%s:%s-\t%s:%s+\t%s\t%s\t%s\t%s\n" %(sseg[0], sseg[1], sseg[0], sseg[2], sinfo[0], sinfo[1], str(sinfo[2]), sinfo[3]))
-			fp.write("BreakpointEdge: StartPosition->EndPosition, PredictedCopyCount, NumberOfReadPairs, HomologySizeIfAvailable(<0ForInsertions), Homology/InsertionSequence\n")
+				fp.write("sequence\t%s:%s-\t%s:%s+\t%s\t%s\t%s\n" %(sseg[0], sseg[1], sseg[0], sseg[2], sseg[3], sseg[4], str(sseg[5])))
+			fp.write("BreakpointEdge: StartPosition->EndPosition, NumberOfReadPairs, NumberOfLReads, ")
+			fp.write("HomologySizeIfAvailable(<0ForInsertions), Homology/InsertionSequence\n")
 			for ede in self.discordant_edges_:
 				for dei in range(len(ede) - 1):
-					fp.write("%s\t" %ede[dei])
+					if dei != 2:
+						fp.write("%s\t" %ede[dei])
+					else:
+						fp.write("-1\t")
 				fp.write("%s\n" %ede[-1])
 			for bp in self.new_bp_list_:
-				fp.write("discordant\t%s:%s%s->%s:%s%s\t0.0\t0\tNone\tNone\n" %(bp[0], bp[1], bp[2], bp[3], bp[4], bp[5]))
+				fp.write("discordant\t%s:%s%s->%s:%s%s\t-1\t-1\tNone\tNone\n" %(bp[0], bp[1], bp[2], bp[3], bp[4], bp[5]))
 
+	
 
-	"""
-	def assign_cov_sequence(self, ):
-		with pysam.AlignmentFile(self.bamfname, 'rb') as fh:
-			icc = sum([sum(a) for a in self.bamfile.count_coverage(i.chrom, s2, e2)]) / max(1.0, float(e2-s2 + 1))
-	"""	
+	def closebam(self):
+		self.sr_bamfh.close()
+		self.lr_bamfh.close()
 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description = "Examine ")
-	parser.add_argument("--bam", help = "Sorted indexed bam file.", required = True)
+	parser.add_argument("--sr_bam", help = "Sorted indexed bam file.", required = True)
+	parser.add_argument("--lr_bam", help = "Sorted indexed bam file.", required = True)
 	parser.add_argument("--aa_graph", help = "AA-formatted graph file.", required = True)
 	parser.add_argument("--aa_cycle", help = "AA-formatted cycle file.", required = True)
 	args = parser.parse_args()
 
-	b2bn = bam_to_breakpoint_nanopore(args.bam, args.aa_cycle)
+	b2bn = bam_to_breakpoint_nanopore(args.sr_bam, args.lr_bam, args.aa_cycle)
 	b2bn.read_graph(args.aa_graph)
 	
 	b2bn.fetch()
 	b2bn.find_breakpoints()
 	b2bn.split_seg_bp()
+	b2bn.assign_cov_sequence()
+
 	b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
+	b2bn.closebam()
 	
 
 
