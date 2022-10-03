@@ -344,9 +344,9 @@ class bam_to_breakpoint_nanopore():
 				rs, re, rrl = cigar2pos_ops[op](t[3], t[2], rl)
 				r_int.append([rs, re])
 				if t[2] == '+':
-					rr_int.append([t[0], int(t[1]), int(t[1]) + rrl - 1, '+'])
+					rr_int.append([t[0], int(t[1]) - 1, int(t[1]) + rrl - 2, '+']) # converted to 0 based coordinates
 				else:
-					rr_int.append([t[0], int(t[1]) + rrl - 1, int(t[1]), '-'])
+					rr_int.append([t[0], int(t[1]) + rrl - 2, int(t[1]) - 1, '-']) # converted to 0 based coordinates
 				for i in range(int(t[1]) // 10000, (int(t[1]) + rrl) // 10000 + 1):
 					try:
 						self.chimeric_alignments_bin[t[0]][i].append(r)
@@ -364,6 +364,12 @@ class bam_to_breakpoint_nanopore():
 			if r == 'SRR12880625.55938':
 				print self.chimeric_alignments[r]
 			if r == 'SRR12880625.38298':
+				print self.chimeric_alignments[r]
+			"""
+			"""
+			if r == 'SRR12880625.73057':
+				print self.chimeric_alignments[r]
+			if r == 'SRR12880625.4268':
 				print self.chimeric_alignments[r]
 			"""
 		print("--- %s seconds ---" % (time.time() - start_time))
@@ -615,8 +621,11 @@ class bam_to_breakpoint_nanopore():
 			for ec in self.concordant_edges:
 				#print ec
 				#print([type(item) for item in ec])
+				rls = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[0], start = ec[1], stop = ec[1] + 1)])
+				rrs = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[3], start = ec[4], stop = ec[4] + 1)])
 				fp.write("concordant\t%s:%s%s->%s:%s%s\t%d\t%d\t%s\t%s\n" %(ec[0], ec[1], ec[2], ec[3], 
-					ec[4], ec[5], ec[6], ec[7], ec[8], ec[9]))
+					ec[4], ec[5], ec[6], len(rls & rrs), ec[8], ec[9]))
+				#print ec, rls, rrs, len(rls & rrs)
 			for ed in self.discordant_edges:
 				fp.write("discordant\t%s:%s%s->%s:%s%s\t%d\t%d\t%s\t%s\n" %(ed[0], ed[1], ed[2], ed[3], 
 					ed[4], ed[5], ed[6], ed[7], ed[8], ed[9]))
