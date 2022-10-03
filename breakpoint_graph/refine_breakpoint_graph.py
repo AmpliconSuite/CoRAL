@@ -1,4 +1,3 @@
-
 import time
 import pysam
 import argparse
@@ -200,8 +199,8 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
 
 class bam_to_breakpoint_nanopore():
 
-	sr_bamfh = ""
-	lr_bamfh = ""
+	sr_bamfh = "" # Short read bam file
+	lr_bamfh = "" # Long read bam file
 
 	min_sequence_size = -1
 	min_bp_distance_cutoff = 50
@@ -215,19 +214,23 @@ class bam_to_breakpoint_nanopore():
 	large_clip_alignments = dict()
 	large_indel_alignments = dict()
 
-	
-
 	chimeric_alignments_bin = dict()
 	
 	amplicon_intervals = []
 	amplicon_interval_connections = dict()
 	aa_segs_list = []
+	"""
+	discordant_edges_pos: AA incoming/outgoing discordant edge at a sequence edge junction
+	[0, 0] = No discordant edges, i.e., CN boundary breakpoint
+	[0, 1] = Only incoming breakpoint edge 
+	[1, 0] = Only outgoing breakpoint edge
+	[1, 1] = Both incoming and outgoing breakpoint edges
+	"""
 	discordant_edges_pos = dict()
 	discordant_edges = []
-	discordant_edges_ = []
-	discordant_edges_rc = []
-	discordant_edges_aarc = []
-	discordant_edges_reads = set([])
+	discordant_edges_reads = set([]) # For later use
+	concordant_edges = []
+	source_edges = []
 	new_bp_list_ = []
 	
 
@@ -282,10 +285,24 @@ class bam_to_breakpoint_nanopore():
 						if (t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1])) not in self.discordant_edges_pos:
 							self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))] = [0, 0]
 						self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))][1] = 1
-					self.discordant_edges.append([t0_[0], int(t0_[1][:-1]), t0_[1][-1], t1_[0], int(t1_[1][:-1]), t1_[1][-1]])
-					self.discordant_edges_.append(s)
-					self.discordant_edges_rc.append(0)
-					self.discordant_edges_aarc.append(s[3])
+					self.discordant_edges.append([t0_[0], int(t0_[1][:-1]), t0_[1][-1], t1_[0], int(t1_[1][:-1]), t1_[1][-1],
+									int(s[3]), 0, s[-2], s[-1]])
+				if s[0] == 'concordant':
+					#print s
+					t = s[1].split('->')
+					t0_ = t[0].split(':')
+					t1_ = t[1].split(':')
+					assert t0_[1][-1] == '+' and t1_[1][-1] == '-'
+					self.concordant_edges.append([t0_[0], int(t0_[1][:-1]), t0_[1][-1], t1_[0], int(t1_[1][:-1]), t1_[1][-1],
+									int(s[3]), -1, s[-2], s[-1]])
+				if s[0] == 'source':
+					#print s
+					t = s[1].split('->')
+					t0_ = t[0].split(':')
+					t1_ = t[1].split(':')
+					#print t0_, t1_
+					assert t0_[1][:-1] == '-1'
+					self.source_edges.append(['source', -1, '-', t1_[0], int(t1_[1][:-1]), t1_[1][-1], s[-2], s[-1]])
 		#print self.aa_segs_list, self.discordant_edges
 		#print self.min_sequence_size
 		#print self.discordant_edges_pos
@@ -369,14 +386,14 @@ class bam_to_breakpoint_nanopore():
 					if bp_match([rr_int[i][0], rr_int[i][2], rr_int[i][3], rr_int[i + 1][0], 
 							rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]]], d, 
 							int(r_int[i + 1][0]) - int(r_int[i][1]), self.min_bp_distance_cutoff):
-						self.discordant_edges_rc[di] += 1
+						self.discordant_edges[di][7] += 1
 						self.discordant_edges_reads.add(r)
 						overlap_i = 1
 						bassigned[i] = 1
 					elif bp_match([rr_int[i + 1][0], rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]], 
 							rr_int[i][0], rr_int[i][2], rr_int[i][3]], d, 
 							int(r_int[i + 1][0]) - int(r_int[i][1]), self.min_bp_distance_cutoff):
-						self.discordant_edges_rc[di] += 1
+						self.discordant_edges[di][7] += 1
 						self.discordant_edges_reads.add(r)
 						overlap_i = 1
 						bassigned[i] = 1
@@ -444,7 +461,7 @@ class bam_to_breakpoint_nanopore():
 							#print 'G1', r, new_bp_list[-1], r_int[i - 1], r_int[i+1], rr_int[i - 1], rr_int[i + 1], q_[i - 1], q_[i + 1], abs(gr - grr)
 				
 		for dei in range(len(self.discordant_edges)):
-			print self.discordant_edges[dei], self.discordant_edges_rc[dei], self.discordant_edges_aarc[dei]
+			print self.discordant_edges[dei]
 		new_bp_clusters = []
 		new_bp_list.sort(key = lambda item: (chr_idx[item[0]], chr_idx[item[3]], item[1], item[4]))
 		#print new_bp_list
@@ -465,7 +482,7 @@ class bam_to_breakpoint_nanopore():
 				bp, bpr = bpc2bp(c, self.min_bp_distance_cutoff)
 				if len(set(bpr)) >= 3:
 					print bp, len(set(bpr))
-					self.new_bp_list_.append(bp)
+					self.new_bp_list_.append(bp + [len(set(bpr))])
 
 
 	def split_seg_bp(self):
@@ -590,17 +607,21 @@ class bam_to_breakpoint_nanopore():
 			for segi in range(len(self.aa_segs_list)):
 				sseg = self.aa_segs_list[segi]
 				fp.write("sequence\t%s:%s-\t%s:%s+\t%s\t%s\t%s\n" %(sseg[0], sseg[1], sseg[0], sseg[2], sseg[3], sseg[4], str(sseg[5])))
-			fp.write("BreakpointEdge: StartPosition->EndPosition, NumberOfReadPairs, NumberOfLReads, ")
+			fp.write("BreakpointEdge: StartPosition->EndPosition, NumberOfReadPairs, NumberOfLongReads, ")
 			fp.write("HomologySizeIfAvailable(<0ForInsertions), Homology/InsertionSequence\n")
-			for ede in self.discordant_edges_:
-				for dei in range(len(ede) - 1):
-					if dei != 2:
-						fp.write("%s\t" %ede[dei])
-					else:
-						fp.write("-1\t")
-				fp.write("%s\n" %ede[-1])
+			for es in self.source_edges:
+				fp.write("source\t%s:%s%s->%s:%s%s\t-1\t-1\t%s\t%s\n" %(es[0], es[1], es[2], es[3], 
+					es[4], es[5], es[6], es[7]))
+			for ec in self.concordant_edges:
+				#print ec
+				#print([type(item) for item in ec])
+				fp.write("concordant\t%s:%s%s->%s:%s%s\t%d\t%d\t%s\t%s\n" %(ec[0], ec[1], ec[2], ec[3], 
+					ec[4], ec[5], ec[6], ec[7], ec[8], ec[9]))
+			for ed in self.discordant_edges:
+				fp.write("discordant\t%s:%s%s->%s:%s%s\t%d\t%d\t%s\t%s\n" %(ed[0], ed[1], ed[2], ed[3], 
+					ed[4], ed[5], ed[6], ed[7], ed[8], ed[9]))
 			for bp in self.new_bp_list_:
-				fp.write("discordant\t%s:%s%s->%s:%s%s\t-1\t-1\tNone\tNone\n" %(bp[0], bp[1], bp[2], bp[3], bp[4], bp[5]))
+				fp.write("discordant\t%s:%s%s->%s:%s%s\t-1\t%d\tNone\tNone\n" %(bp[0], bp[1], bp[2], bp[3], bp[4], bp[5], bp[6]))
 
 	
 
