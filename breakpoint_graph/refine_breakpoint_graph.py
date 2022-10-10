@@ -1,4 +1,5 @@
 import time
+import math
 import pysam
 import argparse
 import sys
@@ -184,13 +185,31 @@ def interval2bp(R1, R2, rn = '', rgap = 0):
 
 # Call exact breakpoint from a breakpoint cluster
 def bpc2bp(bp_cluster, bp_distance_cutoff):
+	#print bp_cluster
 	bp = bp_cluster[0][:-2]
+	bp[1] = 0 if bp[2] == '+' else 1000000000
+	bp[4] = 0 if bp[5] == '+' else 1000000000
 	bpr = []
+	bp_stats = [0, 0, 0, 0]
 	for bp_ in bp_cluster:
-		if (bp_[2] == '+' and bp_[1] > bp[1]) or (bp_[2] == '-' and bp_[1] < bp[1]):
-			bp[1] = bp_[1]
-		if (bp_[5] == '+' and bp_[4] > bp[4]) or (bp_[5] == '-' and bp_[4] < bp[4]):
-			bp[4] = bp_[4]
+		bp_stats[0] += bp_[1]
+		bp_stats[2] += (bp_[1] * bp_[1])
+		bp_stats[1] += bp_[4]
+		bp_stats[3] += (bp_[4] * bp_[4])
+	bp_stats[0] /= (len(bp_cluster) * 1.0)
+	bp_stats[1] /= (len(bp_cluster) * 1.0)
+	bp_stats[2] /= (len(bp_cluster) * 1.0)
+	bp_stats[3] /= (len(bp_cluster) * 1.0)
+	bp_stats[2] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[2] - bp_stats[0] * bp_stats[0]))
+	bp_stats[3] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[3] - bp_stats[1] * bp_stats[1]))
+	#print bp_stats
+	for bp_ in bp_cluster:
+		if bp_[1] <= bp_stats[0] + 3 * bp_stats[2] and bp_[1] >= bp_stats[0] - 3 * bp_stats[2] and \
+			bp_[4] <= bp_stats[1] + 3 * bp_stats[3] and bp_[4] >= bp_stats[1] - 3 * bp_stats[3]:
+			if (bp_[2] == '+' and bp_[1] > bp[1]) or (bp_[2] == '-' and bp_[1] < bp[1]):
+				bp[1] = bp_[1]
+			if (bp_[5] == '+' and bp_[4] > bp[4]) or (bp_[5] == '-' and bp_[4] < bp[4]):
+				bp[4] = bp_[4]
 	for bp_ in bp_cluster:
 		if bp_match(bp_, bp, bp_[-1] * 1.2, bp_distance_cutoff):
 			bpr.append(bp_[-2])
@@ -208,6 +227,8 @@ class bam_to_breakpoint_nanopore():
 	max_interval_cutoff = 2000000
 	min_cluster_cutoff = 3
 	max_breakpoint_cutoff = 2000
+	small_del_cutoff = 10000
+	min_bp_len = 10000
 
 	read_length = dict()
 	chimeric_alignments = dict()
@@ -228,6 +249,7 @@ class bam_to_breakpoint_nanopore():
 	"""
 	discordant_edges_pos = dict()
 	discordant_edges = []
+	small_del_indices = []
 	discordant_edges_reads = set([]) # For later use
 	concordant_edges = []
 	source_edges = []
@@ -287,6 +309,12 @@ class bam_to_breakpoint_nanopore():
 						self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))][1] = 1
 					self.discordant_edges.append([t0_[0], int(t0_[1][:-1]), t0_[1][-1], t1_[0], int(t1_[1][:-1]), t1_[1][-1],
 									int(s[3]), 0, s[-2], s[-1]])
+					if t0_[0] == t1_[0] and t0_[1][-1] == '-' and t1_[1][-1] == '+' and \
+						abs(int(t0_[1][:-1]) - int(t1_[1][:-1])) < self.small_del_cutoff:
+						#print [t0_[0], int(t0_[1][:-1]), t0_[1][-1], t1_[0], int(t1_[1][:-1]), t1_[1][-1],
+						#			int(s[3]), 0, s[-2], s[-1]]
+						self.small_del_indices.append(len(self.discordant_edges) - 1)
+						self.min_bp_len = min(self.min_bp_len, abs(int(t0_[1][:-1]) - int(t1_[1][:-1])) - 2 * self.min_bp_distance_cutoff)
 				if s[0] == 'concordant':
 					#print s
 					t = s[1].split('->')
@@ -303,6 +331,8 @@ class bam_to_breakpoint_nanopore():
 					#print t0_, t1_
 					assert t0_[1][:-1] == '-1'
 					self.source_edges.append(['source', -1, '-', t1_[0], int(t1_[1][:-1]), t1_[1][-1], s[-2], s[-1]])
+		self.min_bp_len = max(100, self.min_bp_len)
+		#print self.min_bp_len
 		#print self.aa_segs_list, self.discordant_edges
 		#print self.min_sequence_size
 		#print self.discordant_edges_pos
@@ -313,6 +343,16 @@ class bam_to_breakpoint_nanopore():
 
 	def fetch(self):
 		start_time = time.time()
+		for ai in self.amplicon_intervals:
+			for read in self.lr_bamfh.fetch(ai[0], ai[1], ai[2] + 1):
+				rn = read.query_name
+				blocks = read.get_blocks()
+				for bi in range(len(blocks) - 1):
+					if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_bp_len:
+						try:
+							self.large_indel_alignments[rn].append([ai[0], blocks[bi + 1][0], blocks[bi][1]])
+						except:
+							self.large_indel_alignments[rn] = [[ai[0], blocks[bi + 1][0], blocks[bi][1]]]
 		for read in self.lr_bamfh.fetch():
 			rn = read.query_name
 			if read.flag < 256 and rn not in self.read_length:
@@ -378,6 +418,7 @@ class bam_to_breakpoint_nanopore():
 	
 	
 	def find_breakpoints(self):
+		start_time = time.time()
 		new_bp_list = []
 		#new_bp_clusters = dict()
 		for r in self.chimeric_alignments.keys():
@@ -438,14 +479,14 @@ class bam_to_breakpoint_nanopore():
 						if bp_match([rr_int[i - 1][0], rr_int[i - 1][2], rr_int[i - 1][3], rr_int[i + 1][0], 
 								rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]]], d, 
 								int(r_int[i + 1][0]) - int(r_int[i - 1][1]), self.min_bp_distance_cutoff):
-							self.discordant_edges_rc[di] += 1
+							self.discordant_edges[di][7] += 1
 							self.discordant_edges_reads.add(r)
 							overlap_i = 1
 							#print 'F1', r, new_bp_list[-1], r_int[i - 1], r_int[i+1], rr_int[i - 1], rr_int[i + 1], q_[i - 1], q_[i + 1], abs(gr - grr)
 						elif bp_match([rr_int[i + 1][0], rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]], 
 								rr_int[i - 1][0], rr_int[i - 1][2], rr_int[i - 1][3]], d, 
 								int(r_int[i + 1][0]) - int(r_int[i - 1][1]), self.min_bp_distance_cutoff):
-							self.discordant_edges_rc[di] += 1
+							self.discordant_edges[di][7] += 1
 							self.discordant_edges_reads.add(r)
 							overlap_i = 1
 							#print 'F1', r, new_bp_list[-1], r_int[i - 1], r_int[i+1], rr_int[i - 1], rr_int[i + 1], q_[i - 1], q_[i + 1], abs(gr - grr)
@@ -482,16 +523,66 @@ class bam_to_breakpoint_nanopore():
 					new_bp_clusters[-1].append(bp)
 				else:
 					new_bp_clusters.append([bp])
-		print '---'
+		print 'New breakpoints ---'
 		for c in new_bp_clusters:
 			if len(c) >= 3:
 				bp, bpr = bpc2bp(c, self.min_bp_distance_cutoff)
 				if len(set(bpr)) >= 3:
 					print bp, len(set(bpr))
 					self.new_bp_list_.append(bp + [len(set(bpr))])
+		print("--- %s seconds ---" % (time.time() - start_time))
+
+
+
+	def find_smalldel_breakpoints(self):
+		start_time = time.time()
+		new_bp_list = []
+		for r in self.large_indel_alignments.keys():
+			for rr_gap in self.large_indel_alignments[r]:
+				overlap_ = 0
+				rr_gap_ = rr_gap
+				if rr_gap[2] > rr_gap[1]:
+					rr_gap_[2] = rr_gap[1]
+					rr_gap_[1] = rr_gap[2]
+				for di in range(len(self.discordant_edges)):
+					d = self.discordant_edges[di]
+					if bp_match([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+'], d, 0, \
+							self.min_bp_distance_cutoff):
+						self.discordant_edges[di][7] += 1
+						self.discordant_edges_reads.add(r)
+						overlap_ = 1
+				if overlap_ == 0:
+					new_bp_list.append([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+', r, 0])
+		#print new_bp_list
+		new_bp_clusters = []
+		new_bp_list.sort(key = lambda item: (chr_idx[item[0]], chr_idx[item[3]], item[1], item[4]))
+		#print new_bp_list
+		for bpi in range(len(new_bp_list)):
+			if bpi == 0:
+				new_bp_clusters.append([new_bp_list[bpi]])
+				continue
+			else:
+				bp = new_bp_list[bpi]
+				lbp = new_bp_list[bpi - 1]
+				if bp[0] == lbp[0] and bp[3] == lbp[3] and bp[2] == lbp[2] and bp[5] == lbp[5] and abs(int(bp[1]) - int(lbp[1])) < 2000 and abs(int(bp[4]) - int(lbp[4])) < 2000:
+					new_bp_clusters[-1].append(bp)
+				else:
+					new_bp_clusters.append([bp])
+		print 'New breakpoints ---'
+		#print new_bp_clusters
+		for c in new_bp_clusters:
+			if len(c) >= 3:
+				bp, bpr = bpc2bp(c, self.min_bp_distance_cutoff)
+				#print bp, bpr
+				if len(set(bpr)) >= 3:
+					print bp, len(set(bpr))
+					self.new_bp_list_.append(bp + [len(set(bpr))])	
+		print("--- %s seconds ---" % (time.time() - start_time))
+
 
 
 	def split_seg_bp(self):
+		start_time = time.time()
 		split_seg = dict()
 		for bpi in range(len(self.new_bp_list_)):
 			bp = self.new_bp_list_[bpi]
@@ -595,16 +686,22 @@ class bam_to_breakpoint_nanopore():
 			del self.aa_segs_list[segi]
 			for nsi in range(len(new_segs[segi])):
 				self.aa_segs_list.insert(segi + nsi, new_segs[segi][nsi])
+		print("--- %s seconds ---" % (time.time() - start_time))
+
 
 
 	def assign_cov_sequence(self):
+		start_time = time.time()
 		for seg in self.aa_segs_list:
+			#print seg
 			if seg[3] == -1:
 				seg[3] = sum([sum(nc) for nc in self.sr_bamfh.count_coverage(seg[0], seg[1], seg[2] + 1)]) \
 						/ max(1.0, float(seg[2] - seg[1] + 1))
 			if seg[4] == -1:
 				seg[4] = sum([sum(nc) for nc in self.lr_bamfh.count_coverage(seg[0], seg[1], seg[2] + 1)]) \
 						/ max(1.0, float(seg[2] - seg[1] + 1))
+		print("assign_cov --- %s seconds ---" % (time.time() - start_time))
+
 
 
 	def output_breakpoint_graph(self, ogfile):
@@ -651,6 +748,7 @@ if __name__ == '__main__':
 	b2bn.read_graph(args.aa_graph)
 	
 	b2bn.fetch()
+	b2bn.find_smalldel_breakpoints()
 	b2bn.find_breakpoints()
 	b2bn.split_seg_bp()
 	b2bn.assign_cov_sequence()
@@ -658,5 +756,3 @@ if __name__ == '__main__':
 	b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
 	b2bn.closebam()
 	
-
-
