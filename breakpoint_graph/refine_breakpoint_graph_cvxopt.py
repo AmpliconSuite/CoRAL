@@ -271,17 +271,18 @@ class bam_to_breakpoint_nanopore():
 	small_del_cutoff = 10000 # +- breakpoints (small deletions) with the two ends less than this cutoff are treated specially
 	min_del_len = 10000 # The minimum length of all +- (deletion) breakpoints returned by AA  
 
-	read_length = dict() # Hash read name -> read length
-	chimeric_alignments = dict() # Hash read name -> chimeric alignments (two or more records for one read)
+	read_length = dict() # Map read name -> read length
+	chimeric_alignments = dict() # Map read name -> chimeric alignments (two or more records for one read)
 	#large_clip_alignments = dict()
-	large_indel_alignments = dict() # Hash read name -> alignments with one record per read but large indels showing in CIGAR string
+	large_indel_alignments = dict() # Map read name -> alignments with one record per read but large indels showing in CIGAR string
 	#chimeric_alignments_bin = dict()
 	
 	amplicon_intervals = [] # AA amplicon intervals
 	aa_segs_list = [] # AA sequence edges
-	aa_segs_dict = dict() # Hash sequence edge ends -> AA sequence edges
+	aa_segs_dict = dict() # Map sequence edge ends -> AA sequence edges
 	discordant_edges = [] # AA discordant edges
 	concordant_edges = [] # AA concordant edges
+	interval_end_discordant_edges = dict() # Map the amplicon interval end position -> (Indices of) discordant edges connected to the end of an amplicon interval
 	"""
 	discordant_edges_pos: For each concordant edge, which side has a discordant edge
 	[[], []] = No discordant edges, i.e., CN boundary breakpoint
@@ -468,12 +469,24 @@ class bam_to_breakpoint_nanopore():
 					t0_ = t[0].split(':')
 					t1_ = t[1].split(':')
 					if t0_[1][-1] == '+':
-						self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1)][0].append(len(self.discordant_edges))
+						if (t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1) not in self.discordant_edges_pos:
+							self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1)] = [[], []]
+							self.interval_end_discordant_edges[int(t0_[1][:-1])] = len(self.discordant_edges)
+						self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1)][0].append(len(self.discordant_edges))	
 					else:
+						if (t0_[0], int(t0_[1][:-1]) - 1, int(t0_[1][:-1])) not in self.discordant_edges_pos:
+							self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]) - 1, int(t0_[1][:-1]))] = [[], []]
+							self.interval_end_discordant_edges[int(t0_[1][:-1])] = len(self.discordant_edges)
 						self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]) - 1, int(t0_[1][:-1]))][1].append(len(self.discordant_edges))
 					if t1_[1][-1] == '+':
+						if (t1_[0], int(t1_[1][:-1]), int(t1_[1][:-1]) + 1) not in self.discordant_edges_pos:
+							self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]), int(t1_[1][:-1]) + 1)] = [[], []]
+							self.interval_end_discordant_edges[int(t1_[1][:-1])] = len(self.discordant_edges)
 						self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]), int(t1_[1][:-1]) + 1)][0].append(len(self.discordant_edges))
 					else:
+						if (t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1])) not in self.discordant_edges_pos:
+							self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))] = [[], []]
+							self.interval_end_discordant_edges[int(t1_[1][:-1])] = len(self.discordant_edges)
 						self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))][1].append(len(self.discordant_edges))
 					self.discordant_edges.append([t0_[0], int(t0_[1][:-1]), t0_[1][-1], t1_[0], int(t1_[1][:-1]), t1_[1][-1],
 									[float(s[2]), int(s[3])], 0, s[-2], s[-1], set([])])
@@ -611,18 +624,6 @@ class bam_to_breakpoint_nanopore():
 			rr_int = [rr_int[i] for i in r_int_ind]
 			q_ = [q_[i] for i in r_int_ind]
 			self.chimeric_alignments[r] = [r_int, rr_int, q_]
-			"""
-			if r == 'SRR12880625.55938':
-				print self.chimeric_alignments[r]
-			if r == 'SRR12880625.38298':
-				print self.chimeric_alignments[r]
-			"""
-			"""
-			if r == 'SRR12880625.73057':
-				print self.chimeric_alignments[r]
-			if r == 'SRR12880625.4268':
-				print self.chimeric_alignments[r]
-			"""
 		print("--- %s seconds ---" % (time.time() - start_time))
 
 
