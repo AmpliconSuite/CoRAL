@@ -343,37 +343,38 @@ class bam_to_breakpoint_nanopore():
 			if len(log2_cn_order) % 2 == 0:
 				ip = len(log2_cn_order) // 2
 				im = len(log2_cn_order) // 2 - 1
-				cns_intervals_median.append(intervals[log2_cn_order[ip]])
-				cns_intervals_median.append(intervals[log2_cn_order[im]])
-				total_int_len += (intervals[log2_cn_order[ip]][2] - intervals[log2_cn_order[ip]][1] + 1)
-				total_int_len += (intervals[log2_cn_order[im]][2] - intervals[log2_cn_order[im]][1] + 1)
+				cns_intervals_median.append(cns_intervals[log2_cn_order[ip]])
+				cns_intervals_median.append(cns_intervals[log2_cn_order[im]])
+				total_int_len += (cns_intervals[log2_cn_order[ip]][2] - cns_intervals[log2_cn_order[ip]][1] + 1)
+				total_int_len += (cns_intervals[log2_cn_order[im]][2] - cns_intervals[log2_cn_order[im]][1] + 1)
 			else:
 				ip = len(log2_cn_order) // 2
 				im = len(log2_cn_order) // 2
-				cns_intervals_median.append(intervals[log2_cn_order[ip]])
-				total_int_len += (intervals[log2_cn_order[ip]][2] - intervals[log2_cn_order[ip]][1] + 1)
-			print (ip, im, total_int_len)
+				cns_intervals_median.append(cns_intervals[log2_cn_order[ip]])
+				total_int_len += (cns_intervals[log2_cn_order[ip]][2] - cns_intervals[log2_cn_order[ip]][1] + 1)
+			#print (ip, im, total_int_len)
 			i = 1
 			while total_int_len < 10000000:
-				cns_intervals_median.append(intervals[log2_cn_order[ip + i]])
-				cns_intervals_median.append(intervals[log2_cn_order[im - i]])
-				total_int_len += (intervals[log2_cn_order[ip + i]][2] - intervals[log2_cn_order[ip + i]][1] + 1)
-				total_int_len += (intervals[log2_cn_order[im - i]][2] - intervals[log2_cn_order[im - i]][1] + 1)
+				cns_intervals_median.append(cns_intervals[log2_cn_order[ip + i]])
+				cns_intervals_median.append(cns_intervals[log2_cn_order[im - i]])
+				total_int_len += (cns_intervals[log2_cn_order[ip + i]][2] - cns_intervals[log2_cn_order[ip + i]][1] + 1)
+				total_int_len += (cns_intervals[log2_cn_order[im - i]][2] - cns_intervals[log2_cn_order[im - i]][1] + 1)
 				i += 1
-			print (i, total_int_len)
-			print (len(cns_intervals_median))
+			#print (i, total_int_len)
+			#print (len(cns_intervals_median))
 			#print np.average(log2_cn_median)
 			
 			if cns == sr_cns:
 				nnc = 0
-				for i in range(len(intervals_median)):
-					nnc += sum([sum(nc) for nc in sr_bamfh.count_coverage(intervals_median[i][0], intervals_median[i][1], intervals_median[i][2] + 1)])
+				for i in range(len(cns_intervals_median)):
+					nnc += sum([sum(nc) for nc in self.sr_bamfh.count_coverage(cns_intervals_median[i][0], cns_intervals_median[i][1], cns_intervals_median[i][2] + 1)])
 				self.normal_cov_sr = nnc * 1.0 / total_int_len
 			else:
 				nnc = 0
-				for i in range(len(intervals_median)):
-					nnc += sum([sum(nc) for nc in lr_bamfh.count_coverage(intervals_median[i][0], intervals_median[i][1], intervals_median[i][2] + 1)])
+				for i in range(len(cns_intervals_median)):
+					nnc += sum([sum(nc) for nc in self.lr_bamfh.count_coverage(cns_intervals_median[i][0], cns_intervals_median[i][1], cns_intervals_median[i][2] + 1)])
 				self.normal_cov_lr = nnc * 1.0 / total_int_len
+		print (self.normal_cov_sr, self.normal_cov_lr)
 
 	
 	def nextminus(self, chr, pos):
@@ -931,11 +932,17 @@ class bam_to_breakpoint_nanopore():
 					max_seg = len_rl_list
 					avg_rl = np.average(rl_list)
 			if seg[4] == -1:
+				# TODO: Improve long read likelihood without read length 
+				#print (self.lr_bamfh.count(seg[0], seg[1], seg[2] + 1))
 				rl_list = [read.infer_read_length() for read in self.lr_bamfh.fetch(seg[0], seg[1], seg[2] + 1)]
 				seg[4] = len(rl_list)
 				seg[5] = np.average(rl_list)
 		if self.sr_length == 0.0:
-			print (avg_rl)
+			print ()
+			if avg_rl == 0.0:
+				seg = self.aa_segs_list[0]
+				rl_list = [read.infer_read_length() for read in self.sr_bamfh.fetch(seg[0], seg[1], seg[2] + 1) if read.infer_read_length()]
+				avg_rl = np.average(rl_list) 
 			self.sr_length = avg_rl
 		print("assign_cov --- %s seconds ---" % (time.time() - start_time))
 
@@ -1026,6 +1033,7 @@ class bam_to_breakpoint_nanopore():
 		nodes = dict()
 		for segi in range(lseg):
 			sseg = self.aa_segs_list[segi]
+			#print (sseg)
 			nodes[(sseg[0], sseg[1])] = [[segi], [], [], []] # sequence edges, breakpoint edges
 			nodes[(sseg[0], sseg[2])] = [[segi], [], [], []]
 			if segi == 0:
@@ -1161,10 +1169,13 @@ class bam_to_breakpoint_nanopore():
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description = "Examine ")
-	parser.add_argument("--sr_bam", help = "Sorted indexed bam file.", required = True)
-	parser.add_argument("--lr_bam", help = "Sorted indexed bam file.", required = True)
+	parser.add_argument("--sr_bam", help = "Sorted indexed short read bam file.", required = True)
+	parser.add_argument("--lr_bam", help = "Sorted indexed long read bam file.", required = True)
 	parser.add_argument("--aa_graph", help = "AA-formatted graph file.", required = True)
 	parser.add_argument("--aa_cycle", help = "AA-formatted cycle file.", required = True)
+	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.",  action = 'store_true')
+	parser.add_argument("--sr_cnseg", help = "Short read *.cns file.")
+	parser.add_argument("--lr_cnseg", help = "Long read *.cns file.")
 	args = parser.parse_args()
 
 	b2bn = bam_to_breakpoint_nanopore(args.sr_bam, args.lr_bam, args.aa_cycle)
@@ -1175,12 +1186,18 @@ if __name__ == '__main__':
 	b2bn.find_smalldel_breakpoints()
 	b2bn.find_breakpoints()
 	b2bn.split_seg_bp()
-	#b2bn.assign_cov_sequence()
-	#b2bn.assign_cn()
-
-	#b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
-	b2bn.output_breakpoint_info(args.aa_graph.split('/')[-1][:-9] + 'breakpoints.tsv')
-	b2bn.closebam()
+	if args.output_bp:
+		b2bn.output_breakpoint_info(args.aa_graph.split('/')[-1][:-9] + 'breakpoints.tsv')
+		b2bn.closebam()
+	else:
+		if args.sr_cnseg is None or args.sr_cnseg is None:
+			print("Please specify the copy number segment files.")
+			os.abort()
+		b2bn.assign_cov_sequence()
+		b2bn.read_cns(args.sr_cnseg, args.lr_cnseg)
+		b2bn.assign_cn()
+		b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
+		b2bn.closebam()
 	
 
 
