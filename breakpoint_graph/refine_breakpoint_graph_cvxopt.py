@@ -259,19 +259,56 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
 	return bp, bpr, bp_stats_
 
 
-class bam_to_breakpoint_nanopore():
+def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
+	"""
+	Clustering the breakpoints in bp_list
+	"""
+	bp_dict = dict()
+	for bpi in range(len(bp_list)):
+		bp = bp_list[bpi]
+		try:
+			bp_dict[(bp[0], bp[3], bp[2], bp[5])].append(bpi)
+		except:
+			bp_dict[(bp[0], bp[3], bp[2], bp[5])] = [bpi]
+	
+	bp_clusters = []
+	for bp_chr_or in bp_dict.keys():
+		if len(bp_dict[bp_chr_or]) >= min_cluster_size:
+			bp_clusters_ = []
+			for bpi in bp_dict[bp_chr_or]:
+				bp = bp_list[bpi]
+				bpcim = -1
+				for bpci in range(len(bp_clusters_)):
+					for lbp in bp_clusters_[bpci]:
+						if abs(int(bp[1]) - int(lbp[1])) < bp_distance_cutoff and \
+							abs(int(bp[4]) - int(lbp[4])) < bp_distance_cutoff:
+							bpcim = bpci
+							break
+					if bpcim > 0:
+						break
+				if bpcim > 0:
+					bp_clusters_[bpcim].append(bp)
+				else:
+					bp_clusters_.append([bp])
+			bp_clusters += bp_clusters_
+		else:
+			bp_clusters.append([bp_list[bpi] for bpi in bp_dict[bp_chr_or]])
+	return bp_clusters
+
+
+class bam_to_breakpoint_hybrid():
 
 	sr_bamfh = "" # Short read bam file
 	lr_bamfh = "" # Long read bam file
 
-	min_bp_distance_cutoff_ = 100 # Breakpoint matching cutoffs
-	min_bp_distance_cutoff = [] # Each breakpoint has a unique matching cutoff
+	min_bp_match_cutoff_ = 100 # Breakpoint matching cutoffs
+	min_bp_match_cutoff = [] # Each breakpoint has a unique matching cutoff
 	"""
 	min_clip_cutoff = 1000 # Not in use for now
 	max_interval_cutoff = 2000000 # Not in use for now
 	"""
 	min_cluster_cutoff = 3 # Hard cutoff for considering a long read breakpoint cluster
-	max_breakpoint_distance_cutoff = 2000 # Used for breakpoint clustering - if the distance of two breakpoint positions are greater than this cutoff, then start a new cluster 
+	max_bp_distance_cutoff = 2000 # Used for breakpoint clustering - if the distance of two breakpoint positions are greater than this cutoff, then start a new cluster 
 	small_del_cutoff = 10000 # +- breakpoints (small deletions) with the two ends less than this cutoff are treated specially
 	min_del_len = 10000 # The minimum length of all +- (deletion) breakpoints returned by AA  
 
@@ -388,7 +425,7 @@ class bam_to_breakpoint_nanopore():
 			if pos_ != pos and (chr, pos_ - 1, pos_) in self.discordant_edges_pos and \
 				len(self.discordant_edges_pos[(chr, pos_ - 1, pos_)][1]) > 0:
 				break
-			if cr >= self.min_bp_distance_cutoff_:
+			if cr >= self.min_bp_match_cutoff_:
 				break
 			seglen = self.aa_segs_list[self.aa_segs_dict[(chr, pos_)]][-1]
 			cr = max(cr, 0) + seglen
@@ -407,7 +444,7 @@ class bam_to_breakpoint_nanopore():
 			if pos_ != pos and (chr, pos_ - 1, pos_) in self.discordant_edges_pos and \
 				len(self.discordant_edges_pos[(chr, pos_ - 1, pos_)][1]) > 0:
 				break
-			if cl >= self.min_bp_distance_cutoff_:
+			if cl >= self.min_bp_match_cutoff_:
 				break
 			seglen = self.aa_segs_list[self.aa_segs_dict[(chr, pos_ - 1)]][-1]
 			cl = max(cl, 0) + seglen
@@ -426,7 +463,7 @@ class bam_to_breakpoint_nanopore():
 			if pos_ != pos and (chr, pos_, pos_ + 1) in self.discordant_edges_pos and \
 				len(self.discordant_edges_pos[(chr, pos_, pos_ + 1)][0]) > 0:
 				break
-			if cr >= self.min_bp_distance_cutoff_:
+			if cr >= self.min_bp_match_cutoff_:
 				break
 			seglen = self.aa_segs_list[self.aa_segs_dict[(chr, pos_ + 1)]][-1]
 			#print ('slnp', seglen)
@@ -446,7 +483,7 @@ class bam_to_breakpoint_nanopore():
 			if pos_ != pos and (chr, pos_, pos_ + 1) in self.discordant_edges_pos and \
 				len(self.discordant_edges_pos[(chr, pos_, pos_ + 1)][0]) > 0:
 				break
-			if cl >= self.min_bp_distance_cutoff_:
+			if cl >= self.min_bp_match_cutoff_:
 				break
 			seglen = self.aa_segs_list[self.aa_segs_dict[(chr, pos_)]][-1]
 			#print ('sllp', seglen)
@@ -498,7 +535,7 @@ class bam_to_breakpoint_nanopore():
 					if t0_[0] == t1_[0] and t0_[1][-1] == '-' and t1_[1][-1] == '+' and \
 						abs(int(t0_[1][:-1]) - int(t1_[1][:-1])) < self.small_del_cutoff:
 						self.small_del_indices.append(len(self.discordant_edges) - 1)
-						self.min_del_len = min(self.min_del_len, abs(int(t0_[1][:-1]) - int(t1_[1][:-1])) - 2 * self.min_bp_distance_cutoff_)
+						self.min_del_len = min(self.min_del_len, abs(int(t0_[1][:-1]) - int(t1_[1][:-1])) - 2 * self.min_bp_match_cutoff_)
 				if s[0] == 'concordant':
 					t = s[1].split('->')
 					t0_ = t[0].split(':')
@@ -529,7 +566,7 @@ class bam_to_breakpoint_nanopore():
 			else:
 				c2r = self.nextplus(d[3], d[4])
 				c2l = self.lastplus(d[3], d[4])
-			c1, c2 = self.min_bp_distance_cutoff_, self.min_bp_distance_cutoff_
+			c1, c2 = self.min_bp_match_cutoff_, self.min_bp_match_cutoff_
 			#print (c1l, c1r, c2l, c2r)
 			if c1l >= 0:
 				c1 = min(c1, c1l // 2 + 1)
@@ -539,8 +576,8 @@ class bam_to_breakpoint_nanopore():
 				c2 = min(c2, c2l // 2 + 1)
 			if c2r >= 0:
 				c2 = min(c2, c2r // 2 + 1) 
-			self.min_bp_distance_cutoff.append([c1, c2])
-		print (self.min_bp_distance_cutoff)
+			self.min_bp_match_cutoff.append([c1, c2])
+		print (self.min_bp_match_cutoff)
 		self.min_del_len = max(200, self.min_del_len)
 
 
@@ -627,14 +664,14 @@ class bam_to_breakpoint_nanopore():
 					d = self.discordant_edges[di]
 					if bp_match([rr_int[i][0], rr_int[i][2], rr_int[i][3], rr_int[i + 1][0], 
 							rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]]], d, 
-							int(r_int[i + 1][0]) - int(r_int[i][1]), self.min_bp_distance_cutoff[di]):
+							int(r_int[i + 1][0]) - int(r_int[i][1]), self.min_bp_match_cutoff[di]):
 						self.discordant_edges[di][7] += 1
 						self.discordant_edges[di][-1].add(r)
 						overlap_i = 1
 						bassigned[i] = 1
 					elif bp_match([rr_int[i + 1][0], rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]], 
 							rr_int[i][0], rr_int[i][2], rr_int[i][3]], d, 
-							int(r_int[i + 1][0]) - int(r_int[i][1]), self.min_bp_distance_cutoff[di]):
+							int(r_int[i + 1][0]) - int(r_int[i][1]), self.min_bp_match_cutoff[di]):
 						self.discordant_edges[di][7] += 1
 						self.discordant_edges[di][-1].add(r)
 						overlap_i = 1
@@ -674,13 +711,13 @@ class bam_to_breakpoint_nanopore():
 						d = self.discordant_edges[di]
 						if bp_match([rr_int[i - 1][0], rr_int[i - 1][2], rr_int[i - 1][3], rr_int[i + 1][0], 
 								rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]]], d, 
-								int(r_int[i + 1][0]) - int(r_int[i - 1][1]), self.min_bp_distance_cutoff[di]):
+								int(r_int[i + 1][0]) - int(r_int[i - 1][1]), self.min_bp_match_cutoff[di]):
 							self.discordant_edges[di][7] += 1
 							self.discordant_edges[di][-1].add(r)
 							overlap_i = 1
 						elif bp_match([rr_int[i + 1][0], rr_int[i + 1][1], neg_plus_minus[rr_int[i + 1][3]], 
 								rr_int[i - 1][0], rr_int[i - 1][2], rr_int[i - 1][3]], d, 
-								int(r_int[i + 1][0]) - int(r_int[i - 1][1]), self.min_bp_distance_cutoff[di]):
+								int(r_int[i + 1][0]) - int(r_int[i - 1][1]), self.min_bp_match_cutoff[di]):
 							self.discordant_edges[di][7] += 1
 							self.discordant_edges[di][-1].add(r)
 							overlap_i = 1
@@ -702,28 +739,14 @@ class bam_to_breakpoint_nanopore():
 						if abs(gr - grr) > max(100, abs(gr * 0.2)):
 							new_bp_list.append(interval2bp(rr_int[i - 1], rr_int[i + 1], r, int(r_int[i + 1][0]) - int(r_int[i - 1][1])) + [q_[i - 1], q_[i + 1]])
 				
-		"""
-		Clustering the breakpoints in new_bp_list
-		"""
-		new_bp_clusters = []
-		new_bp_list.sort(key = lambda item: (chr_idx[item[0]], chr_idx[item[3]], item[1], item[4]))
-		for bpi in range(len(new_bp_list)):
-			if bpi == 0:
-				new_bp_clusters.append([new_bp_list[bpi]])
-				continue
-			else:
-				bp = new_bp_list[bpi]
-				lbp = new_bp_list[bpi - 1]
-				if bp[0] == lbp[0] and bp[3] == lbp[3] and bp[2] == lbp[2] and bp[5] == lbp[5] and abs(int(bp[1]) - int(lbp[1])) < self.max_breakpoint_distance_cutoff and abs(int(bp[4]) - int(lbp[4])) < self.max_breakpoint_distance_cutoff:
-					new_bp_clusters[-1].append(bp)
-				else:
-					new_bp_clusters.append([bp])
+		new_bp_clusters = cluster_bp_list(new_bp_list, self.min_cluster_cutoff, self.max_bp_distance_cutoff)
 		print ('New breakpoints ---')
 		for c in new_bp_clusters:
 			if len(c) >= self.min_cluster_cutoff:
-				bp, bpr, bp_stats_ = bpc2bp(c, self.min_bp_distance_cutoff_)
+				bp, bpr, bp_stats_ = bpc2bp(c, self.min_bp_match_cutoff_)
 				if len(set(bpr)) >= self.min_cluster_cutoff:
 					print (bp, len(set(bpr)))
+					print (c)
 					if interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals) > 0 and \
 						interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals) > 0:
 						self.new_bp_list_.append(bp[:-3] + [set(bpr)])
@@ -748,29 +771,17 @@ class bam_to_breakpoint_nanopore():
 				for di in range(len(self.discordant_edges)):
 					d = self.discordant_edges[di]
 					if bp_match([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+'], d, 0, \
-							self.min_bp_distance_cutoff[di]):
+							self.min_bp_match_cutoff[di]):
 						self.discordant_edges[di][7] += 1
 						self.discordant_edges[di][-1].add(r)
 						overlap_ = 1
 				if overlap_ == 0:
 					new_bp_list.append([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+', r, 0, 0, -1, -1])
-		new_bp_clusters = []
-		new_bp_list.sort(key = lambda item: (chr_idx[item[0]], chr_idx[item[3]], item[1], item[4]))
-		for bpi in range(len(new_bp_list)):
-			if bpi == 0:
-				new_bp_clusters.append([new_bp_list[bpi]])
-				continue
-			else:
-				bp = new_bp_list[bpi]
-				lbp = new_bp_list[bpi - 1]
-				if bp[0] == lbp[0] and bp[3] == lbp[3] and bp[2] == lbp[2] and bp[5] == lbp[5] and abs(int(bp[1]) - int(lbp[1])) < self.max_breakpoint_distance_cutoff and abs(int(bp[4]) - int(lbp[4])) < self.max_breakpoint_distance_cutoff:
-					new_bp_clusters[-1].append(bp)
-				else:
-					new_bp_clusters.append([bp])
-		print ('New breakpoints ---')
+
+		new_bp_clusters = cluster_bp_list(new_bp_list, self.min_cluster_cutoff, self.max_bp_distance_cutoff)
 		for c in new_bp_clusters:
 			if len(c) >= self.min_cluster_cutoff:
-				bp, bpr, bp_stats_ = bpc2bp(c, self.min_bp_distance_cutoff_)
+				bp, bpr, bp_stats_ = bpc2bp(c, self.min_bp_match_cutoff_)
 				#print bp, bpr
 				if len(set(bpr)) >= self.min_cluster_cutoff:
 					print (bp, len(set(bpr)))
@@ -800,39 +811,39 @@ class bam_to_breakpoint_nanopore():
 					pass
 				if bp[0] == seg[0]:
 					if bp[2] == '+':
-						if seg[2] - self.min_bp_distance_cutoff_ < bp[1] <= seg[2]:
+						if seg[2] - self.min_bp_match_cutoff_ < bp[1] <= seg[2]:
 							self.new_bp_list_[bpi][1] = seg[2]
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][0].append(len(self.discordant_edges) + bpi)
 							nsplit[0] = 0
-						elif seg[2] < bp[1] < seg[2] + self.min_bp_distance_cutoff_ and em == 0:
+						elif seg[2] < bp[1] < seg[2] + self.min_bp_match_cutoff_ and em == 0:
 							self.new_bp_list_[bpi][1] = seg[2]
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][0].append(len(self.discordant_edges) + bpi)
 							nsplit[0] = 0
 					if bp[2] == '-':
-						if seg[2] < bp[1] <= seg[2] + self.min_bp_distance_cutoff_ and ep + em >= 0:
+						if seg[2] < bp[1] <= seg[2] + self.min_bp_match_cutoff_ and ep + em >= 0:
 							self.new_bp_list_[bpi][1] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[0] = 0
-						elif seg[2] - self.min_bp_distance_cutoff_ < bp[1] < seg[2] and ep == 0:
+						elif seg[2] - self.min_bp_match_cutoff_ < bp[1] < seg[2] and ep == 0:
 							self.new_bp_list_[bpi][1] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[0] = 0
 				if bp[3] == seg[0]:
 					if bp[5] == '+':
-						if seg[2] - self.min_bp_distance_cutoff_ < bp[4] <= seg[2]:
+						if seg[2] - self.min_bp_match_cutoff_ < bp[4] <= seg[2]:
 							self.new_bp_list_[bpi][4] = seg[2]
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][0].append(len(self.discordant_edges) + bpi)
 							nsplit[1] = 0
-						elif seg[2] < bp[4] < seg[2] + self.min_bp_distance_cutoff_ and em == 0:
+						elif seg[2] < bp[4] < seg[2] + self.min_bp_match_cutoff_ and em == 0:
 							self.new_bp_list_[bpi][4] = seg[2]
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][0].append(len(self.discordant_edges) + bpi)
 							nsplit[1] = 0
 					if bp[5] == '-':
-						if seg[2] < bp[4] <= seg[2] + self.min_bp_distance_cutoff_ and ep + em >= 0:
+						if seg[2] < bp[4] <= seg[2] + self.min_bp_match_cutoff_ and ep + em >= 0:
 							self.new_bp_list_[bpi][4] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[1] = 0
-						elif seg[2] - self.min_bp_distance_cutoff_ < bp[4] < seg[2] and ep == 0:
+						elif seg[2] - self.min_bp_match_cutoff_ < bp[4] < seg[2] and ep == 0:
 							self.new_bp_list_[bpi][4] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[1] = 0
@@ -885,7 +896,7 @@ class bam_to_breakpoint_nanopore():
 			del_list = []
 			for ssi in range(len(split_seg[segi])):
 				spp = split_seg[segi][ssi]
-				if ssi > 0 and int(spp[0]) - int(split_seg[segi][lssi][1]) <= self.min_bp_distance_cutoff_ and \
+				if ssi > 0 and int(spp[0]) - int(split_seg[segi][lssi][1]) <= self.min_bp_match_cutoff_ and \
 					spp[3] == split_seg[segi][lssi][3]:
 					if self.new_bp_list_[spp[2]][spp[3] + 1] == '+':
 						self.new_bp_list_[spp[2]][spp[3]] = split_seg[segi][lssi][0]
@@ -1178,7 +1189,7 @@ if __name__ == '__main__':
 	parser.add_argument("--lr_cnseg", help = "Long read *.cns file.")
 	args = parser.parse_args()
 
-	b2bn = bam_to_breakpoint_nanopore(args.sr_bam, args.lr_bam, args.aa_cycle)
+	b2bn = bam_to_breakpoint_hybrid(args.sr_bam, args.lr_bam, args.aa_cycle)
 	b2bn.read_cycle(args.aa_cycle)
 	b2bn.read_graph(args.aa_graph)
 	
