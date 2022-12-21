@@ -404,14 +404,21 @@ class bam_to_breakpoint_hybrid():
 			if cns == sr_cns:
 				nnc = 0
 				for i in range(len(cns_intervals_median)):
-					nnc += sum([sum(nc) for nc in self.sr_bamfh.count_coverage(cns_intervals_median[i][0], cns_intervals_median[i][1], cns_intervals_median[i][2] + 1)])
+					nnc += sum([sum(nc) for nc in self.sr_bamfh.count_coverage(cns_intervals_median[i][0], \
+												cns_intervals_median[i][1], \
+												cns_intervals_median[i][2] + 1, \
+												quality_threshold = 0, read_callback = 'nofilter')])
 				self.normal_cov_sr = nnc * 1.0 / total_int_len
 			else:
 				nnc = 0
 				for i in range(len(cns_intervals_median)):
-					nnc += sum([sum(nc) for nc in self.lr_bamfh.count_coverage(cns_intervals_median[i][0], cns_intervals_median[i][1], cns_intervals_median[i][2] + 1)])
+					nnc += sum([sum(nc) for nc in self.lr_bamfh.count_coverage(cns_intervals_median[i][0], \
+												cns_intervals_median[i][1], \
+												cns_intervals_median[i][2] + 1, \
+												quality_threshold = 0, read_callback = 'nofilter')])
 				self.normal_cov_lr = nnc * 1.0 / total_int_len
 		print (self.normal_cov_sr, self.normal_cov_lr)
+		self.min_cluster_cutoff = max(self.min_cluster_cutoff, 0.5 * self.normal_cov_lr)
 
 	
 	def nextminus(self, chr, pos):
@@ -577,7 +584,7 @@ class bam_to_breakpoint_hybrid():
 			if c2r >= 0:
 				c2 = min(c2, c2r // 2 + 1) 
 			self.min_bp_match_cutoff.append([c1, c2])
-		print (self.min_bp_match_cutoff)
+		#print (self.min_bp_match_cutoff)
 		self.min_del_len = max(200, self.min_del_len)
 
 
@@ -746,7 +753,7 @@ class bam_to_breakpoint_hybrid():
 				bp, bpr, bp_stats_ = bpc2bp(c, self.min_bp_match_cutoff_)
 				if len(set(bpr)) >= self.min_cluster_cutoff:
 					print (bp, len(set(bpr)))
-					print (c)
+					#print (c)
 					if interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals) > 0 and \
 						interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals) > 0:
 						self.new_bp_list_.append(bp[:-3] + [set(bpr)])
@@ -1194,10 +1201,12 @@ if __name__ == '__main__':
 	b2bn.read_graph(args.aa_graph)
 	
 	b2bn.fetch()
+	if args.sr_cnseg is not None and args.sr_cnseg is not None:
+		b2bn.read_cns(args.sr_cnseg, args.lr_cnseg)
 	b2bn.find_smalldel_breakpoints()
 	b2bn.find_breakpoints()
 	b2bn.split_seg_bp()
-	if args.output_bp:
+	if args.output_bp:	
 		b2bn.output_breakpoint_info(args.aa_graph.split('/')[-1][:-9] + 'breakpoints.tsv')
 		b2bn.closebam()
 	else:
@@ -1205,7 +1214,6 @@ if __name__ == '__main__':
 			print("Please specify the copy number segment files.")
 			os.abort()
 		b2bn.assign_cov_sequence()
-		b2bn.read_cns(args.sr_cnseg, args.lr_cnseg)
 		b2bn.assign_cn()
 		b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
 		b2bn.closebam()
