@@ -320,7 +320,7 @@ class bam_to_breakpoint_hybrid():
 	
 	amplicon_intervals = [] # AA amplicon intervals
 	aa_segs_list = [] # AA sequence edges
-	aa_segs_dict = dict() # Map sequence edge ends -> AA sequence edges
+	aa_segs_dict = dict() # Map nodes (i.e., sequence edge ends) -> AA sequence edges
 	discordant_edges = [] # AA discordant edges
 	concordant_edges = [] # AA concordant edges
 	interval_end_discordant_edges = dict() # Map the amplicon interval end position -> (Indices of) discordant edges connected to the end of an amplicon interval
@@ -686,8 +686,8 @@ class bam_to_breakpoint_hybrid():
 				"""
 				Add unmatched breakpoint to new_bp_list
 				"""
-				if overlap_i == 0 and interval_overlap_l(rr_int[i], self.amplicon_intervals) > 0 and \
-					interval_overlap_l(rr_int[i + 1], self.amplicon_intervals) > 0:
+				if overlap_i == 0 and interval_overlap_l(rr_int[i], self.amplicon_intervals) >= 0 and \
+					interval_overlap_l(rr_int[i + 1], self.amplicon_intervals) >= 0:
 					if rr_int[i + 1][0] != rr_int[i][0] or rr_int[i + 1][3] != rr_int[i][3]:
 						if q_[i] >= 20 and q_[i + 1] >= 20:
 							new_bp_list.append(interval2bp(rr_int[i], rr_int[i + 1], r, int(r_int[i + 1][0]) - int(r_int[i][1])) + [q_[i], q_[i + 1]])
@@ -713,7 +713,7 @@ class bam_to_breakpoint_hybrid():
 				Match the breakpoint to the list of AA breakpoints
 				"""
 				if bassigned[i - 1] == 0 and bassigned[i] == 0 and q_[i] < 10 and q_[i - 1] >= 20 and q_[i + 1] >= 20 and \
-					interval_overlap_l(rr_int[i - 1], self.amplicon_intervals) > 0 and interval_overlap_l(rr_int[i + 1], self.amplicon_intervals) > 0:
+					interval_overlap_l(rr_int[i - 1], self.amplicon_intervals) >= 0 and interval_overlap_l(rr_int[i + 1], self.amplicon_intervals) >= 0:
 					for di in range(len(self.discordant_edges)):
 						d = self.discordant_edges[di]
 						if bp_match([rr_int[i - 1][0], rr_int[i - 1][2], rr_int[i - 1][3], rr_int[i + 1][0], 
@@ -732,7 +732,7 @@ class bam_to_breakpoint_hybrid():
 				Add unmatched breakpoint to new_bp_list
 				"""
 				if overlap_i == 0 and bassigned[i - 1] == 0 and bassigned[i] == 0 and q_[i] < 10 and q_[i - 1] >= 20 and q_[i + 1] >= 20 and \
-					interval_overlap_l(rr_int[i - 1], self.amplicon_intervals) > 0 and interval_overlap_l(rr_int[i + 1], self.amplicon_intervals) > 0:
+					interval_overlap_l(rr_int[i - 1], self.amplicon_intervals) >= 0 and interval_overlap_l(rr_int[i + 1], self.amplicon_intervals) >= 0:
 					if rr_int[i + 1][0] != rr_int[i - 1][0] or rr_int[i + 1][3] != rr_int[i - 1][3]:
 						new_bp_list.append(interval2bp(rr_int[i - 1], rr_int[i + 1], r, int(r_int[i + 1][0]) - int(r_int[i - 1][1])) + [q_[i - 1], q_[i + 1]])
 					elif rr_int[i + 1][3] == '+':
@@ -754,8 +754,8 @@ class bam_to_breakpoint_hybrid():
 				if len(set(bpr)) >= self.min_cluster_cutoff:
 					print (bp, len(set(bpr)))
 					#print (c)
-					if interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals) > 0 and \
-						interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals) > 0:
+					if interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals) >= 0 and \
+						interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals) >= 0:
 						self.new_bp_list_.append(bp[:-3] + [set(bpr)])
 						self.new_bp_stats_.append(bp_stats_)
 		print("--- %s seconds ---" % (time.time() - start_time))
@@ -786,14 +786,16 @@ class bam_to_breakpoint_hybrid():
 					new_bp_list.append([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+', r, 0, 0, -1, -1])
 
 		new_bp_clusters = cluster_bp_list(new_bp_list, self.min_cluster_cutoff, self.max_bp_distance_cutoff)
+		print ('New breakpoints ---')
 		for c in new_bp_clusters:
 			if len(c) >= self.min_cluster_cutoff:
 				bp, bpr, bp_stats_ = bpc2bp(c, self.min_bp_match_cutoff_)
 				#print bp, bpr
 				if len(set(bpr)) >= self.min_cluster_cutoff:
 					print (bp, len(set(bpr)))
-					if interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals) > 0 and \
-						interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals) > 0:
+					#print (self.amplicon_intervals, self.new_bp_list_)
+					if interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals) >= 0 and \
+						interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals) >= 0:
 						self.new_bp_list_.append(bp[:-3] + [set(bpr)])
 						self.new_bp_stats_.append(bp_stats_)	
 		print("--- %s seconds ---" % (time.time() - start_time))
@@ -932,6 +934,21 @@ class bam_to_breakpoint_hybrid():
 				self.concordant_edges.append([new_segs[segi][nsi][0], new_segs[segi][nsi][2], '+', 
 					new_segs[segi][nsi + 1][0], new_segs[segi][nsi + 1][1], '-', -1, -1, 'None', 'None'])
 		print("--- %s seconds ---" % (time.time() - start_time))
+
+
+	def del_sr_bp(self):
+		"""
+		Delete short read breakpoints without long read coverage;
+		Merge the corresponding sequence edges where no breakpoints left at the end after breakpoint edge deletion.
+		"""
+		del_list = [] # The list of short read ONLY breakpoints to be deleted
+		for bpi in range(len(self.discordant_edges)):
+			if self.discordant_edges[bpi][7] == 0 and (self.discordant_edges[bpi][6][0] < 0.5 or self.discordant_edges[bpi][6][1] < 0.5 * self.normal_cov_sr):
+				del_list.append(bpi)
+		print(self.normal_cov_sr, del_list)	
+		#print (bp[6], bp[7])
+		
+	#def merge_seg(self):
 
 
 	def assign_cov_sequence(self):
@@ -1205,18 +1222,19 @@ if __name__ == '__main__':
 		b2bn.read_cns(args.sr_cnseg, args.lr_cnseg)
 	b2bn.find_smalldel_breakpoints()
 	b2bn.find_breakpoints()
-	b2bn.split_seg_bp()
-	if args.output_bp:	
+	b2bn.del_sr_bp()
+	b2bn.split_seg_bp() # Split the sequence edges with strong long read breakpoint(s) in the middle
+	if args.output_bp:
 		b2bn.output_breakpoint_info(args.aa_graph.split('/')[-1][:-9] + 'breakpoints.tsv')
-		b2bn.closebam()
 	else:
 		if args.sr_cnseg is None or args.sr_cnseg is None:
 			print("Please specify the copy number segment files.")
 			os.abort()
+		#b2bn.del_sr_bp()
 		b2bn.assign_cov_sequence()
 		b2bn.assign_cn()
 		b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
-		b2bn.closebam()
+	b2bn.closebam()
 	
 
 
