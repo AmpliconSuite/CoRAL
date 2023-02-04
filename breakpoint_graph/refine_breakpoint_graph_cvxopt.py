@@ -267,23 +267,15 @@ class bam_to_breakpoint_hybrid():
 			log2_cn_order = np.argsort(log2_cn)
 			cns_intervals_median = []
 			log2_cn_median = []
-			ip, im = 0, 0
+			im = int(len(log2_cn_order) / 2.5)
+			ip = im + 1
 			total_int_len = 0
-			if len(log2_cn_order) % 2 == 0:
-				ip = len(log2_cn_order) // 2
-				im = len(log2_cn_order) // 2 - 1
-				cns_intervals_median.append(cns_intervals[log2_cn_order[ip]])
-				cns_intervals_median.append(cns_intervals[log2_cn_order[im]])
-				log2_cn_median.append(log2_cn[log2_cn_order[ip]])
-				log2_cn_median.append(log2_cn[log2_cn_order[im]])
-				total_int_len += (cns_intervals[log2_cn_order[ip]][2] - cns_intervals[log2_cn_order[ip]][1] + 1)
-				total_int_len += (cns_intervals[log2_cn_order[im]][2] - cns_intervals[log2_cn_order[im]][1] + 1)
-			else:
-				ip = len(log2_cn_order) // 2
-				im = len(log2_cn_order) // 2
-				cns_intervals_median.append(cns_intervals[log2_cn_order[ip]])
-				log2_cn_median.append(log2_cn[log2_cn_order[ip]])
-				total_int_len += (cns_intervals[log2_cn_order[ip]][2] - cns_intervals[log2_cn_order[ip]][1] + 1)
+			cns_intervals_median.append(cns_intervals[log2_cn_order[ip]])
+			cns_intervals_median.append(cns_intervals[log2_cn_order[im]])
+			log2_cn_median.append(log2_cn[log2_cn_order[ip]])
+			log2_cn_median.append(log2_cn[log2_cn_order[im]])
+			total_int_len += (cns_intervals[log2_cn_order[ip]][2] - cns_intervals[log2_cn_order[ip]][1] + 1)
+			total_int_len += (cns_intervals[log2_cn_order[im]][2] - cns_intervals[log2_cn_order[im]][1] + 1)
 			i = 1
 			while total_int_len < 10000000:
 				cns_intervals_median.append(cns_intervals[log2_cn_order[ip + i]])
