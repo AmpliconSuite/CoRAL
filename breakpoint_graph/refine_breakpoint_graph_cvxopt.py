@@ -1137,8 +1137,12 @@ class bam_to_breakpoint_hybrid():
 			sseg = self.seq_edges[segi]
 			if len(self.nodes[(sseg[0], sseg[1])][1]) == 0:
 				self.nodes[(sseg[0], sseg[1])][1].append(segi)
+			else:
+				self.nodes[(sseg[0], sseg[1])][1] = [segi]
 			if len(self.nodes[(sseg[0], sseg[2])][1]) == 0:
 				self.nodes[(sseg[0], sseg[2])][1].append(segi)
+			else:
+				self.nodes[(sseg[0], sseg[2])][1] = [segi]
 			if segi == 0:
 				endnodes.append((sseg[0], sseg[1]))
 			else:
@@ -1214,7 +1218,7 @@ class bam_to_breakpoint_hybrid():
 		def F(x = None, z = None):
 			if x is None: 
 				return 0, cvxopt.matrix(1.0, (nvariables, 1))
-			if min(x) <= 0.0001: 
+			if min(x) <= 0.0: 
 				return None
 			f = cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
 			Df = (wcn - cvxopt.mul(wlncn, (x**-1))).T
@@ -1223,7 +1227,7 @@ class bam_to_breakpoint_hybrid():
 			H = cvxopt.spdiag(z[0] * cvxopt.mul(wlncn, x**-2))
 			return f, Df, H
 		
-		options = {'maxiters': 1000, 'show_progress': False}
+		options = {'maxiters': 1000, 'show_progress': False, 'refinement': 10}
 		sol = cvxopt.solvers.cp(F, A = balance_constraints, b = cvxopt.matrix([0.0 for i in range(nconstraints)]), kktsolver = 'ldl', options = options)
 		if sol['status'] == "optimal" or sol['status'] == "unknown":
 			if sol['status'] == "optimal":
