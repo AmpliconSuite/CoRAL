@@ -224,6 +224,7 @@ class bam_to_breakpoint_hybrid():
 	
 	sr_length = 0.0 # Average short read length
 	min_sr_alignment_length = 30.0 # Minimum alignment length of short reads - used for CN assignment
+	max_sr_insert = 2000
 	normal_cov_sr = 0 # Normal short read coverage - used for CN assignment
 	normal_cov_lr = 0 # Normal long read coverage - used for CN assignment
 	
@@ -267,7 +268,7 @@ class bam_to_breakpoint_hybrid():
 			log2_cn_order = np.argsort(log2_cn)
 			cns_intervals_median = []
 			log2_cn_median = []
-			im = int(len(log2_cn_order) / 2.5)
+			im = int(len(log2_cn_order) / 2.4)
 			ip = im + 1
 			total_int_len = 0
 			cns_intervals_median.append(cns_intervals[log2_cn_order[ip]])
@@ -1000,7 +1001,7 @@ class bam_to_breakpoint_hybrid():
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "After deletion, there are %d remaining concordant edges." %(len(self.concordant_edges)))
 
 
-	def assign_cov(self):
+	def assign_cov(self, lr_seq_dist = 'poisson'):
 		"""
 		Extract the short read and long read coverage from bam file, if missing, for each sequence edge 
 		"""
@@ -1022,8 +1023,10 @@ class bam_to_breakpoint_hybrid():
 				For long read, use the total number of nucleotides
 				"""
 				rl_list = [read.infer_read_length() for read in self.lr_bamfh.fetch(seg[0], seg[1], seg[2] + 1) if read.infer_read_length()]
-				seg[4] = [len(rl_list), np.average(rl_list)]
-				#seg[4] = sum([sum(nc) for nc in self.lr_bamfh.count_coverage(seg[0], seg[1], seg[2], quality_threshold = 0, read_callback = 'nofilter')])
+				if lr_seq_dist == 'poisson':
+					seg[4] = [len(rl_list), np.average(rl_list)]
+				else:
+					seg[4] = [len(rl_list), sum([sum(nc) for nc in self.lr_bamfh.count_coverage(seg[0], seg[1], seg[2], quality_threshold = 0, read_callback = 'nofilter')])]
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "LR cov assigned for sequence edge %s." %(seg))
 		if self.sr_length == 0.0:
 			if avg_rl == 0.0:
@@ -1040,25 +1043,30 @@ class bam_to_breakpoint_hybrid():
 			ec = self.concordant_edges[eci]
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Finding cov for concordant edge %s." %(ec))
 			if ec[6] == -1:
-				rls_ = set([read.query_name for read in self.sr_bamfh.fetch(contig = ec[0], start = ec[1], stop = ec[1] + 1)])
-				rrs_ = set([read.query_name for read in self.sr_bamfh.fetch(contig = ec[3], start = ec[4], stop = ec[4] + 1)])
+				rls_ = set([read.query_name for read in self.sr_bamfh.fetch(contig = ec[0], start = ec[1], stop = ec[1] + 1)
+						if not read.is_unmapped and read.is_proper_pair and read.next_reference_name == ec[0] and
+						abs(read.next_reference_start - read.reference_start) <= self.max_sr_insert])
+				rrs_ = set([read.query_name for read in self.sr_bamfh.fetch(contig = ec[3], start = ec[4], stop = ec[4] + 1)
+						if not read.is_unmapped and read.is_proper_pair and read.next_reference_name == ec[0] and
+						abs(read.next_reference_start - read.reference_start) <= self.max_sr_insert])
 				self.concordant_edges[eci][6] = len(rls_ & rrs_)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tSR cov assigned for concordant edge %s." %(self.concordant_edges[eci]))
 			rls = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[0], start = ec[1], stop = ec[1] + 1)])
 			rrs = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[3], start = ec[4], stop = ec[4] + 1)])
+			rls1 = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[0], start = ec[1] - self.min_bp_match_cutoff_ - 1, stop = ec[1] - self.min_bp_match_cutoff_)])
+			rrs1 = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[3], start = ec[4] + self.min_bp_match_cutoff_, stop = ec[4] + self.min_bp_match_cutoff_ + 1)]) 
 			rbps = set([])
 			for bpi in self.discordant_edges_pos[(ec[0], ec[1], ec[4])][0]:
 				if bpi >= len(self.discordant_edges):
 					rbps |= self.new_bp_list_[bpi - len(self.discordant_edges)][-1]
 				else:
-					
 					rbps |= self.discordant_edges[bpi][-1]
 			for bpi in self.discordant_edges_pos[(ec[0], ec[1], ec[4])][1]:
 				if bpi >= len(self.discordant_edges):
 					rbps |= self.new_bp_list_[bpi - len(self.discordant_edges)][-1]
 				else:
 					rbps |= self.discordant_edges[bpi][-1]
-			self.concordant_edges[eci][7] = len((rls & rrs) - rbps)
+			self.concordant_edges[eci][7] = len((rls & rrs & rls1 & rrs1) - rbps)
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tLR cov assigned for concordant edge %s." %(self.concordant_edges[eci]))
 
 
@@ -1111,7 +1119,7 @@ class bam_to_breakpoint_hybrid():
 		self.lr_bamfh.close()
 
 
-	def assign_cn(self):
+	def assign_cn(self, lr_seq_dist = 'poisson'):
 		"""
 		Compute the maximum likelihood CN assignment on each edge
 		"""
@@ -1171,8 +1179,12 @@ class bam_to_breakpoint_hybrid():
 
 		wcn = []
 		wlncn = []
-		wcn = [(self.normal_cov_sr * sseg[-1] / self.sr_length) + \
+		wlrseg = []
+		if lr_seq_dist == 'poisson':
+			wcn = [(self.normal_cov_sr * sseg[-1] / self.sr_length) + \
 				(self.normal_cov_lr * sseg[-1] / sseg[4][1]) for sseg in self.seq_edges]
+		else:
+			wcn = [(self.normal_cov_sr * sseg[-1] / self.sr_length + 0.5 * self.normal_cov_lr * sseg[-1]) for sseg in self.seq_edges]
 		wcn += [self.normal_cov_sr * (self.sr_length - 1) / self.sr_length + self.normal_cov_lr \
 				for eci in range(lc)]
 		wcn += [self.normal_cov_sr * (self.sr_length - 2 * self.min_sr_alignment_length) / \
@@ -1180,13 +1192,23 @@ class bam_to_breakpoint_hybrid():
 		wcn += [self.normal_cov_lr for bpi in range(lnbp)]
 		wcn += [self.normal_cov_sr * (self.sr_length - 2 * self.min_sr_alignment_length) / self.sr_length \
 				for es in self.source_edges]
-		wlncn = [sseg[3] + sseg[4][0] for sseg in self.seq_edges]
+		if lr_seq_dist == 'poisson':
+			wlncn = [sseg[3] + sseg[4][0] for sseg in self.seq_edges]
+		else:
+			wlncn = [sseg[3] - 0.5 for sseg in self.seq_edges]
 		wlncn += [ec[6] + ec[7] for ec in self.concordant_edges]
 		wlncn += [ed[6][1] + ed[7] for ed in self.discordant_edges]
 		wlncn += [len(bp[6]) for bp in self.new_bp_list_]
 		wlncn += [es[7] if es[7] >= 1 else 0.1 for es in self.source_edges]
+		if lr_seq_dist != 'poisson':
+			wlrseg = [(0.5 * sseg[4][1] * sseg[4][1] / (self.normal_cov_lr * sseg[-1])) for sseg in self.seq_edges]
+			wlrseg += [0.0 for ec in self.concordant_edges]
+			wlrseg += [0.0 for ed in self.discordant_edges]
+			wlrseg += [0.0 for bp in self.new_bp_list_]
+			wlrseg += [0.0 for es in self.source_edges]
 		wcn = cvxopt.matrix(wcn)
 		wlncn = cvxopt.matrix(wlncn)
+		wlrseg = cvxopt.matrix(wlrseg)
 		
 		#logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "The gradient of CN vector is: wcn * CN - wlncn * CN:")
 		#logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\twcn = %s;" %(wcn))
@@ -1206,21 +1228,42 @@ class bam_to_breakpoint_hybrid():
 					balance_constraints[ci][lseg + lc + ld + lnbp + esi] = -1
 				ci += 1
 		balance_constraints = cvxopt.matrix(balance_constraints)
+
 		# Convex optimization function required by cvxopt
-		def F(x = None, z = None):
+		def F_normal(x = None, z = None):
+			if x is None: 
+				return 0, cvxopt.matrix(1.0, (nvariables, 1))
+			if min(x) <= 0.0: 
+				return None
+			f = cvxopt.modeling.dot(wlrseg, x**-1) + cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
+			Df = (wcn - cvxopt.mul(wlncn, x**-1) - cvxopt.mul(wlrseg, x**-2)).T
+			if z is None: 
+				return f, Df
+			H = cvxopt.spdiag(z[0] * (cvxopt.mul(wlncn, x**-2) + cvxopt.mul(2.0 * wlrseg, x**-3)))
+			return f, Df, H
+		def F_poisson(x = None, z = None):
 			if x is None: 
 				return 0, cvxopt.matrix(1.0, (nvariables, 1))
 			if min(x) <= 0.0: 
 				return None
 			f = cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
-			Df = (wcn - cvxopt.mul(wlncn, (x**-1))).T
+			Df = (wcn - cvxopt.mul(wlncn, x**-1)).T
 			if z is None: 
 				return f, Df
 			H = cvxopt.spdiag(z[0] * cvxopt.mul(wlncn, x**-2))
 			return f, Df, H
 		
-		options = {'maxiters': 1000, 'show_progress': False, 'refinement': 10}
-		sol = cvxopt.solvers.cp(F, A = balance_constraints, b = cvxopt.matrix([0.0 for i in range(nconstraints)]), kktsolver = 'ldl', options = options)
+		options = {'maxiters': 1000, 'show_progress': False}
+		sol = ''
+		if lr_seq_dist == 'poisson':
+			sol = cvxopt.solvers.cp(F_poisson, A = balance_constraints, 
+						b = cvxopt.matrix([0.0 for i in range(nconstraints)]), 
+						kktsolver = 'ldl', options = options)
+		else:
+			sol = cvxopt.solvers.cp(F_normal, A = balance_constraints, 
+						b = cvxopt.matrix([0.0 for i in range(nconstraints)]), 
+						kktsolver = 'ldl', options = options)
+
 		if sol['status'] == "optimal" or sol['status'] == "unknown":
 			if sol['status'] == "optimal":
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Found optimal solution.")
@@ -1251,9 +1294,10 @@ if __name__ == '__main__':
 	parser.add_argument("--lr_bam", help = "Sorted indexed long read bam file.", required = True)
 	parser.add_argument("--aa_graph", help = "AA-formatted graph file.", required = True)
 	parser.add_argument("--aa_cycle", help = "AA-formatted cycle file.", required = True)
-	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.",  action = 'store_true')
+	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.", action = 'store_true')
 	parser.add_argument("--sr_cnseg", help = "Short read *.cns file.")
 	parser.add_argument("--lr_cnseg", help = "Long read *.cns file.")
+	parser.add_argument("--lr_seq_normal", help = "Use normal distribution on the total number of nucleotides on sequence edges for long read.", action = 'store_true')
 	args = parser.parse_args()
 
 	logging.basicConfig(filename = 'refine_breakpoint_graph.log', filemode = 'w', level = logging.DEBUG, 
@@ -1293,9 +1337,15 @@ if __name__ == '__main__':
 		if args.sr_cnseg is None or args.sr_cnseg is None:
 			print("Please specify the copy number segment files.")
 			os.abort()
-		b2bn.assign_cov()
+		if args.lr_seq_normal:
+			b2bn.assign_cov(lr_seq_dist = 'normal')
+		else:
+			b2bn.assign_cov(lr_seq_dist = 'poisson')
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Assigned read coverage for all sequence and concordant edges.")
-		b2bn.assign_cn()
+		if args.lr_seq_normal:
+			b2bn.assign_cn(lr_seq_dist = 'normal')
+		else:
+			b2bn.assign_cn(lr_seq_dist = 'poisson')
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Assigned CN for all edges.")
 		b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
 	b2bn.closebam()
