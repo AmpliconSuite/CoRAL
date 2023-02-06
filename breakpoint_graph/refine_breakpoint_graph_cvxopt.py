@@ -416,25 +416,25 @@ class bam_to_breakpoint_hybrid():
 					if t0_[1][-1] == '+':
 						if (t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1) not in self.discordant_edges_pos:
 							self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1)] = [[], []]
-							self.nodes[(t0_[0], int(t0_[1][:-1]))][0].append(len(self.discordant_edges))
+							self.nodes[(t0_[0], int(t0_[1][:-1]))][0].append(len(self.discordant_edges) - 1)
 							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscordant edge connected to interval ends.")
 						self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]), int(t0_[1][:-1]) + 1)][0].append(len(self.discordant_edges) - 1)	
 					else:
 						if (t0_[0], int(t0_[1][:-1]) - 1, int(t0_[1][:-1])) not in self.discordant_edges_pos:
 							self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]) - 1, int(t0_[1][:-1]))] = [[], []]
-							self.nodes[(t0_[0], int(t0_[1][:-1]))][0].append(len(self.discordant_edges))
+							self.nodes[(t0_[0], int(t0_[1][:-1]))][0].append(len(self.discordant_edges) - 1)
 							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscordant edge connected to interval ends.")
 						self.discordant_edges_pos[(t0_[0], int(t0_[1][:-1]) - 1, int(t0_[1][:-1]))][1].append(len(self.discordant_edges) - 1)
 					if t1_[1][-1] == '+':
 						if (t1_[0], int(t1_[1][:-1]), int(t1_[1][:-1]) + 1) not in self.discordant_edges_pos:
 							self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]), int(t1_[1][:-1]) + 1)] = [[], []]
-							self.nodes[(t1_[0], int(t1_[1][:-1]))][0].append(len(self.discordant_edges))
+							self.nodes[(t1_[0], int(t1_[1][:-1]))][0].append(len(self.discordant_edges) - 1)
 							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscordant edge connected to interval ends.")
 						self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]), int(t1_[1][:-1]) + 1)][0].append(len(self.discordant_edges) - 1)
 					else:
 						if (t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1])) not in self.discordant_edges_pos:
 							self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))] = [[], []]
-							self.nodes[(t1_[0], int(t1_[1][:-1]))][0].append(len(self.discordant_edges))
+							self.nodes[(t1_[0], int(t1_[1][:-1]))][0].append(len(self.discordant_edges) - 1)
 							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscordant edge connected to interval ends.")
 						self.discordant_edges_pos[(t1_[0], int(t1_[1][:-1]) - 1, int(t1_[1][:-1]))][1].append(len(self.discordant_edges) - 1)
 					if t0_[0] == t1_[0] and t0_[1][-1] == '-' and t1_[1][-1] == '+' and \
