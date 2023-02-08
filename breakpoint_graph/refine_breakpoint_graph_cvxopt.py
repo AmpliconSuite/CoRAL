@@ -208,7 +208,8 @@ class bam_to_breakpoint_hybrid():
 	nodes: adjacent list - keys with format (chr, pos); 
 	vals = [[flags], [sequence edges], [concordant edges], [discordant edges], [source edges]]  
 	"""
-	nodes = dict() 
+	nodes = dict()
+	special_nodes = dict() 
 	"""
 	discordant_edges_pos: For each concordant edge, which side has a discordant edge
 	[[], []] = No discordant edges, i.e., CN boundary breakpoint
@@ -402,6 +403,8 @@ class bam_to_breakpoint_hybrid():
 					r = int(s[2][s[2].find(':') + 1: -1])
 					self.nodes[(chr, l)] = [[], [len(self.seq_edges)], [], [], []]
 					self.nodes[(chr, r)] = [[], [len(self.seq_edges)], [], [], []]
+					if l == r:
+						self.special_nodes[(chr, l)] = 2
 					self.seq_edges.append([chr, l, r, int(s[-1]), -1, r - l + 1])
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
 							"New sequence edge %s." %(self.seq_edges[-1]))
@@ -934,7 +937,7 @@ class bam_to_breakpoint_hybrid():
 				else:
 					self.nodes[node][0][0] = bpi_map[self.nodes[node][0][0]]
 			if len(self.nodes[node][4]) > 0:
-				assert len(self.nodes[node][4]) == 1
+				#assert len(self.nodes[node][4]) == 1
 				if self.nodes[node][4][0] in source_del_list:
 					del self.nodes[node][4][0]
 				else:
@@ -975,6 +978,7 @@ class bam_to_breakpoint_hybrid():
 			ce = self.concordant_edges[ci]
 			node1 = (ce[0], ce[1])
 			node2 = (ce[3], ce[4])
+			#print(node1, node2)
 			if len(self.nodes[node1][4]) == 0 and len(self.nodes[node2][4]) == 0 and \
 				len(self.discordant_edges_pos[(ce[0], ce[1], ce[4])][0]) == 0 and \
 				len(self.discordant_edges_pos[(ce[0], ce[1], ce[4])][1]) == 0:
@@ -987,8 +991,20 @@ class bam_to_breakpoint_hybrid():
 				self.seq_edges[segi2][-1] = self.seq_edges[segi2][2] - self.seq_edges[segi2][1] + 1
 				seg_del_list.append(segi1)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDeleting nodes %s and %s." %(str(node1), str(node2)))
-				del self.nodes[node1]
-				del self.nodes[node2]
+				if node1 in self.special_nodes:
+					self.special_nodes[node1] -= 1
+					if self.special_nodes[node1] == 0:
+						del self.nodes[node1]
+						del self.special_nodes[node1]
+				else:
+					del self.nodes[node1]
+				if node2 in self.special_nodes:
+					self.special_nodes[node2] -= 1
+					if self.special_nodes[node2] == 0:
+						del self.nodes[node2]
+						del self.special_nodes[node2]
+				else:
+					del self.nodes[node2]
 				c_del_list.append(ci)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAfter merging: %s." %(self.seq_edges[segi2]))
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Will delete the sequence edges at index %s." %(seg_del_list))
