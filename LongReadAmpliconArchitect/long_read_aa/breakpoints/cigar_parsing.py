@@ -1,11 +1,21 @@
+"""
+DESCRIPTION OF THIS FILE
+"""
 import logging
-import global_names
+
+from . import global_names
 
 
 def cigar2posSM(cigar, strand, rl):
-	"""
-	convert cigar string in format *S*M into alignment
-	return the start and end position on the read, and the alignment length on the reference genome 
+	"""Convert cigar string in format *S*M into alignment
+
+	Args:
+		cigar: CIGAR string containing SM
+		strand: Strand of sequence ("+" or "-")
+		rl: Read length
+	Returns:
+		The start and end position on the read, and the alignment length on
+			the reference genome.
 	"""
 	qs, qe, rl = 0, 0, 0
 	rl = int(cigar[cigar.index('S') + 1 : cigar.index('M')])
