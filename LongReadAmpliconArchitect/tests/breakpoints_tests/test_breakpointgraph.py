@@ -89,6 +89,7 @@ class TestBreakpointGraph(unittest.TestCase):
 
         self.assertEqual(breakpoint_graph.discordant_edges, [self.breakpoint1])
         self.assertEqual(breakpoint_graph.concordant_edges, [self.breakpoint2])
+        self.assertEqual(len(breakpoint_graph.source_edges), 0)
         self.assertEqual(breakpoint_graph.sequence_edges, [self.sequence_edge])
 
 if __name__ == "__main__":
