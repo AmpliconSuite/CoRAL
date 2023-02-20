@@ -92,5 +92,25 @@ class TestBreakpointGraph(unittest.TestCase):
         self.assertEqual(len(breakpoint_graph.source_edges), 0)
         self.assertEqual(breakpoint_graph.sequence_edges, [self.sequence_edge])
 
+    def test_breakpoint_graph_adjacency_list(self):
+        
+        breakpoint_graph = BreakpointGraph.BreakpointGraph(
+            sequence_edges=[self.sequence_edge],
+            discordant_edges=[self.breakpoint1],
+            concordant_edges=[self.breakpoint2],
+        )
+
+        breakpoint_graph[("chr1", 12232)] = [self.breakpoint1]
+
+        expected_breakpoint_left = self.breakpoint1.left_breakpoint
+        expected_breakpoint_right = self.breakpoint1.right_breakpoint
+
+        self.assertEqual(len(breakpoint_graph[("chr1", 12232)]), 1)
+
+        observed_breakpoint = breakpoint_graph[('chr1', 12232)][0]
+
+        self.assertEqual(observed_breakpoint.left_breakpoint, expected_breakpoint_left)
+        self.assertEqual(observed_breakpoint.right_breakpoint, expected_breakpoint_right)
+
 if __name__ == "__main__":
     unittest.main()

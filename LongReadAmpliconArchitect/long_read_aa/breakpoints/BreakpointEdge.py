@@ -3,6 +3,7 @@ A simple class to encode a breakpoint edge.
 """
 from typing import Literal, Optional
 
+
 class BreakpointEdge:
     """A container class for breakpoint edges."""
 
