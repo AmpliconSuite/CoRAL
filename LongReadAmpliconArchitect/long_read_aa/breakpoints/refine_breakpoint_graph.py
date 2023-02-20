@@ -510,7 +510,12 @@ class bam_to_breakpoint_hybrid():
 			for read in self.lr_bamfh.fetch(ai[0], ai[1], ai[2] + 1):
 				rn = read.query_name
 				blocks = read.get_blocks()
-				self.large_indel_alignments[rn] = cigar_parsing.alignment_from_blocks(ai[0], blocks, self.min_del_len)
+				for bi in range(len(blocks) - 1):
+					if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_del_len:
+						try:
+							self.large_indel_alignments[rn].append([ai[0], blocks[bi + 1][0], blocks[bi][1]])
+						except:
+							self.large_indel_alignments[rn] = [[ai[0], blocks[bi + 1][0], blocks[bi][1]]]
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Fetched %d reads with large indels in CIGAR." %(len(self.large_indel_alignments)))
 		for read in self.lr_bamfh.fetch():
 			rn = read.query_name		
@@ -668,23 +673,21 @@ class bam_to_breakpoint_hybrid():
 		"""
 		new_bp_list = []
 		for r in self.large_indel_alignments.keys():
-			for bi in range(len(self.large_indel_alignments[r][1]) - 1):
+			for rr_gap in self.large_indel_alignments[r]:
 				overlap_ = 0
-				rgap = [self.large_indel_alignments[r][1][bi][2], self.large_indel_alignments[r][1][bi + 1][1]]
-				assert self.large_indel_alignments[r][1][bi][3] == self.large_indel_alignments[r][1][bi + 1][3]
-				if rgap[1] > rgap[0]:
-					rgap = [rgap[1], rgap[0]]
+				rr_gap_ = rr_gap
+				if rr_gap[2] > rr_gap[1]:
+					rr_gap_[2] = rr_gap[1]
+					rr_gap_[1] = rr_gap[2]
 				for di in range(len(self.discordant_edges)):
 					d = self.discordant_edges[di]
-					if bp_match([self.large_indel_alignments[r][1][bi][0], rgap[0], '-', \
-								self.large_indel_alignments[r][1][bi][0], rgap[1], '+'], d, 0, \
-								self.min_bp_match_cutoff[di]):
+					if bp_match([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+'], d, 0, \
+							self.min_bp_match_cutoff[di]):
 						self.discordant_edges[di][7] += 1
 						self.discordant_edges[di][-1].add(r)
 						overlap_ = 1
 				if overlap_ == 0:
-					new_bp_list.append([self.large_indel_alignments[r][1][bi][0], rgap[0], '-',
-										self.large_indel_alignments[r][1][bi][0], rgap[1], '+', r, 0, 0, -1, -1])
+					new_bp_list.append([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+', r, 0, 0, -1, -1])
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Found %d reads with new small del breakpoints." %(len(new_bp_list)))
 
 		new_bp_clusters = cluster_bp_list(new_bp_list, self.min_cluster_cutoff, self.max_bp_distance_cutoff)
