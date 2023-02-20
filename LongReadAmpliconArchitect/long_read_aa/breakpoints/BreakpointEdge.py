@@ -51,6 +51,9 @@ class BreakpointEdge:
         self.support = support
         self.copy_number = copy_number
 
+        # store read names supporting each breakpoint edge. 
+        self.read_names = []
+
     @property
     def left_breakpoint(self):
         """Quick accessor of the left breakpoint."""
