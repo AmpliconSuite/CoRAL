@@ -1,7 +1,7 @@
 """
 A simple class to encode a breakpoint edge.
 """
-from typing import Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 
 class BreakpointEdge:
@@ -18,8 +18,8 @@ class BreakpointEdge:
         annotation: Optional[
             Literal["concordant", "discordant", "source"]
         ] = None,
-        support: Optional[int] = None,
-        copy_number: Optional[float] = None,
+        support: Optional[Dict[str, int]] = None,
+        copy_number: Optional[Dict[str, int]] = None,
     ):
         """Constructor of BreakpointEdge.
 
@@ -33,6 +33,7 @@ class BreakpointEdge:
             annotation: String indicating the type of breakpoint
             support: Read number supporting this breakpoint
             copy_number: Estimated copy number of breakpoint
+            amplicon_intervals: Amplicon intervals covered by this breakpoint graph.
         """
         if support and support < 0:
             raise Exception("Support should be positive.")
