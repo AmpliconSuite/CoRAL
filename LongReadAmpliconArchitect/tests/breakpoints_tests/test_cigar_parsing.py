@@ -9,8 +9,7 @@ from long_read_aa.breakpoints import cigar_parsing
 
 class TestCigarParsing(unittest.TestCase):
 
-	def test_cigar_to_pos(self):
-		
+	def test_cigar2posSM(self):
 		# Test the function cigar2posSM
 		c1, strand1, rl1 = "856S542M", '-', 1398
 		c2, strand2, rl2 = "215S202M", '+', 417
@@ -30,6 +29,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al2, eal2)
 
 
+	def test_cigar2posMS(self):
 		# Test the function cigar2posMS
 		c3, strand3, rl3 = "437M843S", '-', 1280 
 		c4, strand4, rl4 = "980M1770S", '+', 2750
@@ -49,6 +49,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al4, eal4)
 
 
+	def test_cigar2posSMS(self):
 		# Test the function cigar2posSMS
 		c5, strand5, rl5 = "2257S377M42S", '-', 2676 
 		c6, strand6, rl6 = "2647S1079M3351S", '+', 7077 
@@ -68,6 +69,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al6, eal6)
 
 
+	def test_cigar2posSMD(self):
 		# Test the function cigar2posSMD
 		c7, strand7, rl7 = "37727S3378M13D", '-', 41105  
 		c8, strand8, rl8 = "1067S7449M11D", '+', 8516  
@@ -87,6 +89,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al8, eal8)
 
 
+	def test_cigar2posMDS(self):
 		# Test the function cigar2posMDS
 		c9, strand9, rl9 = "565M1D623S", '-', 1188   
 		c10, strand10, rl10 = "2181M9D4901S", '+', 7082   
@@ -106,6 +109,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al10, eal10)
 
 
+	def test_cigar2posSMDS(self):
 		# Test the function cigar2posSMDS
 		c11, strand11, rl11 = "2698S1057M28D4430S", '-', 8185  
 		c12, strand12, rl12 = "7864S7515M260D38S", '+', 15417   
@@ -125,6 +129,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al12, eal12)
 
 
+	def test_cigar2posSMI(self):
 		# Test the function cigar2posSMI
 		c13, strand13, rl13 = "3282S43752M1269I", '-', 48303   
 		c14, strand14, rl14 = "1214S44215M126I", '+', 45555    
@@ -144,6 +149,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al14, eal14)
 
 
+	def test_cigar2posMIS(self):
 		# Test the function cigar2posMIS
 		c15, strand15, rl15 = "3758M19I17947S", '-', 21724 
 		c16, strand16, rl16 = "454M3I855S", '+', 1312 
@@ -163,6 +169,7 @@ class TestCigarParsing(unittest.TestCase):
 		self.assertEqual(al16, eal16)
 
 
+	def test_cigar2posSMIS(self):
 		# Test the function cigar2posSMIS
 		c17, strand17, rl17 = "18S528M1I4301S", '-', 4848   
 		c18, strand18, rl18 = "36S1199M23I1327S", '+', 2585    
