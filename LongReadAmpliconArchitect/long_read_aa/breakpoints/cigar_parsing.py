@@ -8,6 +8,7 @@ qual: mapping qualities for each local alignment
 TBD:
 implement merge_alignment
 """
+import time
 import logging
 from typing import Tuple, List
 
