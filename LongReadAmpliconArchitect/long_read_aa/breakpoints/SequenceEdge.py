@@ -1,7 +1,7 @@
 """
 Container class for sequence edges.
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 class SequenceEdge:
     def __init__(
@@ -48,6 +48,16 @@ class SequenceEdge:
         Note that both start and end node will be inclusive on a sequence edge.
         """
         return self.end - self.start + 1
+
+    @property
+    def left_breakpoint(self) -> Tuple[str, int, str]:
+        """Quick accessor of the left breakpoint."""
+        return (self.chromosome, self.start, "+")
+
+    @property
+    def right_breakpoint(self) -> Tuple[str, int, str]:
+        """Quick accessor of the right breakpoint."""
+        return (self.chromosome, self.end, "+")
 
     def __str__(self):
         """Prints SequenceEdge."""

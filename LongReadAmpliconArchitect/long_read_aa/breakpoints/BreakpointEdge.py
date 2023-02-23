@@ -1,7 +1,7 @@
 """
 A simple class to encode a breakpoint edge.
 """
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
 
 
 class BreakpointEdge:
@@ -15,9 +15,7 @@ class BreakpointEdge:
         chromosome2: str,
         position2: int,
         orientation2: str,
-        annotation: Optional[
-            Literal["concordant", "discordant", "source"]
-        ] = None,
+        annotation: Optional[Literal["concordant", "discordant", "source"]] = None,
         support: Optional[Dict[str, int]] = None,
         copy_number: Optional[Dict[str, int]] = None,
     ):
@@ -55,12 +53,12 @@ class BreakpointEdge:
         self.read_names = []
 
     @property
-    def left_breakpoint(self):
+    def left_breakpoint(self) -> Tuple[str, int, str]:
         """Quick accessor of the left breakpoint."""
         return (self.chromosome1, self.position1, self.orientation1)
 
     @property
-    def right_breakpoint(self):
+    def right_breakpoint(self) -> Tuple[str, int, str]:
         """Quick accessor of the right breakpoint."""
         return (self.chromosome2, self.position2, self.orientation2)
 
