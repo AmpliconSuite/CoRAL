@@ -100,14 +100,14 @@ class TestBreakpointGraph(unittest.TestCase):
             concordant_edges=[self.breakpoint2],
         )
 
-        breakpoint_graph[("chr1", 12232)] = [self.breakpoint1]
+        breakpoint_graph[("chr1", 12232, "-")] = [self.breakpoint1]
 
         expected_breakpoint_left = self.breakpoint1.left_breakpoint
         expected_breakpoint_right = self.breakpoint1.right_breakpoint
 
-        self.assertEqual(len(breakpoint_graph[("chr1", 12232)]), 1)
+        self.assertEqual(len(breakpoint_graph[("chr1", 12232, "-")]), 1)
 
-        observed_breakpoint = breakpoint_graph[('chr1', 12232)][0]
+        observed_breakpoint = breakpoint_graph[('chr1', 12232, "-")][0]
 
         self.assertEqual(observed_breakpoint.left_breakpoint, expected_breakpoint_left)
         self.assertEqual(observed_breakpoint.right_breakpoint, expected_breakpoint_right)
@@ -116,7 +116,7 @@ class TestBreakpointGraph(unittest.TestCase):
         self.assertRaises(
             Exception,
             breakpoint_graph.__setitem__,
-            ("chr1", 1111),
+            ("chr1", 1111, "+"),
             self.breakpoint2
         )
 
@@ -126,7 +126,7 @@ class TestBreakpointGraph(unittest.TestCase):
             'chr1'
         )
 
-        self.assertIsNone(breakpoint_graph[('chr1', 1111)])
+        self.assertIsNone(breakpoint_graph[('chr1', 1111, "+")])
 
         self.assertRaises(
             Exception,
@@ -135,8 +135,8 @@ class TestBreakpointGraph(unittest.TestCase):
         )
 
         # test delete
-        del breakpoint_graph[('chr1', 12232)]
-        self.assertFalse(('chr1', 12232) in breakpoint_graph)
+        del breakpoint_graph[('chr1', 12232, "-")]
+        self.assertFalse(('chr1', 12232, "-") in breakpoint_graph)
     
 
 if __name__ == "__main__":

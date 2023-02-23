@@ -1,7 +1,7 @@
 """
 A simple class to encode a breakpoint edge.
 """
-from typing import Dict, List, Literal, Optional
+from typing import Dict, Literal, Optional
 
 
 class BreakpointEdge:

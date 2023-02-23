@@ -3,7 +3,7 @@ Implements a class for BreakpointGraph. Will serve as a container for the
 sequence edges, corcordant edges, discordant edges, and breakpoints inferred
 from a given sequencing file. 
 """
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import pandas as pd
 
@@ -49,7 +49,7 @@ class BreakpointGraph:
     def source_edges(self):
         return self.__source_edges
 
-    def __getitem__(self, key: Tuple[str, int]) -> list:
+    def __getitem__(self, key: Tuple[str, int, str]) -> List[Any]:
         """Access the adjacency list of the breakpoint graph.
 
         Args:
@@ -66,8 +66,12 @@ class BreakpointGraph:
 
         return self.__nodes[key]
 
-    def __delitem__(self, key: Tuple[str, int]):
+    def __delitem__(self, key: Tuple[str, int, str]):
         """Delete entry from adjacency list.
+
+        TODO: Change this to a remove breakpoint edge function. If either vertex
+        now does not have any breakpoint edges, remove it and merge the sequence
+        edges incident on it. 
 
         Args:
             key: A breakpoint node.
@@ -75,12 +79,12 @@ class BreakpointGraph:
         if key not in self.__nodes:
             raise Exception("Breakpoint node does not exist.")
 
-        if type(key) != tuple or len(key) != 2:
+        if type(key) != tuple or len(key) != 3:
             raise Exception("Breakpoint node must be of form (chr, pos)")
 
         del self.__nodes[key]
 
-    def __setitem__(self, key: Tuple[str, int], value: list):
+    def __setitem__(self, key: Tuple[str, int, str], value: List[Any]):
         """Add a new node to the breakpoint graph.
 
         Args:
@@ -90,17 +94,17 @@ class BreakpointGraph:
         if type(value) != list:
             raise Exception("Value to be added to the adjacency list must be a list.")
 
-        if type(key) != tuple or len(key) != 2:
+        if type(key) != tuple or len(key) != 3:
             raise Exception("Breakpoint node must be of form (chr, pos)")
 
         if key not in self.__nodes:
             self.__nodes[key] = []
         self.__nodes[key] = value
 
-    def __contains__(self, key: Tuple[str, int]) -> bool:
+    def __contains__(self, key: Tuple[str, int, str]) -> bool:
         """Returns whether or not the breakpoint node is in the graph.
         """
-        if type(key) != tuple or len(key) != 2:
+        if type(key) != tuple or len(key) != 3:
             raise Exception("Breakpoint node must be of form (chr, pos)")
         
         return key in self.__nodes.keys()
@@ -125,8 +129,8 @@ class BreakpointGraph:
         """
         pass
 
-    def get_breakpoint_graph_dataframe(self) -> pd.DataFrame:
-        """Obtain a DataFrame rendering of the breakpoint graph.
+    def get_breakpoint_dataframe(self) -> pd.DataFrame:
+        """Obtain a DataFrame rendering of the breakpoints.
         """
         pass
 
