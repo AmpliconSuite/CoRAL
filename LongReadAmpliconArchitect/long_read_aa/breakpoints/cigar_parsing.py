@@ -8,8 +8,8 @@ qual: mapping qualities for each local alignment
 TBD:
 implement merge_alignment
 """
-import time
 import logging
+import time
 from typing import Tuple, List
 
 from long_read_aa.breakpoints import global_names
