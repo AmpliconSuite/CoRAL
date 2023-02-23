@@ -15,7 +15,9 @@ class BreakpointEdge:
         chromosome2: str,
         position2: int,
         orientation2: str,
-        annotation: Optional[Literal["concordant", "discordant", "source"]] = None,
+        annotation: Optional[
+            Literal["concordant", "discordant", "source"]
+        ] = None,
         support: Optional[Dict[str, int]] = None,
         copy_number: Optional[Dict[str, int]] = None,
     ):
@@ -31,7 +33,8 @@ class BreakpointEdge:
             annotation: String indicating the type of breakpoint
             support: Read number supporting this breakpoint
             copy_number: Estimated copy number of breakpoint
-            amplicon_intervals: Amplicon intervals covered by this breakpoint graph.
+            amplicon_intervals: Amplicon intervals covered by this breakpoint
+                graph.
         """
         if support and support < 0:
             raise Exception("Support should be positive.")
@@ -49,7 +52,7 @@ class BreakpointEdge:
         self.support = support
         self.copy_number = copy_number
 
-        # store read names supporting each breakpoint edge. 
+        # store read names supporting each breakpoint edge.
         self.read_names = []
 
     @property
@@ -64,4 +67,4 @@ class BreakpointEdge:
 
     def __str__(self):
         """Print BreakpointEdge."""
-        return(f"{self.left_breakpoint} -> {self.right_breakpoint}")
+        return f"{self.left_breakpoint} -> {self.right_breakpoint}"

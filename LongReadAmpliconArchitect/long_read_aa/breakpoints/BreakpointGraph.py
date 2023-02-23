@@ -76,7 +76,9 @@ class BreakpointGraph:
             The edges connected to the node.
         """
         if type(key) != tuple or len(key) != 3:
-            raise Exception("Breakpoint node must be of form (chr, pos, orientation)")
+            raise Exception(
+                "Breakpoint node must be of form (chr, pos, orientation)"
+            )
 
         if key not in self.__nodes:
             raise Excpetion("Breakpoint node not found in graph.")
@@ -139,7 +141,9 @@ class BreakpointGraph:
     def __contains__(self, key: Tuple[str, int, str]) -> bool:
         """Returns whether or not the breakpoint node is in the graph."""
         if type(key) != tuple or len(key) != 3:
-            raise Exception("Breakpoint node must be of form (chr, pos, orientation)")
+            raise Exception(
+                "Breakpoint node must be of form (chr, pos, orientation)"
+            )
 
         return key in self.__nodes
 
@@ -147,32 +151,35 @@ class BreakpointGraph:
         """Adds a SequenceEdge to the graph."""
         self.__sequence_edges.add(edge)
 
-        self.__update_graph(edge) 
+        self.__update_graph(edge)
 
     def add_concordant_edge(self, edge: BreakpointEdge.BreakpointEdge):
         """Adds a concordant edge to the graph."""
-        
+
         self.__concordant_edges.add(edge)
 
-        self.__update_graph(edge) 
+        self.__update_graph(edge)
 
     def add_discordant_edge(self, edge: BreakpointEdge.BreakpointEdge):
         """Adds a discordant edge to the graph."""
         self.__discordant_edges.add(edge)
 
-        self.__update_graph(edge) 
+        self.__update_graph(edge)
 
     def add_source_edge(self, edge: BreakpointEdge.BreakpointEdge):
         """Adds a source edge to the graph."""
         self.__source_edges.add(edge)
 
-        self.__update_graph(edge) 
+        self.__update_graph(edge)
 
     def get_breakpoint_dataframe(self) -> pd.DataFrame:
         """Obtain a DataFrame rendering of the breakpoints."""
         pass
 
-    def __update_graph(self, edge: Union[SequenceEdge.SequenceEdge, BreakpointEdge.BreakpointEdge]):
+    def __update_graph(
+        self,
+        edge: Union[SequenceEdge.SequenceEdge, BreakpointEdge.BreakpointEdge],
+    ):
         """A helper function to update the graph.
 
         Synchronizes the node-to-edge and edge-to-node mappings after adding
@@ -184,7 +191,7 @@ class BreakpointGraph:
         # add breakpoint termini to node list.
         self.__nodes.add(edge.left_breakpoint)
         self.__nodes.add(edge.right_breakpoint)
-    
+
         self.__node_to_edge[edge.left_breakpoint].append(edge)
         self.__node_to_edge[edge.right_breakpoint].append(edge)
 

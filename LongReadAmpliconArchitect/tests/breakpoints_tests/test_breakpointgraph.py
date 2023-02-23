@@ -133,14 +133,13 @@ class TestBreakpointGraph(unittest.TestCase):
             self.assertTrue(node in breakpoint_graph)
 
     def test_add_edge(self):
-        
         breakpoint_graph = BreakpointGraph.BreakpointGraph(
             sequence_edges=[self.sequence_edge],
             discordant_edges=[],
             concordant_edges=[self.breakpoint2],
         )
 
-         # test edge addition
+        # test edge addition
         breakpoint_graph.add_discordant_edge(self.breakpoint1)
         self.assertTrue(("chr1", 2000, "+") in breakpoint_graph.nodes)
 
@@ -189,7 +188,9 @@ class TestBreakpointGraph(unittest.TestCase):
 
         # ensure edge does not exist anymore
         self.assertFalse(self.breakpoint1 in breakpoint_graph.discordant_edges)
-        self.assertEqual(len(breakpoint_graph.get_edges(self.breakpoint1.left_breakpoint)), 1)
+        self.assertEqual(
+            len(breakpoint_graph.get_edges(self.breakpoint1.left_breakpoint)), 1
+        )
 
         # ensure that that the node without an edge is removed
         expected_removed_node = self.breakpoint1.right_breakpoint
