@@ -212,6 +212,18 @@ def cigar2posSMIS(cigar, strand, read_length) -> Tuple[int, int, int]:
 		qe = read_length - int(cigar[: cigar.index('S')]) -1
 	return qs, qe, al
 
+# Dict indicating which cigar2pos operation will be called 
+	cigar2pos_ops = {"SM": cigar2posSM,
+		"MS": cigar2posMS,
+		"SMS": cigar2posSMS,
+		"SMD": cigar2posSMD,	
+		"MDS": cigar2posMDS,
+		"SMDS": cigar2posSMDS,
+		"SMI": cigar2posSMI,
+		"MIS": cigar2posMIS,
+		"SMIS": cigar2posSMIS
+	}
+
 def alignment_from_satags(sa_list: List[str], read_length) -> Tuple[list, list, list]:
 	"""
 	Convert "SA:Z" a list of strings into a new chimeric alignment. 
@@ -225,18 +237,6 @@ def alignment_from_satags(sa_list: List[str], read_length) -> Tuple[list, list, 
 		chimeric alignment in the form of qint, rint and qual list
 		Alignments sorted according to the starting positions on the read on positive strand
 	"""
-
-	#Dict indicating which cigar2pos operation will be called 
-	cigar2pos_ops = {"SM": cigar2posSM,
-		"MS": cigar2posMS,
-		"SMS": cigar2posSMS,
-		"SMD": cigar2posSMD,	
-		"MDS": cigar2posMDS,
-		"SMDS": cigar2posSMDS,
-		"SMI": cigar2posSMI,
-		"MIS": cigar2posMIS,
-		"SMIS": cigar2posSMIS
-	}
 
 	qint, rint, qual = [], [], []
 	for sa in sa_list:
