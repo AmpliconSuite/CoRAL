@@ -213,16 +213,16 @@ def cigar2posSMIS(cigar, strand, read_length) -> Tuple[int, int, int]:
 	return qs, qe, al
 
 # Dict indicating which cigar2pos operation will be called 
-	cigar2pos_ops = {"SM": cigar2posSM,
-		"MS": cigar2posMS,
-		"SMS": cigar2posSMS,
-		"SMD": cigar2posSMD,	
-		"MDS": cigar2posMDS,
-		"SMDS": cigar2posSMDS,
-		"SMI": cigar2posSMI,
-		"MIS": cigar2posMIS,
-		"SMIS": cigar2posSMIS
-	}
+cigar2pos_ops = {"SM": cigar2posSM,
+	"MS": cigar2posMS,
+	"SMS": cigar2posSMS,
+	"SMD": cigar2posSMD,	
+	"MDS": cigar2posMDS,
+	"SMDS": cigar2posSMDS,
+	"SMI": cigar2posSMI,
+	"MIS": cigar2posMIS,
+	"SMIS": cigar2posSMIS
+}
 
 def alignment_from_satags(sa_list: List[str], read_length) -> Tuple[list, list, list]:
 	"""
