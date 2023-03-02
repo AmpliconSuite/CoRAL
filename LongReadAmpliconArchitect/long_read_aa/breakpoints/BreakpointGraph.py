@@ -82,7 +82,7 @@ class BreakpointGraph:
             )
 
         if key not in self.__nodes:
-            raise Excpetion("Breakpoint node not found in graph.")
+            raise Exception("Breakpoint node not found in graph.")
 
         return self.__node_to_edge[key]
 
@@ -94,12 +94,12 @@ class BreakpointGraph:
         as needed from the adjacency list. The function will also merge together
         sequence edges should a breakpoint node no longer exist after the edge
         removal.
-        
+
         Args:
             breakpoint_edge: A breakpoint edge.
         """
         if type(breakpoint_edge) != BreakpointEdge.BreakpointEdge:
-            raise Excpetion("Breakpoint edge must be of type BreakpointEdge.")
+            raise Exception("Breakpoint edge must be of type BreakpointEdge.")
 
         if breakpoint_edge in self.__discordant_edges:
             self.__discordant_edges.remove(breakpoint_edge)
@@ -110,31 +110,85 @@ class BreakpointGraph:
         else:
             raise Exception("Breakpoint edge does not exist.")
 
-        for node in self.__edge_to_node[breakpoint_edge]:
+        incident_nodes = self.__edge_to_node[breakpoint_edge]
+        del self.__edge_to_node[breakpoint_edge]
+        
+        # update node mappings and merge sequence edges as needed
+        for node in incident_nodes:
             self.__node_to_edge[node].remove(breakpoint_edge)
 
-            # if node now has no breakpoint edges, remove it and merge sequence
-            # edges
+            # if node now has no discordant edge, merge sequence edges as needed
             node_edges = self.__node_to_edge[node]
-            if len(node_edges) > 0 and all(
-                [type(edge) is SequenceEdge.SequenceEdge for edge in node_edges]
+            if len(node_edges) == 2 and all(
+                [
+                    edge not in self.__discordant_edges
+                    and edge not in self.__source_edges for edge in node_edges
+                ]
             ):
-                sequence_edge1, sequence_edge2 = node_edges[0], node_edges[1]
+                if node_edges[0] in self.__concordant_edges:
+                    concordant_edge, sequence_edge1 = (
+                        node_edges[0],
+                        node_edges[1],
+                    )
+                else:
+                    concordant_edge, sequence_edge1 = (
+                        node_edges[1],
+                        node_edges[0],
+                    )
 
-                 # remove edges
+                # get the node connecting to the concordant edge
+                pair_node = (
+                    concordant_edge.right_breakpoint
+                    if node == concordant_edge.left_breakpoint
+                    else concordant_edge.left_breakpoint
+                )
+                print(node, pair_node)
+
+                # don't do anything if the pair node connected to the concordant
+                # edge still has a discordant edge.
+                if any(
+                    [
+                        edge in self.__discordant_edges
+                        or edge in self.__source_edges
+                        for edge in self.__node_to_edge[pair_node]
+                    ]
+                ):
+                    continue
+
+                # remove concordant edge and update mappings
+                self.__concordant_edges.remove(concordant_edge)
+                for _node in self.__edge_to_node[concordant_edge]:
+                    self.__node_to_edge[_node].remove(concordant_edge)
+                del self.__edge_to_node[concordant_edge]
+
+                sequence_edge2 = self.__node_to_edge[pair_node][0]
+
+                # remove old sequence edges and update mappings
                 self.__sequence_edges.remove(sequence_edge1)
                 self.__sequence_edges.remove(sequence_edge2)
-
-                # update mappings
                 for _node in self.__edge_to_node[sequence_edge1]:
                     self.__node_to_edge[_node].remove(sequence_edge1)
                 for _node in self.__edge_to_node[sequence_edge2]:
                     self.__node_to_edge[_node].remove(sequence_edge2)
+                del self.__edge_to_node[sequence_edge1]
+                del self.__edge_to_node[sequence_edge2]
+
+                # remove node
+                nodes_to_remove = [
+                    sequence_edge1.right_breakpoint,
+                    sequence_edge2.left_breakpoint,
+                ]
+                for _node in nodes_to_remove:
+                    self.__nodes.remove(_node)
+                    for edge in self.__node_to_edge[_node]:
+                        self.__edge_to_node[edge].remove(_node)
+                    del self.__node_to_edge[_node]
 
                 # create new edge
                 chromosome = sequence_edge1.chromosome
-                start = min(sequence_edge1.start, sequence_edge2.start)
-                end = max(sequence_edge1.end, sequence_edge2.end)
+                start = sequence_edge1.start
+                end = sequence_edge2.end
+                
                 support = {
                     k: sequence_edge1.support[k] + sequence_edge2.support[k]
                     for k in sequence_edge1.support
@@ -151,7 +205,7 @@ class BreakpointGraph:
                 average_read_length = np.mean(
                     [
                         sequence_edge1.average_read_length,
-                        sequence_edge2.average_read_length
+                        sequence_edge2.average_read_length,
                     ]
                 )
 
@@ -164,12 +218,6 @@ class BreakpointGraph:
                     average_read_length,
                 )
                 self.add_sequence_edge(new_sequence_edge)
-
-                # remove node
-                self.__nodes.remove(node)
-                for edge in self.__node_to_edge[node]:
-                    self.__edge_to_node[edge].remove(node)
-                del self.__node_to_edge[node]
 
     def add_node(self, key: Tuple[str, int, str]):
         """Add a new node to the breakpoint graph.

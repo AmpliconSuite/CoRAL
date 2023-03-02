@@ -18,8 +18,8 @@ class BreakpointEdge:
         annotation: Optional[
             Literal["concordant", "discordant", "source"]
         ] = None,
-        support: Optional[Dict[str, int]] = None,
-        copy_number: Optional[Dict[str, int]] = None,
+        support: Dict[str, int] = None,
+        copy_number: Dict[str, int] = None,
     ):
         """Constructor of BreakpointEdge.
 

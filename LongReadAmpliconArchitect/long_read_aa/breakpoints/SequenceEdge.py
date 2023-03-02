@@ -10,9 +10,9 @@ class SequenceEdge:
         chromosome: str,
         start: int,
         end: int,
-        support: Optional[Dict[str, int]] = None,
-        copy_number: Optional[Dict[str, int]] = None,
-        average_read_length: Optional[int] = None,
+        support: Dict[str, int] = {},
+        copy_number: Dict[str, int] = {},
+        average_read_length: int = 0,
     ):
         """Class for sequence edges.
 
@@ -29,8 +29,6 @@ class SequenceEdge:
                 estimation.
             copy_number: Estimated copy number.
         """
-        if end < start:
-            raise Exception("Sequence end start is after end.")
         if support and any(support[key] < 0 for key in support):
             raise Exception("Support should be positive.")
         if copy_number and any(copy_number[key] < 0 for key in copy_number):
@@ -49,12 +47,14 @@ class SequenceEdge:
 
         Note that both start and end node will be inclusive on a sequence edge.
         """
+        if self.start > self.end:
+            return self.start - self.end + 1
         return self.end - self.start + 1
 
     @property
     def left_breakpoint(self) -> Tuple[str, int, str]:
         """Quick accessor of the left breakpoint."""
-        return (self.chromosome, self.start, "+")
+        return (self.chromosome, self.start, "-")
 
     @property
     def right_breakpoint(self) -> Tuple[str, int, str]:
@@ -63,4 +63,4 @@ class SequenceEdge:
 
     def __str__(self):
         """Prints SequenceEdge."""
-        return f"{self.chromosome}:{self.start}-{self.end}"
+        return f"{self.chromosome}:{self.start}->{self.end}"
