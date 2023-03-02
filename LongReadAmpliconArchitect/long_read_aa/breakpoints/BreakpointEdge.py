@@ -53,7 +53,7 @@ class BreakpointEdge:
         self.copy_number = copy_number
 
         # store read names supporting each breakpoint edge.
-        self.read_names = []
+        self.read_names = set()
 
     @property
     def left_breakpoint(self) -> Tuple[str, int, str]:
