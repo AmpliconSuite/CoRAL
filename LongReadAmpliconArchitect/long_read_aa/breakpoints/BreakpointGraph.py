@@ -21,7 +21,7 @@ class BreakpointGraph:
         discordant_edges: List[BreakpointEdge.BreakpointEdge] = [],
         concordant_edges: List[BreakpointEdge.BreakpointEdge] = [],
         source_edges: List[BreakpointEdge.BreakpointEdge] = [],
-        amplicon_intervals: Optional[List[str]] = None,
+        amplicon_intervals: Optional[List[Tuple[str, int, int]]] = None,
     ):
         # Keep these private so they're protected
         self.__sequence_edges = set(sequence_edges)
