@@ -196,6 +196,57 @@ class TestBreakpointGraph(unittest.TestCase):
         expected_removed_node = self.breakpoint1.right_breakpoint
         self.assertFalse(expected_removed_node in breakpoint_graph.nodes)
 
+    def test_and_merge_edge(self):
+        
+        seq_edge1 = SequenceEdge.SequenceEdge('chr1', 1000, 2000, {'lib1': 10}, {'lib1': 2}, 1000)
+        seq_edge2 = SequenceEdge.SequenceEdge('chr1', 2000, 7000, {'lib1': 20}, {'lib1': 4}, 4030)
+        breakpoint_edge = BreakpointEdge.BreakpointEdge("chr1", 2000, "+", "chr2", 4000, "-", annotation="discordant")
+
+        breakpoint_graph = BreakpointGraph.BreakpointGraph(
+            sequence_edges=[seq_edge1, seq_edge2],
+            discordant_edges=[breakpoint_edge],
+            concordant_edges=[],
+        )
+
+        print(breakpoint_graph.get_edges(('chr1', 1000, "+")))
+
+        self.assertTrue(breakpoint_edge in breakpoint_graph.discordant_edges)
+        self.assertTrue(('chr1', 2000, '+') in breakpoint_graph.nodes)
+
+        breakpoint_graph.remove_edge(breakpoint_edge)
+
+        for node in breakpoint_graph.nodes:
+            print(node)
+
+        # ccheck breakpoint edges and sequenece edges were removed
+        self.assertFalse(breakpoint_edge in breakpoint_graph.discordant_edges)
+        self.assertFalse(seq_edge1 in breakpoint_graph.sequence_edges)
+        self.assertFalse(seq_edge2 in breakpoint_graph.sequence_edges)
+        self.assertFalse(('chr1', 2000, "+") in breakpoint_graph.nodes)
+
+        # check nodes that should be there 
+        self.assertTrue(('chr1', 1000, "+") in breakpoint_graph.nodes)
+        self.assertTrue(('chr1', 7000, "+") in breakpoint_graph.nodes)
+
+        # ensure merge was done successfully
+        new_sequence_edge = breakpoint_graph.sequence_edges[0]
+        self.assertEqual(new_sequence_edge.start, 1000)
+        self.assertEqual(new_sequence_edge.end, 7000)
+        self.assertEqual(new_sequence_edge.support['lib1'], 30)
+        self.assertEqual(new_sequence_edge.copy_number['lib1'], 3.0)
+        self.assertEqual(new_sequence_edge.average_read_length, 2515.0)
+
+        # check new sequence edge is on expected nodes
+        edges = breakpoint_graph.get_edges(('chr1', 1000, "+"))
+        self.assertTrue(len(edges) == 1)
+        self.assertTrue(edges[0].left_breakpoint == ('chr1', 1000, "+"))
+        self.assertTrue(edges[0].right_breakpoint == ('chr1', 7000, "+"))
+
+        edges = breakpoint_graph.get_edges(('chr1', 7000, "+"))
+        self.assertTrue(len(edges) == 1)
+        self.assertTrue(edges[0].left_breakpoint == ('chr1', 1000, "+"))
+        self.assertTrue(edges[0].right_breakpoint == ('chr1', 7000, "+"))
+
 
 if __name__ == "__main__":
     unittest.main()

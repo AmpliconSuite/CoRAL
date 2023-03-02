@@ -6,6 +6,7 @@ from a given sequencing file.
 from collections import defaultdict
 from typing import Any, List, Optional, Tuple, Union
 
+import numpy as np
 import pandas as pd
 
 from long_read_aa.breakpoints import BreakpointEdge, SequenceEdge
@@ -92,10 +93,7 @@ class BreakpointGraph:
         a discordant edge from the list of discordant edges and as needed from
         the adjacency list. The function will then check to ensure that there
         are no breakpoints with degree 0.
-
-        TODO: If a node has only sequence edges, keep it and merge the two
-        sequence edges.
-
+        
         Args:
             breakpoint_edge: A breakpoint edge.
         """
@@ -113,6 +111,64 @@ class BreakpointGraph:
 
         for node in self.__edge_to_node[breakpoint_edge]:
             self.__node_to_edge[node].remove(breakpoint_edge)
+
+            # if node now has no breakpoint edges, remove it and merge sequence
+            # edges
+            node_edges = self.__node_to_edge[node]
+            if len(node_edges) > 0 and all(
+                [type(edge) is SequenceEdge.SequenceEdge for edge in node_edges]
+            ):
+                sequence_edge1, sequence_edge2 = node_edges[0], node_edges[1]
+
+                 # remove edges
+                self.__sequence_edges.remove(sequence_edge1)
+                self.__sequence_edges.remove(sequence_edge2)
+
+                # update mappings
+                for _node in self.__edge_to_node[sequence_edge1]:
+                    self.__node_to_edge[_node].remove(sequence_edge1)
+                for _node in self.__edge_to_node[sequence_edge2]:
+                    self.__node_to_edge[_node].remove(sequence_edge2)
+
+                # create new edge
+                chromosome = sequence_edge1.chromosome
+                start = min(sequence_edge1.start, sequence_edge2.start)
+                end = max(sequence_edge1.end, sequence_edge2.end)
+                support = {
+                    k: sequence_edge1.support[k] + sequence_edge2.support[k]
+                    for k in sequence_edge1.support
+                }
+                copy_number = {
+                    k: np.mean(
+                        [
+                            sequence_edge1.copy_number[k],
+                            sequence_edge2.copy_number[k],
+                        ]
+                    )
+                    for k in sequence_edge1.copy_number
+                }
+                average_read_length = np.mean(
+                    [
+                        sequence_edge1.average_read_length,
+                        sequence_edge2.average_read_length
+                    ]
+                )
+
+                new_sequence_edge = SequenceEdge.SequenceEdge(
+                    chromosome,
+                    start,
+                    end,
+                    support,
+                    copy_number,
+                    average_read_length,
+                )
+                self.add_sequence_edge(new_sequence_edge)
+
+                # remove node
+                self.__nodes.remove(node)
+                for edge in self.__node_to_edge[node]:
+                    self.__edge_to_node[edge].remove(node)
+                del self.__node_to_edge[node]
 
         # if the node now has degree 0 remove the node
         all_nodes = self.nodes
