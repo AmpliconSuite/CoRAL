@@ -198,8 +198,8 @@ class TestBreakpointGraph(unittest.TestCase):
 
     def test_and_merge_edge(self):
         
-        sequence_edge1 = SequenceEdge.SequenceEdge('chr1', 1000, 2000)
-        sequence_edge2 = SequenceEdge.SequenceEdge('chr1', 2001, 7000)
+        sequence_edge1 = SequenceEdge.SequenceEdge('chr1', 1000, 2000, support={'lib1': 10}, copy_number = {'lib1': 2}, average_read_length = 1000)
+        sequence_edge2 = SequenceEdge.SequenceEdge('chr1', 2001, 7000, support={'lib1': 20}, copy_number = {'lib1': 4}, average_read_length = 4030)
         discordant_edge = BreakpointEdge.BreakpointEdge('chr1', 2000, '+', 'chr2', 4000, '-', annotation='discordant')
         concordant_edge = BreakpointEdge.BreakpointEdge('chr1', 2000, '+', 'chr1', 2001, '-', annotation='concordant')
 
@@ -229,23 +229,23 @@ class TestBreakpointGraph(unittest.TestCase):
         self.assertTrue(('chr1', 7000, "+") in breakpoint_graph.nodes)
 
         # ensure merge was done successfully
-        # new_sequence_edge = breakpoint_graph.sequence_edges[0]
-        # self.assertEqual(new_sequence_edge.start, 1000)
-        # self.assertEqual(new_sequence_edge.end, 7000)
-        # self.assertEqual(new_sequence_edge.support['lib1'], 30)
-        # self.assertEqual(new_sequence_edge.copy_number['lib1'], 3.0)
-        # self.assertEqual(new_sequence_edge.average_read_length, 2515.0)
+        new_sequence_edge = breakpoint_graph.sequence_edges[0]
+        self.assertEqual(new_sequence_edge.start, 1000)
+        self.assertEqual(new_sequence_edge.end, 7000)
+        self.assertEqual(new_sequence_edge.support['lib1'], 30)
+        self.assertEqual(new_sequence_edge.copy_number['lib1'], 3.0)
+        self.assertEqual(new_sequence_edge.average_read_length, 2515.0)
 
         # check new sequence edge is on expected nodes
-        # edges = breakpoint_graph.get_edges(('chr1', 1000, "-"))
-        # self.assertTrue(len(edges) == 1)
-        # self.assertTrue(edges[0].left_breakpoint == ('chr1', 1000, "-"))
-        # self.assertTrue(edges[0].right_breakpoint == ('chr1', 7000, "+"))
+        edges = breakpoint_graph.get_edges(('chr1', 1000, "-"))
+        self.assertTrue(len(edges) == 1)
+        self.assertTrue(edges[0].left_breakpoint == ('chr1', 1000, "-"))
+        self.assertTrue(edges[0].right_breakpoint == ('chr1', 7000, "+"))
 
-        # edges = breakpoint_graph.get_edges(('chr1', 7000, "+"))
-        # self.assertTrue(len(edges) == 1)
-        # self.assertTrue(edges[0].left_breakpoint == ('chr1', 1000, "-"))
-        # self.assertTrue(edges[0].right_breakpoint == ('chr1', 7000, "+"))
+        edges = breakpoint_graph.get_edges(('chr1', 7000, "+"))
+        self.assertTrue(len(edges) == 1)
+        self.assertTrue(edges[0].left_breakpoint == ('chr1', 1000, "-"))
+        self.assertTrue(edges[0].right_breakpoint == ('chr1', 7000, "+"))
 
 
 if __name__ == "__main__":
