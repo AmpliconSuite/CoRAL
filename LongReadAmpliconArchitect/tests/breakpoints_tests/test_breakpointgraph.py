@@ -192,10 +192,6 @@ class TestBreakpointGraph(unittest.TestCase):
             len(breakpoint_graph.get_edges(self.breakpoint1.left_breakpoint)), 1
         )
 
-        # ensure that that the node without an edge is removed
-        expected_removed_node = self.breakpoint1.right_breakpoint
-        self.assertFalse(expected_removed_node in breakpoint_graph.nodes)
-
     def test_and_merge_edge(self):
         
         seq_edge1 = SequenceEdge.SequenceEdge('chr1', 1000, 2000, {'lib1': 10}, {'lib1': 2}, 1000)

@@ -90,9 +90,10 @@ class BreakpointGraph:
         """Delete edge from graph.
 
         Deletes an edge from the graph. Specifically, this function will remove
-        a discordant edge from the list of discordant edges and as needed from
-        the adjacency list. The function will then check to ensure that there
-        are no breakpoints with degree 0.
+        a concordant, discordant, or source edge from the appropriate list and
+        as needed from the adjacency list. The function will also merge together
+        sequence edges should a breakpoint node no longer exist after the edge
+        removal.
         
         Args:
             breakpoint_edge: A breakpoint edge.
@@ -169,13 +170,6 @@ class BreakpointGraph:
                 for edge in self.__node_to_edge[node]:
                     self.__edge_to_node[edge].remove(node)
                 del self.__node_to_edge[node]
-
-        # if the node now has degree 0 remove the node
-        all_nodes = self.nodes
-        for node in all_nodes:
-            if len(self.__node_to_edge[node]) == 0:
-                del self.__node_to_edge[node]
-                self.__nodes.remove(node)
 
     def add_node(self, key: Tuple[str, int, str]):
         """Add a new node to the breakpoint graph.
