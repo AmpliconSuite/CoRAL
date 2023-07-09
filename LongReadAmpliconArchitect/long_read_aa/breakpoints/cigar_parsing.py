@@ -236,58 +236,39 @@ cigar2pos_ops = {
     "SMIS": cigar2posSMIS,
 }
 
+def alignment_from_satags(sa_list: List[str], read_length) -> Tuple[list, list, list]:
+	"""
+	Convert "SA:Z" a list of strings into a new chimeric alignment. 
+	Require at least one (soft) clip and one match for each canonical alignment record in a chimeric alignment
+		If not, trigger a warning message in logger
 
-def alignment_from_satags(
-    sa_list: List[str], read_length
-) -> Tuple[list, list, list]:
-    """
-    Convert "SA:Z" a list of strings into a new chimeric alignment.
-    Require at least one (soft) clip and one match for each canonical alignment record in a chimeric alignment
-            If not, trigger a warning message in logger
+	Args:
+		sa_list: A list of "SA:Z" tags from bam
+		read_length: Read length
+	Returns:
+		chimeric alignment in the form of qint, rint and qual list
+		Alignments sorted according to the starting positions on the read on positive strand
+	"""
+	qint, rint, qual = [], [], []
+	for sa in sa_list:
+		t = sa.split(',')
+		if 'S' not in t[3] or 'M' not in t[3]:
+			# Require a chimeric alignment record having at least some (soft)clips and matches 
+			logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Found chimeric alignment without match or soft clips.")
+			#logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tRead name: %s; Read length: %d." %(r, read_length))
+			logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAll CIGAR strings: %s." %(sa_list))
+			return ([], [], [])
+		op = ''.join(c for c in t[3] if not c.isdigit())
+		qs, qe, al = cigar2pos_ops[op](t[3], t[2], read_length)
+		qint.append([qs, qe])
+		if t[2] == '+':
+			rint.append([t[0], int(t[1]) - 1, int(t[1]) + al - 2, '+']) # converted to 0 based coordinates
+		else:
+			rint.append([t[0], int(t[1]) + al - 2, int(t[1]) - 1, '-']) # converted to 0 based coordinates
+		qual.append(int(t[4]))
+	qint_ind = sorted(range(len(qint)), key = lambda i: (qint[i][0], qint[i][1]))
+	qint = [qint[i] for i in qint_ind]
+	rint = [rint[i] for i in qint_ind]
+	qual = [qual[i] for i in qint_ind]
+	return (qint, rint, qual)
 
-    Args:
-            sa_list: A list of "SA:Z" tags from bam
-            read_length: Read length
-    Returns:
-            chimeric alignment in the form of qint, rint and qual list
-            Alignments sorted according to the starting positions on the read on positive strand
-    """
-
-    qint, rint, qual = [], [], []
-    for sa in sa_list:
-        t = sa.split(",")
-        if "S" not in t[3] or "M" not in t[3]:
-            # Require a chimeric alignment record having at least some (soft)clips and matches
-            logging.warning(
-                "#TIME "
-                + "%.4f\t" % (time.time() - global_names.TSTART)
-                + "Found chimeric alignment without match or soft clips."
-            )
-            logging.warning(
-                "#TIME "
-                + "%.4f\t" % (time.time() - global_names.TSTART)
-                + "\tRead name: %s; Read length: %d." % (r, read_length)
-            )
-            logging.warning(
-                "#TIME "
-                + "%.4f\t" % (time.time() - global_names.TSTART)
-                + "\tAll CIGAR strings: %s." % (self.chimeric_alignments[r])
-            )
-            continue
-        op = "".join(c for c in t[3] if not c.isdigit())
-        qs, qe, al = cigar2pos_ops[op](t[3], t[2], read_length)
-        qint.append([qs, qe])
-        if t[2] == "+":
-            rint.append(
-                [t[0], int(t[1]) - 1, int(t[1]) + al - 2, "+"]
-            )  # converted to 0 based coordinates
-        else:
-            rint.append(
-                [t[0], int(t[1]) + al - 2, int(t[1]) - 1, "-"]
-            )  # converted to 0 based coordinates
-        qual.append(int(t[4]))
-    qint_ind = sorted(range(len(qint)), key=lambda i: (qint[i][0], qint[i][1]))
-    qint = [qint[i] for i in qint_ind]
-    rint = [rint[i] for i in qint_ind]
-    qual = [qual[i] for i in qint_ind]
-    return (qint, rint, qual)
