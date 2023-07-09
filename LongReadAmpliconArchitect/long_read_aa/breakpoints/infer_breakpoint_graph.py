@@ -1500,7 +1500,5 @@ if __name__ == '__main__':
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total runtime.")
 	#print (len(b2bn.new_bp_list), b2bn.new_bp_list)
 
-	
-	
 
 
