@@ -8,202 +8,18 @@ import argparse
 import sys
 import os
 import numpy as np
-from collections import Counter
 import cvxopt
 import cvxopt.modeling
 import gurobipy as gp
 from gurobipy import GRB
 
 import cigar_parsing
+from breakpoint_utilities import *
 from long_read_aa.breakpoints import global_names
 global_names.TSTART = start_time
 
 
 edge_type_to_index = {'s': 1, 'c': 2, 'd': 3}
-
-
-def interval_overlap(int1, int2):
-	"""
-	Check if two intervals in the form of [chr, s, e] overlap
-	"""
-	return (int1[0] == int2[0] and int(int1[1]) <= int(int2[2]) and int(int2[1]) <= int(int1[2]))
-
-
-def interval_overlap_l(int1, intl):
-	"""
-	Check if an interval in the form of [chr, s, e] overlaps with a list of intervals
-	"""
-	for int2i in range(len(intl)):
-		if interval_overlap(int1, intl[int2i]):
-			return int2i
-	return -1
-
-
-def bp_match(bp1, bp2, rgap, bp_distance_cutoff):
-	"""
-	Check if two breakpoints match
-	A breakpoint (chr1, e1, chr2, s2) must either satisfy chr1 > chr2 or chr1 == chr2 and e1 >= s2
-	"""
-	if bp1[0] == bp2[0] and bp1[3] == bp2[3] and bp1[2] == bp2[2] and bp1[5] == bp2[5]:
-		if rgap <= 0:
-			return (abs(int(bp1[1]) - int(bp2[1])) < bp_distance_cutoff[0] and \
-				abs(int(bp1[4]) - int(bp2[4])) < bp_distance_cutoff[1])
-		rgap_ = rgap
-		consume_rgap = [0, 0]
-		if bp1[2] == '+' and int(bp1[1]) <= int(bp2[1]) - bp_distance_cutoff[0]:
-			rgap_ -= (int(bp2[1]) - bp_distance_cutoff[0] - int(bp1[1]) + 1)
-			consume_rgap[0] = 1
-		if bp1[2] == '-' and int(bp1[1]) >= int(bp2[1]) + bp_distance_cutoff[0]:
-			rgap_ -= (int(bp1[1]) - int(bp2[1]) - bp_distance_cutoff[0] + 1)
-			consume_rgap[0] = 1
-		if bp1[5] == '+' and int(bp1[4]) <= int(bp2[4]) - bp_distance_cutoff[1]:
-			rgap_ -= (int(bp2[4]) - bp_distance_cutoff[1] - int(bp1[4]) + 1)
-			consume_rgap[1] = 1
-		if bp1[5] == '-' and int(bp1[4]) >= int(bp2[4]) + bp_distance_cutoff[1]:
-			rgap_ -= (int(bp1[4]) - int(bp2[4]) - bp_distance_cutoff[1] + 1)
-			consume_rgap[1] = 1
-		return (((consume_rgap[0] == 1 and rgap_ >= 0) or (abs(int(bp1[1]) - int(bp2[1])) < bp_distance_cutoff[0])) and \
-			((consume_rgap[1] == 1 and rgap_ >= 0) or (abs(int(bp1[4]) - int(bp2[4])) < bp_distance_cutoff[1])))
-	return False
-
-
-def interval2bp(R1, R2, r = (), rgap = 0):
-	"""
-	Convert split/chimeric alignment to breakpoint
-	"""
-	if (global_names.chr_idx[R2[0]] < global_names.chr_idx[R1[0]]) or (global_names.chr_idx[R2[0]] == global_names.chr_idx[R1[0]] and R2[1] < R1[2]):
-		return [R1[0], R1[2], R1[3], R2[0], R2[1], global_names.neg_plus_minus[R2[3]], r, rgap, 0]
-	return [R2[0], R2[1], global_names.neg_plus_minus[R2[3]], R1[0], R1[2], R1[3], (r[0], r[2], r[1]), rgap, 1]
-
-
-def bpc2bp(bp_cluster, bp_distance_cutoff):
-	"""
-	Call exact breakpoint from a breakpoint cluster
-	"""
-	#logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp_cluster = %s" %(bp_cluster))
-	bp = bp_cluster[0][:-2]
-	bp[1] = 0 if bp[2] == '+' else 1000000000
-	bp[4] = 0 if bp[5] == '+' else 1000000000
-	bpr = []
-	bp_stats = [0, 0, 0, 0]
-	bp_stats_ = [0, 0, 0, 0, 0, 0]
-	for bp_ in bp_cluster:
-		bp_stats[0] += bp_[1]
-		bp_stats[2] += (bp_[1] * bp_[1])
-		bp_stats[1] += bp_[4]
-		bp_stats[3] += (bp_[4] * bp_[4])
-	for i in range(4):
-		bp_stats[i] /= (len(bp_cluster) * 1.0)
-	try:
-		bp_stats[2] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[2] - bp_stats[0] * bp_stats[0]))
-	except:
-		bp_stats[2] = bp_distance_cutoff / 2.99
-	try:
-		bp_stats[3] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[3] - bp_stats[1] * bp_stats[1]))
-	except:
-		bp_stats[3] = bp_distance_cutoff / 2.99
-	#print ("bp_stats", bp_stats)
-	bp1_list = []
-	bp4_list = []
-	for bp_ in bp_cluster:
-		if bp_[1] <= bp_stats[0] + 3 * bp_stats[2] and bp_[1] >= bp_stats[0] - 3 * bp_stats[2] and \
-			bp_[4] <= bp_stats[1] + 3 * bp_stats[3] and bp_[4] >= bp_stats[1] - 3 * bp_stats[3]:
-			bp1_list.append(bp_[1])
-			bp4_list.append(bp_[4])
-			#if (bp_[2] == '+' and bp_[1] > bp[1]) or (bp_[2] == '-' and bp_[1] < bp[1]):
-			#	bp[1] = bp_[1]
-			#if (bp_[5] == '+' and bp_[4] > bp[4]) or (bp_[5] == '-' and bp_[4] < bp[4]):
-			#	bp[4] = bp_[4]
-	if len(bp1_list) > 0:
-		bp1_counter = Counter(bp1_list)
-		if len(bp1_counter.most_common(2)) == 1 or bp1_counter.most_common(2)[0][1] > bp1_counter.most_common(2)[1][1]:
-			bp[1] = bp1_counter.most_common(2)[0][0]
-		else:
-			if len(bp1_list) % 2 == 1:
-				bp[1] = int(np.median(bp1_list))
-			elif bp_[2] == '+':
-				bp[1] = int(math.ceil(np.median(bp1_list)))
-			else:
-				bp[1] = int(math.floor(np.median(bp1_list)))
-	if len(bp4_list) > 0:
-		bp4_counter = Counter(bp4_list)
-		if len(bp4_counter.most_common(2)) == 1 or bp4_counter.most_common(2)[0][1] > bp4_counter.most_common(2)[1][1]:
-			bp[4] = bp4_counter.most_common(2)[0][0]
-		else:
-			if len(bp4_list) % 2 == 1:
-				bp[4] = int(np.median(bp4_list))
-			elif bp_[5] == '+':
-				bp[4] = int(math.ceil(np.median(bp4_list)))
-			else:
-				bp[4] = int(math.floor(np.median(bp4_list)))
-	#logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp = %s" %(bp))
-	bp_cluster_r = []
-	for bp_ in bp_cluster:
-		if bp_match(bp_, bp, bp_[7] * 1.2, [bp_distance_cutoff, bp_distance_cutoff]):
-			bpr.append(bp_[6])
-			bp_stats_[0] += bp_[1]
-			bp_stats_[2] += (bp_[1] * bp_[1])
-			bp_stats_[1] += bp_[4]
-			bp_stats_[3] += (bp_[4] * bp_[4])
-			if bp_[-3] == 0:
-				bp_stats_[4] += bp_[-2]
-				bp_stats_[5] += bp_[-1]
-			else:
-				bp_stats_[4] += bp_[-1]
-				bp_stats_[5] += bp_[-2]
-		else:
-			bp_cluster_r.append(bp_)
-	if len(bpr) == 0:
-		return bp, bpr, [0, 0, 0, 0, 0, 0], []
-	for i in range(6):
-		bp_stats_[i] /= (len(bpr) * 1.0)
-	#print (bp_stats_)
-	try:
-		bp_stats_[2] = math.sqrt(bp_stats_[2] - bp_stats_[0] * bp_stats_[0])
-	except:
-		bp_stats_[2] = 0
-	try:
-		bp_stats_[3] = math.sqrt(bp_stats_[3] - bp_stats_[1] * bp_stats_[1])
-	except:
-		bp_stats_[3] = 0
-	return bp, bpr, bp_stats_, bp_cluster_r
-
-
-def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
-	"""
-	Clustering the breakpoints in bp_list
-	"""
-	bp_dict = dict()
-	for bpi in range(len(bp_list)):
-		bp = bp_list[bpi]
-		try:
-			bp_dict[(bp[0], bp[3], bp[2], bp[5])].append(bpi)
-		except:
-			bp_dict[(bp[0], bp[3], bp[2], bp[5])] = [bpi]
-	
-	bp_clusters = []
-	for bp_chr_or in bp_dict.keys():
-		if len(bp_dict[bp_chr_or]) >= min_cluster_size:
-			bp_clusters_ = []
-			for bpi in bp_dict[bp_chr_or]:
-				bp = bp_list[bpi]
-				bpcim = -1
-				for bpci in range(len(bp_clusters_)):
-					for lbp in bp_clusters_[bpci]:
-						if abs(int(bp[1]) - int(lbp[1])) < bp_distance_cutoff and \
-							abs(int(bp[4]) - int(lbp[4])) < bp_distance_cutoff:
-							bpcim = bpci
-							break
-					if bpcim > 0:
-						break
-				if bpcim > 0:
-					bp_clusters_[bpcim].append(bp)
-				else:
-					bp_clusters_.append([bp])
-			bp_clusters += bp_clusters_
-		else:
-			bp_clusters.append([bp_list[bpi] for bpi in bp_dict[bp_chr_or]])
-	return bp_clusters
 
 
 class bam_to_breakpoint_hybrid():
@@ -264,6 +80,7 @@ class bam_to_breakpoint_hybrid():
 	normal_cov_sr = 0 # Normal short read coverage - used for CN assignment
 	normal_cov_lr = 0 # Normal long read coverage - used for CN assignment
 	max_CN = 0.0
+	max_seq_repeat = 2
 	
 
 	def __init__(self, sr_bamfile, lr_bamfile, aacfile):
@@ -990,14 +807,16 @@ class bam_to_breakpoint_hybrid():
 		bpi_ = 0
 		if aa_downsampled:
 			for bpi in range(len(self.discordant_edges)):
-				if self.discordant_edges[bpi][7] < 0.5 * self.normal_cov_lr and (self.discordant_edges[bpi][6][0] < 1.0 or self.discordant_edges[bpi][6][1] < min(10.0, 0.5 * self.normal_cov_sr)):
+				if (self.discordant_edges[bpi][7] < 0.5 * self.normal_cov_lr and (self.discordant_edges[bpi][6][0] < 1.0 or self.discordant_edges[bpi][6][1] < 0.5 * min(10.0, self.normal_cov_sr))) \
+					or (self.discordant_edges[bpi][7] < 0.1 and (self.discordant_edges[bpi][6][0] < 2.0 or self.discordant_edges[bpi][6][1] < min(10.0, self.normal_cov_sr))):
 					del_list.append(bpi)
 				else:
 					bpi_map[bpi] = bpi_
 					bpi_ += 1
 		else:
 			for bpi in range(len(self.discordant_edges)):
-				if self.discordant_edges[bpi][7] < 0.5 * self.normal_cov_lr and (self.discordant_edges[bpi][6][0] < 1.0 or self.discordant_edges[bpi][6][1] < 0.5 * self.normal_cov_sr):
+				if (self.discordant_edges[bpi][7] < 0.5 * self.normal_cov_lr and (self.discordant_edges[bpi][6][0] < 1.0 or self.discordant_edges[bpi][6][1] < 0.5 * self.normal_cov_sr)) or \
+					(self.discordant_edges[bpi][7] < 0.1 and (self.discordant_edges[bpi][6][0] < 2.0 or self.discordant_edges[bpi][6][1] < self.normal_cov_sr)):
 					del_list.append(bpi)
 				else:
 					bpi_map[bpi] = bpi_
@@ -1007,14 +826,14 @@ class bam_to_breakpoint_hybrid():
 		srci_ = 0
 		if aa_downsampled:
 			for srci in range(len(self.source_edges)):
-				if self.source_edges[srci][7] > 0.5 and (self.source_edges[srci][6] < 1.0 or self.source_edges[srci][7] < min(10.0, 0.5 * self.normal_cov_sr)):
+				if self.source_edges[srci][6] < 2.0 or (self.source_edges[srci][7] > 0.1 and self.source_edges[srci][7] < self.normal_cov_sr):
 					source_del_list.append(srci)
 				else:
 					srci_map[srci] = srci_
 					srci_ += 1
 		else:
 			for srci in range(len(self.source_edges)):
-				if self.source_edges[srci][7] > 0.5 and (self.source_edges[srci][6] < 1.0 or self.source_edges[srci][7] < 0.5 * self.normal_cov_sr):
+				if self.source_edges[srci][6] < 2.0 or (self.source_edges[srci][7] > 0.1 and self.source_edges[srci][7] < max(2.0, self.normal_cov_sr)):
 					source_del_list.append(srci)
 				else:
 					srci_map[srci] = srci_
@@ -1488,17 +1307,29 @@ class bam_to_breakpoint_hybrid():
 					self.source_edges[esi] += [sol['x'][lseg + lc + ld + lnbp + esi] * 2]
 					if sol['x'][lseg + lc + ld + lnbp + esi] * 2 > self.max_CN:
 						self.max_CN = sol['x'][lseg + lc + ld + lnbp + esi] * 2
+			seq_cn_list = [self.seq_edges[segi][-1] for segi in range(lseg) if self.seq_edges[segi][-2] >= 10000]
+			if len(seq_cn_list) > 0 and max(seq_cn_list) >= 5.0:
+				self.max_seq_repeat = int(round(max(seq_cn_list) / \
+						np.average([self.seq_edges[segi][-1] for segi in range(lseg) if self.seq_edges[segi][-1] >= 5.0], \
+						weights = [self.seq_edges[segi][-2] for segi in range(lseg) if self.seq_edges[segi][-1] >= 5.0]))) + 1
 		else:
 			assert lc == 0 and ld == 0 and lnbp == 0 and lsrc == 0
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Skipped convex optimization.")
 			for segi in range(lseg):
-				cn_segi = (self.sr_length * sseg[3]) / (self.normal_cov_sr * sseg[-1]) 
 				sseg = self.seq_edges[segi]
+				cn_segi = 0.0
+				if type(sseg[3]) is list:
+					cn_segi = (self.sr_length * sseg[3][0]) / (self.normal_cov_sr * sseg[-1])
+				else:
+					if aa_downsampled and self.normal_cov_sr > 10:
+						cn_segi = (self.sr_length * sseg[3]) / (10.0 * sseg[-1])
+					else:
+						cn_segi = (self.sr_length * sseg[3]) / (self.normal_cov_sr * sseg[-1])
 				if lr_seq_dist == 'poisson':
 					cn_segi += (sseg[4][0] * sseg[4][1]) / (self.normal_cov_lr * sseg[-1]) 
 					#print ("LR CN: %f" %((sseg[4][0] * sseg[4][1]) / (self.normal_cov_lr * sseg[-1])))
 				else:
-					cn_segi += self.normal_cov_lr * sseg[-1] / sseg[4][1]
+					cn_segi += sseg[4][1] / (self.normal_cov_lr * sseg[-1]) 
 				#cn_segi *= 0.5
 				self.seq_edges[segi] += [cn_segi]
 				if cn_segi > self.max_CN:
@@ -1737,7 +1568,10 @@ class bam_to_breakpoint_hybrid():
 		path_.append(('s', seqi))
 		path_.append(next_end)
 		while next_end != end_node:
-			ci = self.nodes[next_end][2][0]
+			try:
+				ci = self.nodes[next_end][2][0] # 07/20/2023 - read may span two amplicon intervals 
+			except:
+				return path_
 			path_.append(('c', ci))
 			cedge = self.concordant_edges[ci]
 			next_start = (cedge[0], cedge[1], cedge[2])
@@ -1832,7 +1666,7 @@ class bam_to_breakpoint_hybrid():
 		for rn in bp_reads.keys():
 			bp_reads_rn = bp_reads[rn][0]
 			bp_reads_rn_sdel = bp_reads[rn][1]
-			path = []
+			paths = []
 			if len(bp_reads_rn) == 1 and len(bp_reads_rn_sdel) == 0:
 				rints = self.chimeric_alignments[rn][1]
 				ai1 = bp_reads_rn[0][0]
@@ -1842,6 +1676,7 @@ class bam_to_breakpoint_hybrid():
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (%d, %d, %d)" \
 						%(rints, self.chimeric_alignments[rn][2], ai1, ai2, bpi))
 				path = self.chimeric_alignment_to_path_i(rints, ai1, ai2, bpi)
+				paths.append(path)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)	
 			elif len(bp_reads_rn) > 1 and len(bp_reads_rn_sdel) == 0:
 				bp_reads_rn = sorted(bp_reads_rn, key = lambda item: min(item[0], item[1]))
@@ -1876,6 +1711,7 @@ class bam_to_breakpoint_hybrid():
 						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %ai_block)
 						continue
 					path = self.chimeric_alignment_to_path(rints, ai_list, bp_list)
+					paths.append(path)
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bps = %s" \
 						%(rints, self.chimeric_alignments[rn][2], bp_reads_rn))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
@@ -1896,14 +1732,17 @@ class bam_to_breakpoint_hybrid():
 						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to inconsistent alignment information.")
 						continue
 				bpi = bp_reads_rn_sdel[0][2]
+				path = []
 				if rints[0][3] == '+':
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (1, 0, %d)" \
 							%(rints, rq, bpi))
 					path = self.chimeric_alignment_to_path_i(rints, 1, 0, bpi)
+					paths.append(path)
 				else:
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (0, 1, %d)" \
 							%(rints, rq, bpi))
 					path = self.chimeric_alignment_to_path_i(rints, 0, 1, bpi)
+					paths.append(path)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
 			elif len(bp_reads_rn) == 0 and len(bp_reads_rn_sdel) > 1:
 				rints = self.large_indel_alignments[rn]
@@ -1938,6 +1777,7 @@ class bam_to_breakpoint_hybrid():
 						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %ai_block)
 						continue
 					path = self.chimeric_alignment_to_path(rints_, ai_list, bp_list)
+					paths.append(path)
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bps = %s" \
 						%(rints_, rq, bp_reads_rn_sdel))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
@@ -2015,16 +1855,18 @@ class bam_to_breakpoint_hybrid():
 						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %ai_block)
 						continue
 					path = self.chimeric_alignment_to_path(rints, ai_list, bp_list)
+					paths.append(path)
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq (unsplit) = %s; bps = %s" \
 						%(rints, self.chimeric_alignments[rn][2], bp_reads_rn))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
-			if len(path) > 5 and self.valid_path(path):
-				if path not in self.path_constraints[0]:
-					self.path_constraints[0].append(path)
-					self.path_constraints[1].append(1)
-				else:
-					pci = self.path_constraints[0].index(path)
-					self.path_constraints[1][pci] += 1
+			for path in paths:
+				if len(path) > 5 and self.valid_path(path):
+					if path not in self.path_constraints[0]:
+						self.path_constraints[0].append(path)
+						self.path_constraints[1].append(1)
+					else:
+						pci = self.path_constraints[0].index(path)
+						self.path_constraints[1][pci] += 1
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "There are %d distinct subpaths due to reads involving breakpoints." %len(self.path_constraints[0]))
 		#extract reads in concordant_edges_reads
 		for ci in range(lc):
@@ -2037,10 +1879,11 @@ class bam_to_breakpoint_hybrid():
 				rn = read.query_name
 				q = read.mapq
 				if q >= 20 and rn in concordant_reads:
+					#print (read.reference_name, read.reference_start, read.reference_end)
 					path = self.alignment_to_path([read.reference_name, read.reference_start, read.reference_end])
 					#print ("case c:", [read.reference_name, read.reference_start, read.reference_end], path)
 					#print ()
-					if len(path) > 5:
+					if len(path) > 5 and self.valid_path(path):
 						if path not in self.path_constraints[0]:
 							self.path_constraints[0].append(path)
 							self.path_constraints[1].append(1)
@@ -2054,7 +1897,7 @@ class bam_to_breakpoint_hybrid():
 
 
 	def minimize_cycles(self, k, total_weights, node_order, pc_list, pc_indices,
-				max_bp_repeat = 1, p_total_weight = 0.9, p_bp_cn = 0.9, num_threads = 16):
+				max_seq_repeat = 2, p_total_weight = 0.9, p_bp_cn = 0.9, num_threads = 16, of_prefix = ""):
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Regular cycle decomposition with at most %d cycles/paths allowed." %k)
 		lseg = len(self.seq_edges)
 		lc = len(self.concordant_edges)
@@ -2065,7 +1908,7 @@ class bam_to_breakpoint_hybrid():
 		nedges = lseg + lc + ld + lnbp + 2 * lsrc + 2 * len(self.endnodes)
 
 		# Gurobi model
-		m = gp.Model("cycle_decomposition_" + str(k))
+		m = gp.Model(of_prefix + "_cycle_decomposition_k=" + str(k))
 		
 		# z[i]: indicating whether cycle or path i exists
 		z = m.addVars(k, vtype = GRB.BINARY, name = ["z" + str(i) for i in range(k)])
@@ -2085,7 +1928,7 @@ class bam_to_breakpoint_hybrid():
 		x = m.addVars(k * nedges, lb = 0.0, ub = 10.0, vtype = GRB.INTEGER, name = x_names)
 	
 		# Objective: minimize the total number of cycles
-		obj = gp.QuadExpr(0.0)
+		obj = gp.QuadExpr(1.0)
 		for i in range(k):
 			obj += z[i]
 			for seqi in range(lseg):
@@ -2170,12 +2013,14 @@ class bam_to_breakpoint_hybrid():
 			
 		# Occurrence of breakpoints in each cycle/path
 		for i in range(k):
+			for seqi in range(lseg):
+				m.addConstr(x[seqi * k + i] <= max_seq_repeat)
+			"""
 			for edi in range(ld):
-				if edi not in self.small_del_indices:
-					m.addConstr(x[(lseg + lc + edi) * k + i] <= max_bp_repeat)
+				m.addConstr(x[(lseg + lc + edi) * k + i] <= max_bp_repeat)
 			for bpi in range(lnbp):
-				if bpi not in self.small_del_indices_:
-					m.addConstr(x[(lseg + lc + ld + bpi) * k + i] <= max_bp_repeat)
+				m.addConstr(x[(lseg + lc + ld + bpi) * k + i] <= max_bp_repeat)
+			"""
 			
 		# c: decomposition i is a cycle, and start at particular node
 		c_names = []
@@ -2195,6 +2040,11 @@ class bam_to_breakpoint_hybrid():
 			for srci in range(lsrc): 
 				cycle_expr += x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] # (s, v)
 			m.addConstr(cycle_expr <= 1.0)
+
+		# special request for c added for max_seq_repeat >= 2
+		for i in range(k):
+			for node in self.nodes.keys():
+				m.addConstr(c[k * node_order[node] + i] * x[self.nodes[node][1][0] * k + i] <= 1.0)
 			
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []
@@ -2383,13 +2233,13 @@ class bam_to_breakpoint_hybrid():
 			
 		m.setParam(GRB.Param.Threads, num_threads)
 		m.setParam(GRB.Param.NonConvex, 2)
-		m.setParam(GRB.Param.TimeLimit, max(3600, (ld + lnbp) * 300)) # each breakpoint edge is assigned 5 minutes 
-		m.write("model.lp")
+		m.setParam(GRB.Param.TimeLimit, max(7200, (ld + lnbp) * 300)) # each breakpoint edge is assigned 5 minutes 
+		m.write(of_prefix + "_model.lp")
 		m.optimize()
 		print('MS:', m.Status)
-		if m.Status == GRB.INFEASIBLE:
+		if m.Status == GRB.INFEASIBLE or m.SolCount == 0:
 			print('Optimization was stopped with status %d' % m.Status)
-			return m.Status
+			return GRB.INFEASIBLE
 		else:
 			sol_z = m.getAttr('X', z)
 			sol_w = m.getAttr('X', w)
@@ -2427,11 +2277,16 @@ class bam_to_breakpoint_hybrid():
 									else:
 										cycle[('t', (xi_ - lseg - lc - ld - lnbp - 1) // 2)] = 1 # source edge connected to t
 								else:
-									assert x_xi == 1
 									if (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) % 2 == 0:
-										cycle[('ns', (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) // 2)] = 1 # source edge connected to s
+										nsi = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) // 2
+										if len(self.nodes[self.endnodes[nsi]][0]) == 0:
+											assert x_xi == 1
+											cycle[('ns', nsi)] = 1 # source edge connected to s
 									else:
-										cycle[('nt', (xi_ - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2)] = 1 # source edge connected to t
+										nti = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2
+										if len(self.nodes[self.endnodes[nti]][0]) == 0:
+											assert x_xi == 1
+											cycle[('nt', nti)] = 1 # source edge connected to t
 						for pi in range(len(pc_list)):
 							if sol_r[pi * k + i] >= 0.9:
 								path_constraints_s.append(pc_indices[pi])
@@ -2451,9 +2306,16 @@ class bam_to_breakpoint_hybrid():
 									cycle[('c', xi_ - lseg)] = x_xi
 								elif xi_ < lseg + lc + ld + lnbp:
 									cycle[('d', xi_ - lseg - lc)] = x_xi
-								else:
+								elif xi_ < lseg + lc + ld + lnbp + 2 * lsrc:
 									print ("Cyclic path cannot connect to source nodes.")
 									os.abort()
+								else:
+									nsi = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2
+									if (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) % 2 == 0:
+										nsi = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) // 2
+									if len(self.nodes[self.endnodes[nsi]][0]) == 0:
+										print ("Cyclic path cannot connect to source nodes.")
+										os.abort()
 						for pi in range(len(pc_list)):
 							if sol_r[pi * k + i] >= 0.9:
 								path_constraints_s.append(pc_indices[pi])
@@ -2466,8 +2328,514 @@ class bam_to_breakpoint_hybrid():
 			return m.Status
 			
 
+	def minimize_cycles_post(self,total_weights, node_order, pc_list, pc_indices,
+				max_seq_repeat = 2, p_total_weight = 0.9, resolution = 0.1, num_threads = 16, of_prefix = ""):
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition with initial solution from the greedy strategy.")
+		k = len(self.cycles[0]) + len(self.cycles[1])
+		path_constraint_indices_ = []
+		for paths in (self.path_constraints_satisfied[0] + self.path_constraints_satisfied[1]):
+			for pathi in paths:
+				if pathi not in path_constraint_indices_:
+					path_constraint_indices_.append(pathi)
+		p_path_constraints = len(path_constraint_indices_) * 0.9999 / len(pc_indices)
+		
+		lseg = len(self.seq_edges)
+		lc = len(self.concordant_edges)
+		ld = len(self.discordant_edges)
+		lnbp = len(self.new_bp_list_)
+		lsrc = len(self.source_edges)
+		nnodes = len(self.nodes)
+		nedges = lseg + lc + ld + lnbp + 2 * lsrc + 2 * len(self.endnodes)
+
+		# Gurobi model
+		m = gp.Model(of_prefix + "_cycle_postprocessing_k=" + str(k))
+		
+		# z[i]: indicating whether cycle or path i exists
+		z = m.addVars(k, vtype = GRB.BINARY, name = ["z" + str(i) for i in range(k)])
+		
+		# w[i]: the weight of cycle or path i, continuous variable
+		w = m.addVars(k, lb = 0.0, ub = self.max_CN, vtype = GRB.CONTINUOUS, name = ["w" + str(i) for i in range(k)])
+		
+		# Relationship between w[i] and z[i]
+		for i in range(k):
+			m.addConstr(w[i] <= z[i] * self.max_CN)
+
+		# x: the number of times an edge occur in cycle or path 
+		x_names = []
+		for ei in range(nedges):
+			for i in range(k):
+				x_names.append("x" + str(ei) + "," + str(i))
+		x = m.addVars(k * nedges, lb = 0.0, ub = 10.0, vtype = GRB.INTEGER, name = x_names)
+
+		# r and R: path constraints
+		r = []
+		R = []
+		if len(pc_list) > 0:
+			r_names = []
+			R_names = []
+			for pi in range(len(pc_list)):
+				R_names.append("R" + str(pi))
+				for i in range(k):
+					r_names.append("r" + str(pi) + "," + str(i))
+			r = m.addVars(k * len(pc_list), vtype = GRB.BINARY, name = r_names)
+			R = m.addVars(len(pc_list), vtype = GRB.BINARY, name = R_names)
+	
+		# Objective: minimize the total number of cycles
+		obj = gp.QuadExpr(1.0)
+		if len(pc_list) > 0:
+			obj = gp.QuadExpr(2.0)
+		for i in range(k):
+			obj += z[i]
+			for seqi in range(lseg):
+				obj -= (x[seqi * k + i] * w[i] * self.seq_edges[seqi][-2] / total_weights)
+		for pi in range(len(pc_list)):
+			obj -= (R[pi] / len(pc_list))
+		m.setObjective(obj, GRB.MINIMIZE)
+
+		# Must include at least 0.9 * total CN weights
+		total_weights_expr = gp.QuadExpr(0.0)
+		for i in range(k):
+			for seqi in range(lseg):
+				total_weights_expr += (x[seqi * k + i] * w[i] * self.seq_edges[seqi][-2])
+		m.addConstr(total_weights_expr >= p_total_weight * total_weights)
+
+		# Eulerian constraint
+		for node in self.nodes.keys():
+			if node in self.endnodes and len(self.nodes[node][0]) == 0:
+				for i in range(k):
+					m.addConstr(x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] + \
+							x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i] \
+							== x[self.nodes[node][1][0] * k + i])
+			else:
+				for i in range(k):
+					ec_expr = gp.LinExpr(0.0)
+					for seqi in self.nodes[node][1]:
+						ec_expr += x[seqi * k + i]
+					for ci in self.nodes[node][2]:
+						ec_expr -= x[(lseg + ci) * k + i]
+					for di in self.nodes[node][3]:
+						dedge = []
+						if di < len(self.discordant_edges):
+							dedge = self.discordant_edges[di]
+						else:
+							dedge = self.new_bp_list_[di - len(self.discordant_edges)]
+						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
+							ec_expr -= 2 * x[(lseg + lc + di) * k + i]
+						else:
+							ec_expr -= x[(lseg + lc + di) * k + i]
+					for srci in self.nodes[node][4]:
+						ec_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] # connected to s
+						ec_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i] # connected to t
+					m.addConstr(ec_expr == 0.0)
+		for i in range(k):
+			path_expr = gp.LinExpr(0.0)
+			for node in self.endnodes:
+				if len(self.nodes[node][0]) == 0:
+					path_expr += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] # (s, v)
+					path_expr -= x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i] # (v, t)
+			for srci in range(lsrc): 
+				path_expr += x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] # (s, v)
+				path_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i] # (v, t)
+			m.addConstr(path_expr == 0.0)
+
+		# CN constraint
+		for seqi in range(lseg):
+			cn_expr = gp.QuadExpr(0.0)
+			for i in range(k):
+				cn_expr += w[i] * x[seqi * k + i]
+			m.addQConstr(cn_expr <= self.seq_edges[seqi][-1])
+		for ci in range(lc):
+			cn_expr = gp.QuadExpr(0.0)
+			for i in range(k):
+				cn_expr += w[i] * x[(lseg + ci) * k + i]
+			m.addQConstr(cn_expr <= self.concordant_edges[ci][-1])
+		for di in range(ld):
+			cn_expr = gp.QuadExpr(0.0)
+			for i in range(k):
+				cn_expr += w[i] * x[(lseg + lc + di) * k + i]
+			m.addQConstr(cn_expr <= self.discordant_edges[di][-1])
+			#m.addQConstr(cn_expr >= p_bp_cn * self.discordant_edges[di][-1])
+		for bpi in range(lnbp):
+			cn_expr = gp.QuadExpr(0.0)
+			for i in range(k):
+				cn_expr += w[i] * x[(lseg + lc + ld + bpi) * k + i]
+			m.addQConstr(cn_expr <= self.new_bp_list_[bpi][-1])
+			#m.addQConstr(cn_expr >= p_bp_cn * self.new_bp_list_[bpi][-1])
+		for srci in range(lsrc):
+			cn_expr = gp.QuadExpr(0.0)
+			for i in range(k):
+				cn_expr += w[i] * x[(lseg + lc + ld + lnbp + 2 * srci) * k + i]
+				cn_expr += w[i] * x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i]
+			m.addQConstr(cn_expr <= self.source_edges[srci][-1])
+			
+		# Occurrence of breakpoints in each cycle/path
+		for i in range(k):
+			for seqi in range(lseg):
+				m.addConstr(x[seqi * k + i] <= max_seq_repeat)
+			"""
+			for edi in range(ld):
+				m.addConstr(x[(lseg + lc + edi) * k + i] <= max_bp_repeat)
+			for bpi in range(lnbp):
+				m.addConstr(x[(lseg + lc + ld + bpi) * k + i] <= max_bp_repeat)
+			"""
+			
+		# c: decomposition i is a cycle, and start at particular node
+		c_names = []
+		for ni in range(nnodes):
+			for i in range(k):
+				c_names.append("c" + str(ni) + "," + str(i))
+		c = m.addVars(k * nnodes, vtype = GRB.BINARY, name = c_names)
+		
+		# Relationship between c and x
+		for i in range(k):
+			cycle_expr = gp.LinExpr(0.0)
+			for ni in range(nnodes):
+				cycle_expr += c[ni * k + i]
+			for node in self.endnodes:
+				if len(self.nodes[node][0]) == 0:
+					cycle_expr += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] # (s, v)
+			for srci in range(lsrc): 
+				cycle_expr += x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] # (s, v)
+			m.addConstr(cycle_expr <= 1.0)
+
+		# special request for c added for max_seq_repeat >= 2
+		for i in range(k):
+			for node in self.nodes.keys():
+				m.addConstr(c[k * node_order[node] + i] * x[self.nodes[node][1][0] * k + i] <= 1.0)
+			
+		# d: BFS/spanning tree order of the nodes in decomposition i
+		d_names = []
+		for ni in range(nnodes):
+			for i in range(k):
+				d_names.append("d" + str(ni) + "," + str(i))
+		for i in range(k):
+			d_names.append("ds," + str(i))
+		for i in range(k):
+			d_names.append("dt," + str(i))
+		d = m.addVars(k * (nnodes + 2), lb = 0.0, ub = nnodes + 2, vtype = GRB.INTEGER, name = d_names) # including s, t, at the end
+			
+		# y: spanning tree indicator (directed)
+		y1_names = []
+		y2_names = []
+		for ei in range(nedges):
+			for i in range(k):
+				y1_names.append("y1-" + str(ei) + "," + str(i))
+				y2_names.append("y2-" + str(ei) + "," + str(i))
+		y1 = m.addVars(k * nedges, vtype = GRB.BINARY, name = y1_names) #small -> large
+		y2 = m.addVars(k * nedges, vtype = GRB.BINARY, name = y2_names) #large -> small
+			
+		# Relationship between c and d
+		for i in range(k):
+			for ni in range(nnodes):
+				m.addConstr(d[ni * k + i] >= c[ni * k + i])
+		for i in range(k):
+			d_expr = gp.LinExpr(0.0)
+			for ni in range(nnodes):
+				d_expr += c[ni * k + i]
+			d_expr += d[k * nnodes + i] # d_s,i
+			m.addConstr(d_expr <= 1.0)
+			
+		# Relationship between y and z:
+		for i in range(k):
+			for j in range(nedges):
+				m.addConstr(y1[j * k + i] <= z[i])
+				m.addConstr(y2[j * k + i] <= z[i])
+
+		# Relationship between x, y and d
+		for i in range(k * nedges):
+			m.addConstr(y1[i] + y2[i] <= x[i])
+		for i in range(k):
+			for di in range(ld):
+				dedge = self.discordant_edges[di]
+				if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]: # exclude self loops
+					m.addConstr(y1[(lseg + lc + di) * k + i] == 0)
+					m.addConstr(y2[(lseg + lc + di) * k + i] == 0)
+			for bpi in range(lnbp):
+				dedge = self.new_bp_list_[bpi]
+				if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]: # exclude self loops
+					m.addConstr(y1[(lseg + lc + ld + bpi) * k + i] == 0)
+					m.addConstr(y2[(lseg + lc + ld + bpi) * k + i] == 0)
+		for i in range(k):
+			t_expr_x = gp.LinExpr(0.0)
+			t_expr_y = gp.LinExpr(0.0)
+			t_expr_yd = gp.QuadExpr(0.0)
+			for node in self.endnodes:
+				if len(self.nodes[node][0]) == 0:
+					t_expr_x += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i]
+					t_expr_y += y1[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i]
+					t_expr_yd += y1[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i] * \
+							(d[k * nnodes + k + i] - d[k * node_order[node] + i]) # node -> t
+					expr_x = gp.LinExpr(0.0)
+					expr_y = gp.LinExpr(0.0)
+					expr_xc = gp.QuadExpr(0.0)
+					expr_yd = gp.QuadExpr(0.0)
+					for seqi in self.nodes[node][1]:
+						sseg = self.seq_edges[seqi]
+						node_ = (sseg[0], sseg[1], '-')
+						if node_ == node:
+							node_ = (sseg[0], sseg[2], '+')
+						expr_x += x[seqi * k + i]
+						expr_xc += x[seqi * k + i] * c[k * node_order[node] + i]
+						if node_order[node_] <= node_order[node]:
+							expr_y += y1[seqi * k + i]
+							expr_yd += y1[seqi * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+						else:
+							expr_y += y2[seqi * k + i]
+							expr_yd += y2[seqi * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+						
+					expr_x += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] # from s
+					expr_xc += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] * c[k * node_order[node] + i]
+					expr_x += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i] # to t
+					expr_xc += x[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + k + i] * c[k * node_order[node] + i]
+					expr_y += y1[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] # from s
+					expr_yd += y1[(lseg + lc + ld + lnbp + 2 * lsrc + 2 * self.endnodes.index(node)) * k + i] * \
+								(d[k * node_order[node] + i] - d[k * nnodes + i])
+					m.addConstr(expr_x * (nnodes + 2) >= d[k * node_order[node] + i])
+					m.addConstr(expr_y <= 1.0)
+					m.addConstr(expr_y * nedges * k + expr_xc >= expr_x)
+					m.addConstr(expr_yd * nedges * k + expr_xc >= expr_x)
+			
+			for srci in range(lsrc):
+				srce = self.source_edges[srci]
+				t_expr_x += x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i]
+				t_expr_y += y1[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i]
+				t_expr_yd += y1[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i] * \
+						(d[k * nnodes + k + i] - d[k * node_order[(srce[3], srce[4], srce[5])] + i])
+			m.addConstr(t_expr_x * (nnodes + 2) >= d[k * nnodes + k + i])
+			m.addConstr(t_expr_y <= 1.0)
+			m.addConstr(t_expr_y * nedges * k >= t_expr_x)
+			m.addConstr(t_expr_yd >= t_expr_x)
+			
+			for node in self.nodes.keys():
+				if node not in self.endnodes or len(self.nodes[node][0]) > 0:
+					expr_x = gp.LinExpr(0.0)
+					expr_y = gp.LinExpr(0.0)
+					expr_xc = gp.QuadExpr(0.0)
+					expr_yd = gp.QuadExpr(0.0)
+					for seqi in self.nodes[node][1]:
+						sseg = self.seq_edges[seqi]
+						node_ = (sseg[0], sseg[1], '-')
+						if node_ == node:
+							node_ = (sseg[0], sseg[2], '+')
+						expr_x += x[seqi * k + i]
+						expr_xc += x[seqi * k + i] * c[k * node_order[node] + i]
+						if node_order[node_] <= node_order[node]:
+							expr_y += y1[seqi * k + i]
+							expr_yd += y1[seqi * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+						else:
+							expr_y += y2[seqi * k + i]
+							expr_yd += y2[seqi * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+					for ci in self.nodes[node][2]:
+						cedge = self.concordant_edges[ci]
+						node_ = (cedge[0], cedge[1], cedge[2])
+						if node_ == node:
+							node_ = (cedge[3], cedge[4], cedge[5])
+						expr_x += x[(lseg + ci) * k + i]
+						expr_xc += x[(lseg + ci) * k + i] * c[k * node_order[node] + i]
+						if node_order[node_] <= node_order[node]:
+							expr_y += y1[(lseg + ci) * k + i]
+							expr_yd += y1[(lseg + ci) * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+						else:
+							expr_y += y2[(lseg + ci) * k + i]
+							expr_yd += y2[(lseg + ci) * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+					for di in self.nodes[node][3]:
+						if di < len(self.discordant_edges):
+							dedge = self.discordant_edges[di]
+						else:
+							dedge = self.new_bp_list_[di - len(self.discordant_edges)]
+						node_ = (dedge[0], dedge[1], dedge[2])
+						if node_ == node:
+							node_ = (dedge[3], dedge[4], dedge[5])
+						expr_x += x[(lseg + lc + di) * k + i]
+						expr_xc += x[(lseg + lc + di) * k + i] * c[k * node_order[node] + i]
+						if node_order[node_] <= node_order[node]:
+							expr_y += y1[(lseg + lc + di) * k + i]
+							expr_yd += y1[(lseg + lc + di) * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+						else:
+							expr_y += y2[(lseg + lc + di) * k + i]
+							expr_yd += y2[(lseg + lc + di) * k + i] * (d[k * node_order[node] + i] - d[k * node_order[node_] + i])
+					for srci in self.nodes[node][4]:
+						expr_x += x[(lseg + lc + ld + lnbp + 2 * srci) * k + i]
+						expr_x += x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i]
+						expr_xc += x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] * c[k * node_order[node] + i]
+						expr_xc += x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i] * c[k * node_order[node] + i]
+						expr_y += y1[(lseg + lc + ld + lnbp + 2 * srci) * k + i]
+						expr_yd += y1[(lseg + lc + ld + lnbp + 2 * srci) * k + i] * \
+								(d[k * node_order[node] + i] - d[k * nnodes + i])
+					m.addConstr(expr_x * (nnodes + 2) >= d[k * node_order[node] + i])
+					m.addConstr(expr_y <= 1.0)
+					m.addConstr(expr_y * nedges * k + expr_xc >= expr_x)
+					m.addConstr(expr_yd * nedges * k + expr_xc >= expr_x)
+
+		# Subpath constraints
+		if len(pc_list) > 0:
+			sum_R = gp.LinExpr(0.0)
+			for pi in range(len(pc_list)):
+				sum_R += R[pi]
+				path_constraint_ = pc_list[pi]
+				sum_r = gp.LinExpr(0.0)
+				for ri in range(pi * k, (pi + 1) * k):
+					sum_r += r[ri]
+					m.addConstr(R[pi] >= r[ri])
+				m.addConstr(sum_r >= R[pi])	
+				for edge in path_constraint_.keys():
+					for i in range(k):
+						if edge[0] == 's':
+							m.addConstr(x[edge[1] * k + i] >= r[pi * k + i] * path_constraint_[edge])
+						elif edge[0] == 'c':
+							m.addConstr(x[(lseg + edge[1]) * k + i] >= r[pi * k + i] * path_constraint_[edge])
+						else:
+							m.addConstr(x[(lseg + lc + edge[1]) * k + i] >= r[pi * k + i] * path_constraint_[edge])
+			m.addConstr(sum_R >= p_path_constraints * len(pc_list))
+
+		# Initialize variables
+		for i in range(len(self.cycles[0])):
+			z[i].start = 1
+			w[i].start = self.cycle_weights[0][i]
+			for (v, vi) in self.cycles[0][i].keys():
+				if v == 'x':
+					x[vi * k + i].start = self.cycles[0][i][(v, vi)]
+				elif v == 'c':
+					c[vi * k + i].start = self.cycles[0][i][(v, vi)]
+				elif v == 'd':
+					d[vi * k + i].start = self.cycles[0][i][(v, vi)]
+				elif v == 'y1':
+					y1[vi * k + i].start = self.cycles[0][i][(v, vi)]
+				elif v == 'y2':
+					y2[vi * k + i].start = self.cycles[0][i][(v, vi)]
+		for i in range(len(self.cycles[1])):
+			i_ = i + len(self.cycles[0])
+			z[i_].start = 1
+			w[i_].start = self.cycle_weights[1][i]
+			for (v, vi) in self.cycles[1][i].keys():
+				if v == 'x':
+					x[vi * k + i_].start = self.cycles[1][i][(v, vi)]
+				elif v == 'c':
+					c[vi * k + i_].start = self.cycles[1][i][(v, vi)]
+				elif v == 'd':
+					d[vi * k + i_].start = self.cycles[1][i][(v, vi)]
+				elif v == 'y1':
+					y1[vi * k + i_].start = self.cycles[1][i][(v, vi)]
+				elif v == 'y2':
+					y2[vi * k + i_].start = self.cycles[1][i][(v, vi)]
+		for i in range(len(self.path_constraints_satisfied[0])):
+			for pathi in self.path_constraints_satisfied[0][i]:
+				pi = pc_indices.index(pathi)
+				r[pi * k + i].start = 1
+				R[pi].start = 1
+		for i in range(len(self.path_constraints_satisfied[1])):
+			i_ = i + len(self.path_constraints_satisfied[0])
+			for pathi in self.path_constraints_satisfied[1][i]:
+				pi = pc_indices.index(pathi)
+				r[pi * k + i_].start = 1
+				R[pi].start = 1
+		m.update()
+		self.cycles[0].clear()
+		self.cycle_weights[0].clear()
+		self.path_constraints_satisfied[0].clear()
+		self.cycles[1].clear()
+		self.cycle_weights[1].clear()
+		self.path_constraints_satisfied[1].clear()
+
+		m.setParam(GRB.Param.Threads, num_threads)
+		m.setParam(GRB.Param.NonConvex, 2)
+		m.setParam(GRB.Param.TimeLimit, max(7200, (ld + lnbp) * 300)) # each breakpoint edge is assigned 5 minutes 
+		m.write(of_prefix + "_postprocessing_model.lp")
+		m.optimize()
+		print('MS:', m.Status)
+		if m.Status == GRB.INFEASIBLE or m.SolCount == 0:
+			print('Optimization was stopped with status %d' % m.Status)
+			return GRB.INFEASIBLE
+		else:
+			sol_z = m.getAttr('X', z)
+			sol_w = m.getAttr('X', w)
+			sol_d = m.getAttr('X', d)
+			sol_r = m.getAttr('X', r)
+				
+			total_weights_included = 0.0
+			for i in range(k):
+				if sol_z[i] >= 0.9:
+					print ("Cycle/Path %d exists; weight = %f" %(i, sol_w[i]))
+					sol_x = m.getAttr('X', x)
+					sol_c = m.getAttr('X', c)
+					cycle_flag = -1
+					for ci in range(len(sol_c)):
+						if ci % k == i and sol_c[ci] >= 0.9:
+							cycle_flag = ci // k
+							break
+					if cycle_flag == -1:
+						cycle = dict()
+						path_constraints_s = []
+						for xi in range(len(sol_x)):
+							if xi % k == i and sol_x[xi] >= 0.9:
+								xi_ = xi // k
+								x_xi = int(round(sol_x[xi]))
+								if xi_ < lseg:
+									cycle[('e', xi_)] = x_xi
+								elif xi_ < lseg + lc:
+									cycle[('c', xi_ - lseg)] = x_xi
+								elif xi_ < lseg + lc + ld + lnbp:
+									cycle[('d', xi_ - lseg - lc)] = x_xi
+								elif xi_ < lseg + lc + ld + lnbp + 2 * lsrc:
+									assert x_xi == 1
+									if (xi_ - lseg - lc - ld - lnbp) % 2 == 0:
+										cycle[('s', (xi_ - lseg - lc - ld - lnbp) // 2)] = 1 # source edge connected to s
+									else:
+										cycle[('t', (xi_ - lseg - lc - ld - lnbp - 1) // 2)] = 1 # source edge connected to t
+								else:
+									if (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) % 2 == 0:
+										nsi = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) // 2
+										if len(self.nodes[self.endnodes[nsi]][0]) == 0:
+											assert x_xi == 1
+											cycle[('ns', nsi)] = 1 # source edge connected to s
+									else:
+										nti = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2
+										if len(self.nodes[self.endnodes[nti]][0]) == 0:
+											assert x_xi == 1
+											cycle[('nt', nti)] = 1 # source edge connected to t
+						for pi in range(len(pc_list)):
+							if sol_r[pi * k + i] >= 0.9:
+								path_constraints_s.append(pc_indices[pi])
+						self.cycles[1].append(cycle)
+						self.cycle_weights[1].append(sol_w[i])
+						self.path_constraints_satisfied[1].append(path_constraints_s)
+					else:
+						cycle = dict()
+						path_constraints_s = []
+						for xi in range(len(sol_x)):
+							if xi % k == i and sol_x[xi] >= 0.9:
+								xi_ = xi // k
+								x_xi = int(round(sol_x[xi]))
+								if xi_ < lseg:
+									cycle[('e', xi_)] = x_xi
+								elif xi_ < lseg + lc:
+									cycle[('c', xi_ - lseg)] = x_xi
+								elif xi_ < lseg + lc + ld + lnbp:
+									cycle[('d', xi_ - lseg - lc)] = x_xi
+								elif xi_ < lseg + lc + ld + lnbp + 2 * lsrc:
+									print ("Cyclic path cannot connect to source nodes.")
+									os.abort()
+								else:
+									nsi = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2
+									if (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) % 2 == 0:
+										nsi = (xi_ - lseg - lc - ld - lnbp - 2 * lsrc) // 2
+									if len(self.nodes[self.endnodes[nsi]][0]) == 0:
+										print ("Cyclic path cannot connect to source nodes.")
+										os.abort()
+						for pi in range(len(pc_list)):
+							if sol_r[pi * k + i] >= 0.9:
+								path_constraints_s.append(pc_indices[pi])
+						self.cycles[0].append(cycle)
+						self.cycle_weights[0].append(sol_w[i])
+						self.path_constraints_satisfied[0].append(path_constraints_s)
+					for seqi in range(lseg):
+						total_weights_included += (sol_x[seqi * k + i] * sol_w[i] * self.seq_edges[seqi][-2])
+			print ("Total weights = ", total_weights_included, total_weights)
+			return m.Status
+
+
 	def maximize_weights_greedy(self, total_weights, node_order, pc_list, pc_indices, alpha = 0.01,
-				max_bp_repeat = 1, p_total_weight = 0.9, resolution = 0.1, num_threads = 16):
+				max_seq_repeat = 2, p_total_weight = 0.9, resolution = 0.1, num_threads = 16, of_prefix = ""):
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Integer program too large, perform greedy cycle decomposition.")
 		lseg = len(self.seq_edges)
 		lc = len(self.concordant_edges)
@@ -2494,13 +2862,10 @@ class bam_to_breakpoint_hybrid():
 
 		next_w = resolution * 1.1
 		cycle_id = 0
-		while next_w >= resolution and remaining_weights > (1.0 - p_total_weight) * total_weights:
-			num_unsatisfied_pc = 0
-			for i in range(len(pc_indices)):
-				if unsatisfied_pc[i] >= 0:
-					num_unsatisfied_pc += 1
+		num_unsatisfied_pc = len(pc_indices)
+		while next_w >= resolution and (remaining_weights > (1.0 - p_total_weight) * total_weights or num_unsatisfied_pc > math.floor(0.1 * len(pc_indices))):
 			pp = 1.0
-			if alpha > 0:
+			if alpha > 0 and num_unsatisfied_pc > 0:
 				pp = alpha * remaining_weights / num_unsatisfied_pc # multi - objective optimization parameter
 			print ("Cycle id = ", cycle_id)
 			print ("Remaining weights = ", remaining_weights, total_weights)
@@ -2508,7 +2873,7 @@ class bam_to_breakpoint_hybrid():
 			print ("Path constraints factor = ", pp)
 
 			# Gurobi model
-			m = gp.Model("cycle_decomposition_greedy_" + str(cycle_id))
+			m = gp.Model(of_prefix + "_cycle_decomposition_greedy_" + str(cycle_id + 1))
 
 			# z[i]: indicating whether cycle or path i exists
 			z = m.addVars(1, vtype = GRB.BINARY, name = ["z0"])
@@ -2518,7 +2883,7 @@ class bam_to_breakpoint_hybrid():
 
 			# Relationship between w[i] and z[i]
 			m.addConstr(w[0] <= z[0] * self.max_CN)
-			#m.addConstr(w[0] >= z[0] * resolution)
+			m.addConstr(w[0] >= z[0] * resolution)
 
 			# x: the number of times an edge occur in cycle or path i
 			x_names = []
@@ -2599,13 +2964,15 @@ class bam_to_breakpoint_hybrid():
 				m.addQConstr(cn_expr <= remaining_CN[('src', srci)])
 			
 			# Occurrence of breakpoints in each cycle/path
+			"""
 			for edi in range(ld):
-				if edi not in self.small_del_indices:
-					m.addConstr(x[lseg + lc + edi] <= max_bp_repeat)
+				m.addConstr(x[lseg + lc + edi] <= max_bp_repeat)
 			for bpi in range(lnbp):
-				if bpi not in self.small_del_indices_:
-					m.addConstr(x[lseg + lc + ld + bpi] <= max_bp_repeat)
-			
+				m.addConstr(x[lseg + lc + ld + bpi] <= max_bp_repeat)
+			"""
+			for seqi in range(lseg):
+				m.addConstr(x[seqi] <= max_seq_repeat)
+
 			# c: decomposition i is a cycle, and start at particular node
 			c_names = []
 			for ni in range(nnodes):
@@ -2622,6 +2989,10 @@ class bam_to_breakpoint_hybrid():
 			for srci in range(lsrc): 
 				cycle_expr += x[lseg + lc + ld + lnbp + 2 * srci] # (s, v)
 			m.addConstr(cycle_expr <= 1.0)
+
+			# special request for c added for max_seq_repeat >= 2
+			for node in self.nodes.keys():
+				m.addConstr(c[node_order[node]] * x[self.nodes[node][1][0]] <= 1.0)
 			
 			# d: BFS/spanning tree order of the nodes in decomposition i
 			d_names = []
@@ -2789,11 +3160,11 @@ class bam_to_breakpoint_hybrid():
 			
 			m.setParam(GRB.Param.Threads, num_threads)
 			m.setParam(GRB.Param.NonConvex, 2)
-			m.setParam(GRB.Param.TimeLimit, max(3600, (ld + lnbp) * 300)) # each breakpoint edge is assigned 5 minutes
-			m.write("model" + str(cycle_id) + "_alpha=" + str(alpha) + ".lp") 
+			m.setParam(GRB.Param.TimeLimit, 7200) # each breakpoint edge is assigned 5 minutes
+			m.write(of_prefix + "_greedy_model" + str(cycle_id + 1) + "_alpha=" + str(alpha) + ".lp") 
 			m.optimize()
 			print('MS:', m.Status)
-			if m.Status == GRB.INFEASIBLE:
+			if m.Status == GRB.INFEASIBLE or m.SolCount == 0:
 				print('Optimization was stopped with status %d' % m.Status)
 				break
 			else:
@@ -2806,33 +3177,44 @@ class bam_to_breakpoint_hybrid():
 				if sol_z[0] >= 0.9:
 					print ("Next cycle/Path exists; weight = %f" %(sol_w[0]))
 					next_w = sol_w[0]
+					if next_w < resolution:
+						break
 					sol_x = m.getAttr('X', x)
+					sol_y1 = m.getAttr('X', y1)
+					sol_y2 = m.getAttr('X', y2)
 					sol_c = m.getAttr('X', c)
 					cycle_flag = -1
 					for ci in range(len(sol_c)):
 						if sol_c[ci] >= 0.9:
 							cycle_flag = ci
 							break
+					cycle = dict()
+					for xi in range(len(sol_x)):
+						cycle[('x', xi)] = sol_x[xi]
+					for ci in range(len(sol_c)):
+						cycle[('c', ci)] = sol_c[ci]
+					for di in range(len(sol_d)):
+						cycle[('d', di)] = sol_d[di]
+					for yi in range(len(sol_y1)):
+						cycle[('y1', yi)] = sol_y1[yi]
+					for yi in range(len(sol_y2)):
+						cycle[('y2', yi)] = sol_y2[yi]
 					if cycle_flag == -1:
-						cycle = dict()
 						path_constraints_s = []
 						for xi in range(len(sol_x)):
 							if sol_x[xi] >= 0.9:
 								x_xi = int(round(sol_x[xi]))
 								if xi < lseg:
-									cycle[('e', xi)] = x_xi
 									print (cycle_id, 'path', 'seq', x_xi, self.seq_edges[xi][:3])
 									remaining_CN[('s', xi)] -= (sol_x[xi] * sol_w[0])
 									if remaining_CN[('s', xi)] < resolution:
 										remaining_CN[('s', xi)] = 0.0
 								elif xi < lseg + lc:
-									cycle[('c', xi - lseg)] = x_xi
 									print (cycle_id, 'path', 'concordant', x_xi, self.concordant_edges[xi - lseg][:6])
 									remaining_CN[('c', xi - lseg)] -= (sol_x[xi] * sol_w[0])
 									if remaining_CN[('c', xi - lseg)] < resolution:
 										remaining_CN[('c', xi - lseg)] = 0.0
 								elif xi < lseg + lc + ld + lnbp:
-									cycle[('d', xi - lseg - lc)] = x_xi
 									if xi < lseg + lc + ld:
 										print (cycle_id, 'path', 'discordant', x_xi, self.discordant_edges[xi - lseg - lc][:6])
 									else:
@@ -2843,25 +3225,30 @@ class bam_to_breakpoint_hybrid():
 								elif xi < lseg + lc + ld + lnbp + 2 * lsrc:
 									assert x_xi == 1
 									if (xi - lseg - lc - ld - lnbp) % 2 == 0:
-										cycle[('s', (xi - lseg - lc - ld - lnbp) // 2)] = 1 # source edge connected to s
+										#cycle[xi] = 1 # source edge connected to s
 										print (cycle_id, 'path', 'source', x_xi, self.source_edges[(xi - lseg - lc - ld - lnbp) // 2][:6])
 										remaining_CN[('src', (xi - lseg - lc - ld - lnbp) // 2)] -= sol_w[0]
 										if remaining_CN[('src', (xi - lseg - lc - ld - lnbp) // 2)] < resolution:
 											remaining_CN[('src', (xi - lseg - lc - ld - lnbp) // 2)] = 0.0
 									else:
-										cycle[('t', (xi - lseg - lc - ld - lnbp - 1) // 2)] = 1 # source edge connected to t
+										#cycle[xi] = 1 # source edge connected to t
 										print (cycle_id, 'path', 'source', x_xi, self.source_edges[(xi - lseg - lc - ld - lnbp - 1) // 2][:6])
 										remaining_CN[('src', (xi - lseg - lc - ld - lnbp - 1) // 2)] -= sol_w[0]
 										if remaining_CN[('src', (xi - lseg - lc - ld - lnbp - 1) // 2)] < resolution:
 											remaining_CN[('src', (xi - lseg - lc - ld - lnbp - 1) // 2)] = 0.0
 								else:
-									assert x_xi == 1
 									if (xi - lseg - lc - ld - lnbp - 2 * lsrc) % 2 == 0:
-										cycle[('ns', (xi - lseg - lc - ld - lnbp - 2 * lsrc) // 2)] = 1 # source edge connected to s
-										print (cycle_id, 'path', 'source', x_xi, self.endnodes[(xi - lseg - lc - ld - lnbp - 2 * lsrc) // 2])
+										nsi = (xi - lseg - lc - ld - lnbp - 2 * lsrc) // 2
+										if len(self.nodes[self.endnodes[nsi]][0]) == 0:
+											assert x_xi == 1
+											#cycle[xi] = 1 # source edge connected to s
+											print (cycle_id, 'path', 'source', x_xi, self.endnodes[nsi])
 									else:
-										cycle[('nt', (xi - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2)] = 1 # source edge connected to t
-										print (cycle_id, 'path', 'source', x_xi, self.endnodes[(xi - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2])
+										nti = (xi - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2
+										if len(self.nodes[self.endnodes[nti]][0]) == 0:
+											assert x_xi == 1
+											#cycle[xi] = 1 # source edge connected to t
+											print (cycle_id, 'path', 'source', x_xi, self.endnodes[nti])
 						for pi in range(len(pc_list)):
 							if sol_r[pi] >= 0.9:
 								path_constraints_s.append(pc_indices[pi])
@@ -2870,25 +3257,21 @@ class bam_to_breakpoint_hybrid():
 						self.cycle_weights[1].append(sol_w[0])
 						self.path_constraints_satisfied[1].append(path_constraints_s)
 					else:
-						cycle = dict()
 						path_constraints_s = []
 						for xi in range(len(sol_x)):
 							if sol_x[xi] >= 0.9:
 								x_xi = int(round(sol_x[xi]))
 								if xi < lseg:
-									cycle[('e', xi)] = x_xi
 									print (cycle_id, 'cycle', 'seq', x_xi, self.seq_edges[xi][:3])
 									remaining_CN[('s', xi)] -= (sol_x[xi] * sol_w[0])
 									if remaining_CN[('s', xi)] < resolution:
 										remaining_CN[('s', xi)] = 0.0
 								elif xi < lseg + lc:
-									cycle[('c', xi - lseg)] = x_xi
 									print (cycle_id, 'cycle', 'concordant', x_xi, self.concordant_edges[xi - lseg][:6])
 									remaining_CN[('c', xi - lseg)] -= (sol_x[xi] * sol_w[0])
 									if remaining_CN[('c', xi - lseg)] < resolution:
 										remaining_CN[('c', xi - lseg)] = 0.0
 								elif xi < lseg + lc + ld + lnbp:
-									cycle[('d', xi - lseg - lc)] = x_xi
 									if xi < lseg + lc + ld:
 										print (cycle_id, 'cycle', 'discordant', x_xi, self.discordant_edges[xi - lseg - lc][:6])
 									else:
@@ -2896,9 +3279,16 @@ class bam_to_breakpoint_hybrid():
 									remaining_CN[('d', xi - lseg - lc)] -= (sol_x[xi] * sol_w[0])
 									if remaining_CN[('d', xi - lseg - lc)] < resolution:
 										remaining_CN[('d', xi - lseg - lc)] = 0.0
-								else:
+								elif xi < lseg + lc + ld + lnbp + 2 * lsrc:
 									print ("Cyclic path cannot connect to source nodes.")
 									os.abort()
+								else:
+									nsi = (xi - lseg - lc - ld - lnbp - 2 * lsrc - 1) // 2
+									if (xi - lseg - lc - ld - lnbp - 2 * lsrc) % 2 == 0:
+										nsi = (xi - lseg - lc - ld - lnbp - 2 * lsrc) // 2
+									if len(self.nodes[self.endnodes[nsi]][0]) == 0:
+										print ("Cyclic path cannot connect to source nodes.")
+										os.abort()
 						for pi in range(len(pc_list)):
 							if sol_r[pi] >= 0.9:
 								path_constraints_s.append(pc_indices[pi])
@@ -2909,14 +3299,19 @@ class bam_to_breakpoint_hybrid():
 					for seqi in range(lseg):
 						total_weights_included += (sol_x[seqi] * sol_w[0] * self.seq_edges[seqi][-2])
 					print ("Total weights = ", total_weights_included, total_weights)
-					if total_weights_included < 0.01 * total_weights:
-						break
 					remaining_weights -= total_weights_included
+					if total_weights_included < 0.005 * total_weights:
+						break
 				else:
 					break
+			num_unsatisfied_pc = 0
+			for i in range(len(pc_indices)):
+				if unsatisfied_pc[i] >= 0:
+					num_unsatisfied_pc += 1
+		return remaining_weights
 
 
-	def cycle_decomposition(self, alpha = 0.01, max_bp_repeat = 1, p_total_weight = 0.9, resolution = 0.1):
+	def cycle_decomposition(self, alpha = 0.01, max_seq_repeat = 2, p_total_weight = 0.9, resolution = 0.1, of_prefix = ""):
 		lseg = len(self.seq_edges)
 		lc = len(self.concordant_edges)
 		ld = len(self.discordant_edges)
@@ -3000,17 +3395,27 @@ class bam_to_breakpoint_hybrid():
 		if nedges < k:
 			k = nedges
 			logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset num cycles/paths to %d." %k)
+		sol_flag = 0
 		while k <= nedges:
 			if nedges > 100 or (3 * k + 3 * k * nedges + 2 * k * nnodes + k * len(self.valid_path_constraints[0])) >= 10000:
-				self.maximize_weights_greedy(total_weights, node_order, self.valid_path_constraints[0], \
-						self.valid_path_constraints[1], alpha, max_bp_repeat, p_total_weight, resolution, 16)
+				remaining_weights = self.maximize_weights_greedy(total_weights, node_order, self.valid_path_constraints[0], \
+						self.valid_path_constraints[1], alpha, max_seq_repeat, p_total_weight, resolution, 16, of_prefix)
+				self.minimize_cycles_post(total_weights, node_order, self.valid_path_constraints[0], \
+						self.valid_path_constraints[1], max_seq_repeat, min(1.0 - (remaining_weights / total_weights), p_total_weight), resolution, 16, of_prefix)
+				sol_flag = 1
 				break 
 			else:
 				if self.minimize_cycles(k, total_weights, node_order, self.valid_path_constraints[0], self.valid_path_constraints[1], \
-						max_bp_repeat, p_total_weight, 0.9, 16) == GRB.INFEASIBLE:
+						max_seq_repeat, p_total_weight, 0.9, 16, of_prefix) == GRB.INFEASIBLE:
 					k *= 2
 				else:
+					sol_flag = 1
 					break
+		if sol_flag == 0:
+			remaining_weights = self.maximize_weights_greedy(total_weights, node_order, self.valid_path_constraints[0], \
+						self.valid_path_constraints[1], alpha, max_seq_repeat, p_total_weight, resolution, 16, of_prefix)
+			self.minimize_cycles_post(total_weights, node_order, self.valid_path_constraints[0], \
+						self.valid_path_constraints[1], max_seq_repeat, min(1.0 - (remaining_weights / total_weights), p_total_weight), resolution, 16, of_prefix)
 
 
 	def eulerian_cycle_t(self, edges_next_cycle, path_constraints_next_cycle):
@@ -3378,19 +3783,20 @@ class bam_to_breakpoint_hybrid():
 
 
 if __name__ == '__main__':
-	parser = argparse.ArgumentParser(description = "")
+	parser = argparse.ArgumentParser(description = "Hybrid amplicon reconstruction pipeline.")
 	parser.add_argument("--sr_bam", help = "Sorted indexed short read bam file.", required = True)
 	parser.add_argument("--lr_bam", help = "Sorted indexed long read bam file.", required = True)
 	parser.add_argument("--aa_graph", help = "AA-formatted graph file.", required = True)
 	parser.add_argument("--aa_cycle", help = "AA-formatted cycle file.", required = True)
 	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.", action = 'store_true')
-	parser.add_argument("--output_cycle_fn", help = ".")
-	parser.add_argument("--sr_cnseg", help = "Short read *.cns file.")
-	parser.add_argument("--lr_cnseg", help = "Long read *.cns file.")
-	parser.add_argument("--lr_seq_normal", help = "Use normal distribution on the total number of nucleotides on sequence edges for long read.", action = 'store_true')
+	parser.add_argument("--output_prefix", help = "Prefix of output files.", required = True)
+	parser.add_argument("--sr_cnseg", help = "Short read CNV segmentation file.", required = True)
+	parser.add_argument("--lr_cnseg", help = "Long read CNV segmentation file.", required = True)
+	#parser.add_argument("--lr_seq_normal", help = "Use normal distribution on the total number of nucleotides on sequence edges for long read.", action = 'store_true')
 	parser.add_argument("--aa_downsampled", help = "AA breakpoint graph was constructed with downsampled bam.", action = 'store_true')
-	parser.add_argument("--ilp_alpha", help = ".", type = float)
-	parser.add_argument("--log_fn", help = ".")
+	parser.add_argument("--ilp_alpha", help = "Parameter used to balance CN weight and path constraints in greedy cycle extraction.", type = float)
+	parser.add_argument("--max_repeat", help = "Maximum allowed number of times a sequence edge can be traversed in any cycle/path.", type = int)
+	parser.add_argument("--log_fn", help = "Name of log file.")
 	args = parser.parse_args()
 
 	log_fn = "refine_breakpoint_graph.log"
@@ -3422,47 +3828,40 @@ if __name__ == '__main__':
 	b2bn.find_smalldel_breakpoints()
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding small del breakpoints.")
 	b2bn.find_breakpoints()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding all breakpoints.")
+	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding all discordant breakpoints.")
 	if args.aa_downsampled:
 		b2bn.del_sr_bp(aa_downsampled = True)
 	else:
 		b2bn.del_sr_bp(aa_downsampled = False)
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Deleted SR only breakpoints with low cov or CN.")
 	b2bn.split_seg_bp() # Split the sequence edges with strong long read breakpoint(s) in the middle
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed breakpoint graph structure construction.")
+	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Breakpoint graph built for hybrid amplicon.")
 	if args.output_bp:
-		b2bn.output_breakpoint_info(args.aa_graph.split('/')[-1][:-9] + 'breakpoints.tsv')
+		b2bn.output_breakpoint_info(args.output_prefix + '_breakpoints.tsv')
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote breakpoint information to %s." %(args.output_prefix + '_breakpoints.tsv'))
 	else:
-		if args.sr_cnseg is None or args.sr_cnseg is None:
-			print("Please specify the copy number segment files.")
-			os.abort()
-		if args.lr_seq_normal:
-			b2bn.assign_cov(lr_seq_dist = 'normal')
+		b2bn.assign_cov(lr_seq_dist = 'normal')
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Fetched read coverage for all sequence and concordant edges.")
+		if args.aa_downsampled:
+			b2bn.assign_cn(lr_seq_dist = 'normal', aa_downsampled = True)
 		else:
-			b2bn.assign_cov(lr_seq_dist = 'poisson')
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Assigned read coverage for all sequence and concordant edges.")
-		if args.lr_seq_normal:
-			if args.aa_downsampled:
-				b2bn.assign_cn(lr_seq_dist = 'normal', aa_downsampled = True)
-			else:
-				b2bn.assign_cn(lr_seq_dist = 'normal', aa_downsampled = False)
-		else:
-			if args.aa_downsampled:
-				b2bn.assign_cn(lr_seq_dist = 'poisson', aa_downsampled = True)
-			else:
-				b2bn.assign_cn(lr_seq_dist = 'poisson', aa_downsampled = False)
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Assigned CN for all edges.")
+			b2bn.assign_cn(lr_seq_dist = 'normal', aa_downsampled = False)
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Computed CN for all edges.")
+		b2bn.output_breakpoint_graph(args.output_prefix + '_graph.txt')
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote breakpoint graph to %s." %(args.output_prefix + '_graph.txt'))
 		b2bn.compute_path_constraints()
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Computed all subpath constraints.")
+		max_repeat = b2bn.max_seq_repeat
+		ilp_alpha = 0.01
+		if args.max_repeat:
+			max_repeat = args.max_repeat
 		if args.ilp_alpha:
-			b2bn.cycle_decomposition(alpha = args.ilp_alpha)
-		else:
-			b2bn.cycle_decomposition()
-		b2bn.output_breakpoint_graph(args.aa_graph.split('/')[-1][:-4] + '_.txt')
-		if args.output_cycle_fn:
-			b2bn.output_cycles(args.output_cycle_fn)
-		else:
-			b2bn.output_cycles(args.aa_cycle.split('/')[-1][:-4] + '_.txt')
+			ilp_alpha = args.ilp_alpha
+		b2bn.cycle_decomposition(alpha = ilp_alpha, max_seq_repeat = max_repeat, of_prefix = args.output_prefix)
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed cycle decomposition.")
+		b2bn.output_cycles(args.output_prefix + '_cycles.txt')
+		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote cycles for hybrid amplicon to %s." %(args.output_prefix + '_cycles.txt'))
+
 	b2bn.closebam()
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total runtime.")
 
