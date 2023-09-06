@@ -10,233 +10,226 @@ implement merge_alignment
 """
 import logging
 import time
-from typing import Tuple, List
 
 from long_read_aa.breakpoints import global_names
 
 
-def cigar2posSM(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *S*M into chimeric alignment
+def cigar2posSM(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *S*M into chimeric alignment
 
-    Args:
-            cigar: CIGAR string in format *S*M
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
-    if strand == "+":
-        qs = int(cigar[: cigar.index("S")])
-        qe = read_length - 1
-    else:
-        qs = 0
-        qe = al - 1
-    return qs, qe, al
-
-
-def cigar2posMS(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *M*S into chimeric alignment
-
-    Args:
-            cigar: CIGAR string in format *M*S
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[: cigar.index("M")])
-    if strand == "+":
-        qs = 0
-        qe = al - 1
-    else:
-        qs = int(cigar[cigar.index("M") + 1 : cigar.index("S")])
-        qe = read_length - 1
-    return qs, qe, al
+	Args:
+		cigar: CIGAR string in format *S*M
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
+	if strand == "+":
+		qs = int(cigar[: cigar.index("S")])
+		qe = read_length - 1
+	else:
+		qs = 0
+		qe = al - 1
+	return qs, qe, al
 
 
-def cigar2posSMS(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *S*M*S into chimeric alignment
+def cigar2posMS(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *M*S into chimeric alignment
 
-    Args:
-            cigar: CIGAR string in format *S*M*S
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
-    if strand == "+":
-        qs = int(cigar[: cigar.index("S")])
-        qe = qs + al - 1
-    else:
-        qs = int(cigar[cigar.index("M") + 1 : -1])
-        qe = qs + al - 1
-    return qs, qe, al
-
-
-def cigar2posSMD(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *S*M*D into chimeric alignment
-
-    Args:
-            cigar: CIGAR string in format *S*M*D
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[cigar.index("S") + 1 : cigar.index("M")]) + int(
-        cigar[cigar.index("M") + 1 : cigar.index("D")]
-    )
-    if strand == "+":
-        qs = int(cigar[: cigar.index("S")])
-        qe = read_length - 1
-    else:
-        qs = 0
-        qe = int(cigar[cigar.index("S") + 1 : cigar.index("M")]) - 1
-    return qs, qe, al
+	Args:
+		cigar: CIGAR string in format *M*S
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[: cigar.index("M")])
+	if strand == "+":
+		qs = 0
+		qe = al - 1
+	else:
+		qs = int(cigar[cigar.index("M") + 1 : cigar.index("S")])
+		qe = read_length - 1
+	return qs, qe, al
 
 
-def cigar2posMDS(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *M*D*S into chimeric alignment
+def cigar2posSMS(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *S*M*S into chimeric alignment
 
-    Args:
-            cigar: CIGAR string in format *M*D*S
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[: cigar.index("M")]) + int(
-        cigar[cigar.index("M") + 1 : cigar.index("D")]
-    )
-    if strand == "+":
-        qs = 0
-        qe = int(cigar[: cigar.index("M")]) - 1
-    else:
-        qs = int(cigar[cigar.index("D") + 1 : cigar.index("S")])
-        qe = read_length - 1
-    return qs, qe, al
+	Args:
+		cigar: CIGAR string in format *S*M*S
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
+	if strand == "+":
+		qs = int(cigar[: cigar.index("S")])
+		qe = qs + al - 1
+	else:
+		qs = int(cigar[cigar.index("M") + 1 : -1])
+		qe = qs + al - 1
+	return qs, qe, al
 
 
-def cigar2posSMDS(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *S*M*D*S into chimeric alignment
+def cigar2posSMD(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *S*M*D into chimeric alignment
 
-    Args:
-            cigar: CIGAR string in format *S*M*D*S
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[cigar.index("S") + 1 : cigar.index("M")]) + int(
-        cigar[cigar.index("M") + 1 : cigar.index("D")]
-    )
-    if strand == "+":
-        qs = int(cigar[: cigar.index("S")])
-        qe = read_length - int(cigar[cigar.index("D") + 1 : -1]) - 1
-    else:
-        qs = int(cigar[cigar.index("D") + 1 : -1])
-        qe = read_length - int(cigar[: cigar.index("S")]) - 1
-    return qs, qe, al
-
-
-def cigar2posSMI(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *S*M*I into chimeric alignment
-
-    Args:
-            cigar: CIGAR string in format *S*M*I
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
-    if strand == "+":
-        qs = int(cigar[: cigar.index("S")])
-        qe = read_length - 1
-    else:
-        qs = 0
-        qe = read_length - int(cigar[: cigar.index("S")]) - 1
-    return qs, qe, al
+	Args:
+		cigar: CIGAR string in format *S*M*D
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[cigar.index("S") + 1 : cigar.index("M")]) + \
+		int(cigar[cigar.index("M") + 1 : cigar.index("D")])
+	if strand == "+":
+		qs = int(cigar[: cigar.index("S")])
+		qe = read_length - 1
+	else:
+		qs = 0
+		qe = int(cigar[cigar.index("S") + 1 : cigar.index("M")]) - 1
+	return qs, qe, al
 
 
-def cigar2posMIS(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *M*I*S into chimeric alignment
+def cigar2posMDS(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *M*D*S into chimeric alignment
 
-    Args:
-            cigar: CIGAR string in format *M*I*S
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[: cigar.index("M")])
-    if strand == "+":
-        qs = 0
-        qe = (
-            read_length
-            - int(cigar[cigar.index("I") + 1 : cigar.index("S")])
-            - 1
-        )
-    else:
-        qs = int(cigar[cigar.index("I") + 1 : cigar.index("S")])
-        qe = read_length - 1
-    return qs, qe, al
+	Args:
+		cigar: CIGAR string in format *M*D*S
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[: cigar.index("M")]) + \
+		int(cigar[cigar.index("M") + 1 : cigar.index("D")])
+	if strand == "+":
+		qs = 0
+		qe = int(cigar[: cigar.index("M")]) - 1
+	else:
+		qs = int(cigar[cigar.index("D") + 1 : cigar.index("S")])
+		qe = read_length - 1
+	return qs, qe, al
 
 
-def cigar2posSMIS(cigar, strand, read_length) -> Tuple[int, int, int]:
-    """
-    Convert cigar string in format *S*M*I*S into chimeric alignment
+def cigar2posSMDS(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *S*M*D*S into chimeric alignment
 
-    Args:
-            cigar: CIGAR string in format *S*M*I*S
-            strand: Strand of the read ("+" or "-")
-            read_length: Read length
-    Returns:
-            The start and end position on the read on positive strand, and the alignment length on
-                    the reference genome.
-    """
-    al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
-    if strand == "+":
-        qs = int(cigar[: cigar.index("S")])
-        qe = read_length - int(cigar[cigar.index("I") + 1 : -1]) - 1
-    else:
-        qs = int(cigar[cigar.index("I") + 1 : -1])
-        qe = read_length - int(cigar[: cigar.index("S")]) - 1
-    return qs, qe, al
+	Args:
+		cigar: CIGAR string in format *S*M*D*S
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[cigar.index("S") + 1 : cigar.index("M")]) + \
+		int(cigar[cigar.index("M") + 1 : cigar.index("D")])
+	if strand == "+":
+		qs = int(cigar[: cigar.index("S")])
+		qe = read_length - int(cigar[cigar.index("D") + 1 : -1]) - 1
+	else:
+		qs = int(cigar[cigar.index("D") + 1 : -1])
+		qe = read_length - int(cigar[: cigar.index("S")]) - 1
+	return qs, qe, al
+
+
+def cigar2posSMI(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *S*M*I into chimeric alignment
+
+	Args:
+		cigar: CIGAR string in format *S*M*I
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
+	if strand == "+":
+		qs = int(cigar[: cigar.index("S")])
+		qe = read_length - 1
+	else:
+		qs = 0
+		qe = read_length - int(cigar[: cigar.index("S")]) - 1
+	return qs, qe, al
+
+
+def cigar2posMIS(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *M*I*S into chimeric alignment
+
+	Args:
+		cigar: CIGAR string in format *M*I*S
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[: cigar.index("M")])
+	if strand == "+":
+		qs = 0
+		qe = (read_length - int(cigar[cigar.index("I") + 1 : cigar.index("S")]) - 1)
+	else:
+		qs = int(cigar[cigar.index("I") + 1 : cigar.index("S")])
+		qe = read_length - 1
+	return qs, qe, al
+
+
+def cigar2posSMIS(cigar, strand, read_length):
+	"""
+	Convert cigar string in format *S*M*I*S into chimeric alignment
+
+	Args:
+		cigar: CIGAR string in format *S*M*I*S
+		strand: Strand of the read ("+" or "-")
+		read_length: Read length
+	Returns:
+		The start and end position on the read on positive strand, and the alignment length on
+		the reference genome.
+	"""
+	al = int(cigar[cigar.index("S") + 1 : cigar.index("M")])
+	if strand == "+":
+		qs = int(cigar[: cigar.index("S")])
+		qe = read_length - int(cigar[cigar.index("I") + 1 : -1]) - 1
+	else:
+		qs = int(cigar[cigar.index("I") + 1 : -1])
+		qe = read_length - int(cigar[: cigar.index("S")]) - 1
+	return qs, qe, al
 
 
 # Dict indicating which cigar2pos operation will be called
 cigar2pos_ops = {
-    "SM": cigar2posSM,
-    "MS": cigar2posMS,
-    "SMS": cigar2posSMS,
-    "SMD": cigar2posSMD,
-    "MDS": cigar2posMDS,
-    "SMDS": cigar2posSMDS,
-    "SMI": cigar2posSMI,
-    "MIS": cigar2posMIS,
-    "SMIS": cigar2posSMIS,
+	"SM": cigar2posSM,
+	"MS": cigar2posMS,
+	"SMS": cigar2posSMS,
+	"SMD": cigar2posSMD,
+	"MDS": cigar2posMDS,
+	"SMDS": cigar2posSMDS,
+	"SMI": cigar2posSMI,
+	"MIS": cigar2posMIS,
+	"SMIS": cigar2posSMIS,
 }
 
-def alignment_from_satags(sa_list: List[str], read_length) -> Tuple[list, list, list]:
+
+def alignment_from_satags(sa_list, read_length):
 	"""
 	Convert "SA:Z" a list of strings into a new chimeric alignment. 
 	Require at least one (soft) clip and one match for each canonical alignment record in a chimeric alignment

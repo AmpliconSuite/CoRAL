@@ -16,9 +16,18 @@ if __name__ == '__main__':
 			if t[0] == "Segment":
 				all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
 			if t[0][:5] == "Cycle":
-				cycle_id = t[0].split('=')[1].split(';')[0]
-				cycle_weight = float(t[0].split('=')[2].split(';')[0])
-				cycle_segs = t[0].split('=')[3].split(';')[0].split(',')
+				st = t[0].split(';')
+				cycle_id = 1
+				cycle_weight = 1.0
+				cycle_segs = ['0+', '0-']
+				for s in st:
+					s = s.split('=')
+					if s[0] == "Cycle":
+						cycle_id = s[1]
+					if s[0] == "Copy_count":
+						cycle_weight = float(s[1])
+					if s[0] == "Segments":
+						cycle_segs = s[1].split(',')
 				iscyclic = (cycle_segs[0] != "0+" or cycle_segs[-1] != "0-")
 				cycle = []
 				for seg in cycle_segs:
