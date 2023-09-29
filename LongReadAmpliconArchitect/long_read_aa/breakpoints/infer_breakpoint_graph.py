@@ -166,8 +166,8 @@ class bam_to_breakpoint_nanopore():
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Fetched %d chimeric reads." %(len(self.chimeric_alignments)))
 		reads_wo_primary_alignment = []
 		for r in self.chimeric_alignments.keys():
-			if r == "amplicon-3_18538_aligned_27073_F_36_52065_12":
-				print (self.chimeric_alignments[r])
+			#if r == "amplicon-3_18538_aligned_27073_F_36_52065_12":
+			#	print (self.chimeric_alignments[r])
 			if r not in self.read_length:
 				logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "Found chimeric read without primary alignment.")
 				logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tRead name: %s; Read length: N/A." %r)
@@ -224,8 +224,13 @@ class bam_to_breakpoint_nanopore():
 			chr = self.amplicon_intervals[ai][0]
 			lcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][1]))[0].data
 			rcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][2]))[0].data
+			# Fix 09/28/23 - added flanking region while searching for amplicon intervals
 			self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1]
+			if len(list(self.pos2cni(chr, self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta))) > 0:
+				self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta
 			self.amplicon_intervals[ai][2] = self.cns_intervals_by_chr[chr][rcni][2]
+			if len(list(self.pos2cni(chr, self.cns_intervals_by_chr[chr][rcni][2] + self.interval_delta))) > 0:
+				self.amplicon_intervals[ai][2] = self.cns_intervals_by_chr[chr][rcni][2] + self.interval_delta
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tUpdated amplicon interval %s" %self.amplicon_intervals[ai])
  
 		ccid = 0
@@ -233,6 +238,7 @@ class bam_to_breakpoint_nanopore():
 			if self.amplicon_intervals[ai][3] == -1:
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Begin processing amplicon interval %d" %ai)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAmplicon interval %s" %self.amplicon_intervals[ai])
+				# Fix 09/28/23 - added flanking region while searching for amplicon intervals
 				self.find_interval_i(ai, ccid)
 				ccid += 1
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Identified %d amplicon intervals in total." %len(self.amplicon_intervals))
@@ -245,7 +251,9 @@ class bam_to_breakpoint_nanopore():
 		lastai = 0
 		intervals_to_merge = []
 		for ai in range(len(amplicon_intervals_sorted) - 1):
-			if not interval_adjacent(amplicon_intervals_sorted[ai + 1], amplicon_intervals_sorted[ai]):
+			# Fix 09/28/23 - added flanking region while searching for amplicon intervals
+			if not (interval_adjacent(amplicon_intervals_sorted[ai + 1], amplicon_intervals_sorted[ai]) or \
+				interval_overlap(amplicon_intervals_sorted[ai], amplicon_intervals_sorted[ai + 1])):
 				if ai > lastai: 
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Merging intervals from %d to %d." %(lastai, ai))
 					intervals_to_merge.append([lastai, ai])
@@ -508,8 +516,18 @@ class bam_to_breakpoint_nanopore():
 							lir = self.cns_intervals_by_chr[chr_][nint_segs[i][0]][2]
 							if nint_segs[i + 1][0] - nint_segs[i][0] > 2 or nil - lir > self.max_interval_cutoff or \
 								nint_segs[i + 1][1] - nint_segs[i][1] > self.max_interval_cutoff:
-								new_intervals_refined.append([chr_, max(self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1], nint_segs[lasti][1] - int(self.max_interval_cutoff / 2)),
-											min(lir, nint_segs[i][1] + int(self.max_interval_cutoff / 2)), -1])
+								l = max(self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1] - self.interval_delta, 
+									self.cns_intervals_by_chr[chr_][0][1])
+								r = min(lir + self.interval_delta, self.cns_intervals_by_chr[chr_][-1][2])
+								if nint_segs[lasti][1] - int(self.max_interval_cutoff / 2) > l:
+									l = nint_segs[lasti][1] - int(self.max_interval_cutoff / 2)
+								if nint_segs[i][1] + int(self.max_interval_cutoff / 2) < r:
+									r = nint_segs[i][1] + int(self.max_interval_cutoff / 2)
+								if len(list(self.pos2cni(chr_, l))) == 0:
+									l = self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1]
+								if len(list(self.pos2cni(chr_, r))) == 0:
+									r = lir
+								new_intervals_refined.append([chr_, l, r, -1])
 								new_intervals_connections.append([])
 								for i_ in range(lasti, i + 1):
 									new_intervals_connections[-1].append(nint_segs[i_][2])
@@ -519,8 +537,19 @@ class bam_to_breakpoint_nanopore():
 								for bpi in new_intervals_connections[-1]:
 									logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t%s" %self.new_bp_list[bpi][:6])
 						if len(nint_segs) > 0:
-							new_intervals_refined.append([chr_, max(self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1], nint_segs[lasti][1] - int(self.max_interval_cutoff / 2)), 
-									min(self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][2], nint_segs[-1][1] + int(self.max_interval_cutoff / 2)), -1])
+							l = max(self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1] - self.interval_delta,
+								self.cns_intervals_by_chr[chr_][0][1])
+							r = min(self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][2] + self.interval_delta,
+								self.cns_intervals_by_chr[chr_][-1][2])
+							if nint_segs[lasti][1] - int(self.max_interval_cutoff / 2) > l:
+								l = nint_segs[lasti][1] - int(self.max_interval_cutoff / 2) > l
+							if nint_segs[-1][1] + int(self.max_interval_cutoff / 2) < r:
+								r = nint_segs[-1][1] + int(self.max_interval_cutoff / 2)
+							if len(list(self.pos2cni(chr_, l))) == 0:
+								l = self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1]
+							if len(list(self.pos2cni(chr_, r))) == 0:
+								r = self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][2]
+							new_intervals_refined.append([chr_, l, r, -1])
 							new_intervals_connections.append([])
 							for i_ in range(lasti, len(nint_segs)):
 								new_intervals_connections[-1].append(nint_segs[i_][2])
@@ -535,15 +564,37 @@ class bam_to_breakpoint_nanopore():
 							if (nint_segs_[i + 1][0] != nint_segs_[i][0]) or (nint_segs_[i + 1][0] == nint_segs_[i][0] and \
 								(nint_segs_[i + 1][1] - nint_segs_[i][1] > 2 or nil - lir > self.max_interval_cutoff)) or \
 								(nint_segs_[i + 1][0] == nint_segs_[i][0] and nint_segs_[i + 1][2] - nint_segs_[i][2] > self.max_interval_cutoff):
-								new_intervals_refined.append([nint_segs_[lasti][0], max(self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1], nint_segs_[lasti][2] - int(self.max_interval_cutoff / 2)),
-											min(lir, nint_segs_[i][2] + int(self.max_interval_cutoff / 2)), -1])
+								l = max(self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
+									self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1])
+								r = min(lir + self.interval_delta,
+									self.cns_intervals_by_chr[nint_segs_[i][0]][-1][2])
+								if nint_segs_[lasti][2] - int(self.max_interval_cutoff / 2) > l:
+									l = nint_segs_[lasti][2] - int(self.max_interval_cutoff / 2)
+								if nint_segs_[i][2] + int(self.max_interval_cutoff / 2) < r:
+									r = nint_segs_[i][2] + int(self.max_interval_cutoff / 2)
+								if len(list(self.pos2cni(nint_segs_[lasti][0], l))) == 0:
+									l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
+								if len(list(self.pos2cni(nint_segs_[i][0], r))) == 0:
+									r = lir
+								new_intervals_refined.append([nint_segs_[lasti][0], l, r, -1])
 								new_intervals_connections.append([])
 								lasti = i + 1
 								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
 								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tSkip breakpoints connected to the new interval.")
 						if len(nint_segs_) > 0:
-							new_intervals_refined.append([nint_segs_[lasti][0], max(self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1], nint_segs_[lasti][2] - int(self.max_interval_cutoff / 2)), 
-									min(self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[-1][1]][2], nint_segs_[-1][2] + int(self.max_interval_cutoff / 2)), -1])
+							l = max(self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
+								self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1])
+							r = min(self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[-1][1]][2] + self.interval_delta,
+								self.cns_intervals_by_chr[nint_segs_[lasti][0]][-1][2])
+							if nint_segs_[lasti][2] - int(self.max_interval_cutoff / 2) > l:
+								l = nint_segs_[lasti][2] - int(self.max_interval_cutoff / 2)
+							if nint_segs_[-1][2] + int(self.max_interval_cutoff / 2) < r:
+								r = nint_segs_[-1][2] + int(self.max_interval_cutoff / 2)
+							if len(list(self.pos2cni(nint_segs_[lasti][0], l))) == 0:
+								l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
+							if len(list(self.pos2cni(nint_segs_[lasti][0], r))) == 0:
+								r = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[-1][1]][2]
+							new_intervals_refined.append([nint_segs_[lasti][0], l, r, -1])
 							new_intervals_connections.append([])
 							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
 							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tSkip breakpoints connected to the new interval:")
@@ -839,17 +890,17 @@ class bam_to_breakpoint_nanopore():
 				nl, nr = n, n
 				nl = min(nl, (cb[3] - cb[2] + 1) // b)
 				nr = min(nr, (cb[4] - cb[3]) // b)
-				print (nl, nr, cb) 
+				#print (nl, nr, cb) 
 				cov_profile = [sum([sum(nc) for nc in self.lr_bamfh.count_coverage(cb[1], cb[3] - (i + 1) * b + 1, cb[3] - i * b + 1)]) * 1.0 / b for i in range(nl)][::-1] + \
 						[sum([sum(nc) for nc in self.lr_bamfh.count_coverage(cb[1], cb[3] + i * b + 1, cb[3] + (i + 1) * b + 1)]) * 1.0 / b for i in range(nr)]
-				print(cov_profile)
+				#print(cov_profile)
 				cb_refined = [-1, 0.0]
 				for i in range(max(1, nl - 6000 // b), nl + min(nr - 1, 6000 // b)):
 					dmu = np.mean(cov_profile[:i]) - np.mean(cov_profile[i:])
 					if abs(dmu) > abs(cb_refined[1]):
 						cb_refined[0] = i
 						cb_refined[1] = dmu
-				print (cb_refined)
+				#print (cb_refined)
 				pval = 1.0
 				cov_profile_split = [cov_profile[:cb_refined[0]], cov_profile[cb_refined[0]:]]
 				if len(cov_profile_split[0]) > 1 and len(cov_profile_split[1]) > 1:
@@ -860,7 +911,7 @@ class bam_to_breakpoint_nanopore():
 				elif len(cov_profile_split[1]) == 1:
 					zscore = abs(cov_profile_split[1][0] - np.mean(cov_profile)) / np.std(cov_profile)
 					pval = stats.norm.sf(zscore)
-				print ("P val = ", pval)
+				#print ("P val = ", pval)
 				if pval <= 0.01 and abs(cb_refined[1]) >= self.normal_cov:
 					if cb_refined[0] < nl:
 						self.source_edges.append(['source', -1, '-', cb[1], cb[3] - (nl - cb_refined[0]) * b, '+', abs(cb_refined[1])])
@@ -956,14 +1007,14 @@ class bam_to_breakpoint_nanopore():
 			split_int[ai].sort(key = lambda item: item[0])
 			#sseg = self.seq_edges[ai]
 			# Cut amplicon intervals
-			print (self.amplicon_intervals[ai])
-			print ('split_int:', split_int[ai])
+			#print (self.amplicon_intervals[ai])
+			#print ('split_int:', split_int[ai])
 			if self.amplicon_intervals[ai][2] - self.amplicon_intervals[ai][1] > self.max_interval_cutoff:
 				if split_int[ai][0][0] - self.amplicon_intervals[ai][1] > 100000:
 					self.amplicon_intervals[ai][1] = split_int[ai][0][0] - 100000
 				if self.amplicon_intervals[ai][2] - split_int[ai][-1][1] > 100000:
 					self.amplicon_intervals[ai][2] = split_int[ai][-1][1] + 100000
-				print ('corrected', self.amplicon_intervals[ai])
+				#print ('corrected', self.amplicon_intervals[ai])
 			
 			sseg = self.amplicon_intervals[ai]
 			for ssi in range(len(split_int[ai])):
@@ -1791,9 +1842,9 @@ class bam_to_breakpoint_nanopore():
 			for pi in range(len(paths)):
 				path = paths[pi]
 				path_ccid = path_ccids[pi]
-				print (pi, path, path_ccid)
+				#print (pi, path, path_ccid)
 				if len(path) > 5 and self.valid_path(self.nodes[path_ccid], path):
-					print ('aaa')
+					#print ('aaa')
 					if path not in self.path_constraints[0]:
 						self.path_constraints[0].append(path)
 						self.path_constraints[1].append(1)
@@ -1815,7 +1866,7 @@ class bam_to_breakpoint_nanopore():
 				q = read.mapq
 				if q >= 20 and rn in concordant_reads:
 					path = self.alignment_to_path([read.reference_name, read.reference_start, read.reference_end])
-					print ("case c:", [read.reference_name, read.reference_start, read.reference_end], path)
+					#print ("case c:", [read.reference_name, read.reference_start, read.reference_end], path)
 					#print ()
 					if len(path) > 5 and self.valid_path(self.nodes[concordant_reads[rn]], path):
 						if path not in self.path_constraints[0]:
@@ -2251,7 +2302,9 @@ class bam_to_breakpoint_nanopore():
 			for pathi in paths:
 				if pathi not in path_constraint_indices_:
 					path_constraint_indices_.append(pathi)
-		p_path_constraints = len(path_constraint_indices_) * 0.9999 / len(pc_indices)
+		p_path_constraints = 0
+		if len(pc_list) > 0:
+			p_path_constraints = len(path_constraint_indices_) * 0.9999 / len(pc_indices)
 
 		seq_edges_ccid = [seqi for seqi in range(len(self.seq_edge_ccids)) if self.seq_edge_ccids[seqi] == ccid]
 		concordant_edges_ccid = [ci for ci in range(len(self.concordant_edges)) if self.concordant_edge_ccids[ci] == ccid]
@@ -2751,7 +2804,7 @@ class bam_to_breakpoint_nanopore():
 			remaining_CN[('d', discordant_edges_ccid[bpi])] = self.new_bp_list[discordant_edges_ccid[bpi]][-1]
 		for srci in range(lsrc):
 			remaining_CN[('src', src_edges_ccid[srci])] = self.source_edges[src_edges_ccid[srci]][-1]
-		print (remaining_CN)
+		#print (remaining_CN)
 
 		next_w = resolution * 1.1
 		cycle_id = 0
@@ -3405,6 +3458,7 @@ class bam_to_breakpoint_nanopore():
 			eulerian_path = [] 
 			eulerian_path_ = []
 			edges_cur = edges_next_path.copy()
+			#print ('EC', edges_cur)
 			path_constraints_cur = path_constraints_next_path.copy()
 			src_edge = ()
 			last_seq_edge = lseg
@@ -3471,6 +3525,7 @@ class bam_to_breakpoint_nanopore():
 				if len(next_bp_edges) == 0:
 					valid = 0
 					break
+				#print ('EC', edges_cur, next_bp_edges)
 				if len(next_bp_edges) == 1: # No branching on the path
 					eulerian_path.append(next_bp_edges[0])
 					edges_cur[next_bp_edges[0]] = int(edges_cur[next_bp_edges[0]]) - 1
@@ -3583,7 +3638,7 @@ class bam_to_breakpoint_nanopore():
 			# sort cycles according to weights
 			cycle_indices = sorted([(0, i) for i in range(len(self.cycle_weights[ccid][0]))] + [(1, i) for i in range(len(self.cycle_weights[ccid][1]))], 
 						key = lambda item: self.cycle_weights[ccid][item[0]][item[1]], reverse = True)
-			print (ccid, cycle_indices, self.cycle_weights)
+			#print (ccid, cycle_indices, self.cycle_weights)
 			for cycle_i in cycle_indices: 
 				cycle_edge_list = []
 				if cycle_i[0] == 0: # cycles
@@ -3603,6 +3658,7 @@ class bam_to_breakpoint_nanopore():
 					else:
 						fp.write("\n")
 				else: # paths
+					#print (self.cycles[ccid][cycle_i[0]][cycle_i[1]])
 					cycle_seg_list = self.eulerian_path_t(self.cycles[ccid][cycle_i[0]][cycle_i[1]], self.path_constraints_satisfied[ccid][cycle_i[0]][cycle_i[1]])
 					fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
 					fp.write("Copy_count=%s;" %str(self.cycle_weights[ccid][cycle_i[0]][cycle_i[1]]))

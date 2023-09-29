@@ -15,6 +15,13 @@ def interval_overlap(int1, int2):
 	return (int1[0] == int2[0] and int(int1[1]) <= int(int2[2]) and int(int2[1]) <= int(int1[2]))
 
 
+def interval_include(int1, int2):
+	"""
+	Check if an interval in the form of [chr, s, e] is fully included in another
+	"""
+	return (int1[0] == int2[0] and int(int1[1]) >= int(int2[1]) and int(int1[2]) <= int(int2[2]))
+
+
 def interval_adjacent(int1, int2):
 	"""
 	Check if two intervals in the form of [chr, s, e] are adjacent
@@ -33,6 +40,13 @@ def interval_overlap_l(int1, intl):
 	"""
 	for int2i in range(len(intl)):
 		if interval_overlap(int1, intl[int2i]):
+			return int2i
+	return -1
+
+
+def interval_include_l(int1, intl):
+	for int2i in range(len(intl)):
+		if interval_include(int1, intl[int2i]):
 			return int2i
 	return -1
 

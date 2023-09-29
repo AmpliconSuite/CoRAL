@@ -229,19 +229,36 @@ class BreakpointGraph:
 				len(self.nodes[node1][3]) == 0 and len(self.nodes[node2][3]) == 0:
 				seqi1 = self.nodes[node1][0][0]
 				seqi2 = self.nodes[node2][0][0]
-				self.seq_edges[seqi2][1] = self.seq_edges[seqi1][1]
-				self.seq_edges[seqi2][3] = -1
-				self.seq_edges[seqi2][4] = 'f'
-				self.seq_edges[seqi2][-2] = self.seq_edges[seqi2][2] - self.seq_edges[seqi2][1] + 1
 				seq_del_list.append(seqi1)
 				del self.nodes[node1]
 				del self.nodes[node2]
 				c_del_list.append(ci)
-		for seqi in sorted(seq_del_list, reverse = True):
+		seq_del_list = sorted(seq_del_list)
+		si = 0
+		li = 0
+		for i in range(1, len(seq_del_list)):
+			if seq_del_list[i] == seq_del_list[li] + 1:
+				li += 1
+			else:
+				seqi1 = seq_del_list[si]
+				seqi2 = seq_del_list[li] + 1
+				self.sequence_edges[seqi2][1] = self.sequence_edges[seqi1][1]
+				self.sequence_edges[seqi2][3] = -1
+				self.sequence_edges[seqi2][4] = 'f'
+				self.sequence_edges[seqi2][-2] = self.sequence_edges[seqi2][2] - self.sequence_edges[seqi2][1] + 1
+				si = i
+				li = i
+		seqi1 = seq_del_list[si]
+		seqi2 = seq_del_list[li] + 1
+		self.sequence_edges[seqi2][1] = self.sequence_edges[seqi1][1]
+		self.sequence_edges[seqi2][3] = -1
+		self.sequence_edges[seqi2][4] = 'f'
+		self.sequence_edges[seqi2][-2] = self.sequence_edges[seqi2][2] - self.sequence_edges[seqi2][1] + 1
+		for seqi in seq_del_list[::-1]:
 			del self.sequence_edges[seqi]
 		for ci in sorted(c_del_list, reverse = True):
 			del self.concordant_edges[ci]
-		for seqi in range(len(self.self.sequence_edges)):
+		for seqi in range(len(self.sequence_edges)):
 			sseg = self.sequence_edges[seqi]
 			node1 = (sseg[0], sseg[1], '-')
 			node2 = (sseg[0], sseg[2], '+')
@@ -369,7 +386,7 @@ class BreakpointGraph:
 
 
 	def compute_cn_lr():
-		lseg = len(self.seq_edges)
+		lseg = len(self.sequence_edges)
 		lc = len(self.concordant_edges)
 		ld = len(self.discordant_edges)
 		lnbp = len(self.new_bp_list_)
