@@ -1946,11 +1946,12 @@ class bam_to_breakpoint_nanopore():
 					for ci in self.nodes[ccid][node][1]:
 						ec_expr -= x[(lseg + concordant_edges_ccid.index(ci)) * k + i]
 					for di in self.nodes[ccid][node][2]:
-						dedge = self.new_bp_list[di]
-						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
-							ec_expr -= 2 * x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
-						else:
-							ec_expr -= x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
+						# Fix 10/01
+						#dedge = self.new_bp_list[di]
+						#if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
+						#	ec_expr -= 2 * x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
+						#else:
+						ec_expr -= x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
 					for srci in self.nodes[ccid][node][3]:
 						ec_expr -= x[(lseg + lc + ld + 2 * src_edges_ccid.index(srci)) * k + i] # connected to s
 						ec_expr -= x[(lseg + lc + ld + 2 * src_edges_ccid.index(srci)) * k + k + i] # connected to t
@@ -2383,11 +2384,12 @@ class bam_to_breakpoint_nanopore():
 					for ci in self.nodes[ccid][node][1]:
 						ec_expr -= x[(lseg + concordant_edges_ccid.index(ci)) * k + i]
 					for di in self.nodes[ccid][node][2]:
-						dedge = self.new_bp_list[di]
-						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
-							ec_expr -= 2 * x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
-						else:
-							ec_expr -= x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
+						# Fix 10/01
+						#dedge = self.new_bp_list[di]
+						#if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
+						#	ec_expr -= 2 * x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
+						#else:
+						ec_expr -= x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
 					for srci in self.nodes[ccid][node][3]:
 						ec_expr -= x[(lseg + lc + ld + 2 * src_edges_ccid.index(srci)) * k + i] # connected to s
 						ec_expr -= x[(lseg + lc + ld + 2 * src_edges_ccid.index(srci)) * k + k + i] # connected to t
@@ -2865,11 +2867,12 @@ class bam_to_breakpoint_nanopore():
 					for ci in self.nodes[ccid][node][1]:
 						ec_expr -= x[lseg + concordant_edges_ccid.index(ci)]
 					for di in self.nodes[ccid][node][2]:
-						dedge = self.new_bp_list[di]
-						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
-							ec_expr -= 2 * x[lseg + lc + discordant_edges_ccid.index(di)]
-						else:
-							ec_expr -= x[lseg + lc + discordant_edges_ccid.index(di)]
+						# Fix 10/01
+						#dedge = self.new_bp_list[di]
+						#if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
+						#	ec_expr -= 2 * x[lseg + lc + discordant_edges_ccid.index(di)]
+						#else:
+						ec_expr -= x[lseg + lc + discordant_edges_ccid.index(di)]
 					for srci in self.nodes[ccid][node][3]:
 						ec_expr -= x[lseg + lc + ld + 2 * src_edges_ccid.index(srci)] # connected to s
 						ec_expr -= x[lseg + lc + ld + 2 * src_edges_ccid.index(srci) + 1] # connected to t
@@ -3643,6 +3646,7 @@ class bam_to_breakpoint_nanopore():
 				cycle_edge_list = []
 				if cycle_i[0] == 0: # cycles
 					cycle_seg_list = self.eulerian_cycle_t(self.cycles[ccid][cycle_i[0]][cycle_i[1]], self.path_constraints_satisfied[ccid][cycle_i[0]][cycle_i[1]])
+					print (self.cycles[ccid][cycle_i[0]][cycle_i[1]], cycle_seg_list)
 					assert cycle_seg_list[0] == cycle_seg_list[-1]
 					fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
 					fp.write("Copy_count=%s;" %str(self.cycle_weights[ccid][cycle_i[0]][cycle_i[1]]))
