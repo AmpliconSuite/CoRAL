@@ -1296,13 +1296,25 @@ class bam_to_breakpoint_hybrid():
 					if sol['x'][lseg + eci] * 2 > self.max_CN:
 						self.max_CN = sol['x'][lseg + eci] * 2
 				for edi in range(ld):
-					self.discordant_edges[edi] += [sol['x'][lseg + lc + edi] * 2]
-					if sol['x'][lseg + lc + edi] * 2 > self.max_CN:
-						self.max_CN = sol['x'][lseg + lc + edi] * 2
+					de = self.discordant_edges[edi]
+					if de[0] == de[3] and de[1] == de[4] and de[2] == de[5]:
+						self.discordant_edges[edi] += [sol['x'][lseg + lc + edi]]
+						if sol['x'][lseg + lc + edi] > self.max_CN:
+							self.max_CN = sol['x'][lseg + lc + edi]
+					else:
+						self.discordant_edges[edi] += [sol['x'][lseg + lc + edi] * 2]
+						if sol['x'][lseg + lc + edi] * 2 > self.max_CN:
+							self.max_CN = sol['x'][lseg + lc + edi] * 2
 				for bpi in range(lnbp):
-					self.new_bp_list_[bpi] += [sol['x'][lseg + lc + ld + bpi] * 2]
-					if sol['x'][lseg + lc + ld + bpi] * 2 > self.max_CN:
-						self.max_CN = sol['x'][lseg + lc + ld + bpi] * 2
+					de = self.new_bp_list_[bpi]
+					if de[0] == de[3] and de[1] == de[4] and de[2] == de[5]:
+						self.new_bp_list_[bpi] += [sol['x'][lseg + lc + ld + bpi]]
+						if sol['x'][lseg + lc + ld + bpi] > self.max_CN:
+							self.max_CN = sol['x'][lseg + lc + ld + bpi]
+					else:
+						self.new_bp_list_[bpi] += [sol['x'][lseg + lc + ld + bpi] * 2]
+						if sol['x'][lseg + lc + ld + bpi] * 2 > self.max_CN:
+							self.max_CN = sol['x'][lseg + lc + ld + bpi] * 2
 				for esi in range(len(self.source_edges)):
 					self.source_edges[esi] += [sol['x'][lseg + lc + ld + lnbp + esi] * 2]
 					if sol['x'][lseg + lc + ld + lnbp + esi] * 2 > self.max_CN:

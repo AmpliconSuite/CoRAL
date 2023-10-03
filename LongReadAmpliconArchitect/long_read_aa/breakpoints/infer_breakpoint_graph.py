@@ -1252,9 +1252,16 @@ class bam_to_breakpoint_nanopore():
 						if sol['x'][lseg + i] * 2 > self.max_CN[ccid]:
 							self.max_CN[ccid] = sol['x'][lseg + i] * 2
 					for i in range(ld):
-						self.new_bp_list[discordant_edges_ccid[i]] += [sol['x'][lseg + lc + i] * 2]
-						if sol['x'][lseg + lc + i] * 2 > self.max_CN[ccid]:
-							self.max_CN[ccid] = sol['x'][lseg + lc + i] * 2
+						di = discordant_edges_ccid[i]
+						de = self.new_bp_list[di]
+						if de[0] == de[3] and de[1] == de[4] and de[2] == de[5]:
+							self.new_bp_list[di] += [sol['x'][lseg + lc + i]]
+							if sol['x'][lseg + lc + i] > self.max_CN[ccid]:
+								self.max_CN[ccid] = sol['x'][lseg + lc + i]
+						else:
+							self.new_bp_list[di] += [sol['x'][lseg + lc + i] * 2]
+							if sol['x'][lseg + lc + i] * 2 > self.max_CN[ccid]:
+								self.max_CN[ccid] = sol['x'][lseg + lc + i] * 2
 					for i in range(lsrc):
 						self.source_edges[src_edges_ccid[i]] += [sol['x'][lseg + lc + ld + i] * 2]
 						if sol['x'][lseg + lc + ld + i] * 2 > self.max_CN[ccid]:
