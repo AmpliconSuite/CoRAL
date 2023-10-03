@@ -485,29 +485,32 @@ class bam_to_breakpoint_nanopore():
 					if len(new_bp_refined) > 0:
 						for bpi in new_bp_refined:
 							bp = self.new_bp_list[bpi][:6]
-							if interval_overlap([bp[0], bp[1], bp[1]], self.amplicon_intervals[ai_]) and interval_overlap([bp[3], bp[4], bp[4]], [nint_[0], ns, ne]):
-								nint_segs.append([list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
-							elif interval_overlap([bp[3], bp[4], bp[4]], self.amplicon_intervals[ai_]) and interval_overlap([bp[0], bp[1], bp[1]], [nint_[0], ns, ne]):
-								nint_segs.append([list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
-							else:
-								logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tExact breakpoint outside amplicon interval.")
-								logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tBreakpoint %s." %bp)
-								logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tCurrent interval %s." %self.amplicon_intervals[ai_])
-								logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tNew interval %s." %[nint_[0], ns, ne])
-								o1 = interval_overlap([bp[0], bp[1], bp[1]], [nint_[0], ns, ne])
-								o2 = interval_overlap([bp[3], bp[4], bp[4]], [nint_[0], ns, ne])
-								if o1 and o2:
-									nint_segs.append([list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
+							try:
+								if interval_overlap([bp[0], bp[1], bp[1]], self.amplicon_intervals[ai_]) and interval_overlap([bp[3], bp[4], bp[4]], [nint_[0], ns, ne]):
 									nint_segs.append([list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
-								elif o1:
+								elif interval_overlap([bp[3], bp[4], bp[4]], self.amplicon_intervals[ai_]) and interval_overlap([bp[0], bp[1], bp[1]], [nint_[0], ns, ne]):
 									nint_segs.append([list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
-									nint_segs_.append([bp[3], list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
-								elif o2:
-									nint_segs_.append([bp[0], list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
-									nint_segs.append([list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
 								else:
-									nint_segs_.append([bp[0], list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
-									nint_segs_.append([bp[3], list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tExact breakpoint outside amplicon interval.")
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tBreakpoint %s." %bp)
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tCurrent interval %s." %self.amplicon_intervals[ai_])
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tNew interval %s." %[nint_[0], ns, ne])
+									o1 = interval_overlap([bp[0], bp[1], bp[1]], [nint_[0], ns, ne])
+									o2 = interval_overlap([bp[3], bp[4], bp[4]], [nint_[0], ns, ne])
+									if o1 and o2:
+										nint_segs.append([list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
+										nint_segs.append([list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
+									elif o1:
+										nint_segs.append([list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
+										nint_segs_.append([bp[3], list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
+									elif o2:
+										nint_segs_.append([bp[0], list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
+										nint_segs.append([list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
+									else:
+										nint_segs_.append([bp[0], list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
+										nint_segs_.append([bp[3], list(self.pos2cni(bp[3], bp[4]))[0].data, bp[4], bpi])
+							except:
+								pass
 						nint_segs = sorted(nint_segs, key = lambda item: (item[0], item[1]))
 						nint_segs_ = sorted(nint_segs_, key = lambda item: (global_names.chr_idx[item[0]], item[1], item[2]))
 						lasti = 0

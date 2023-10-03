@@ -1957,6 +1957,7 @@ class bam_to_breakpoint_hybrid():
 					for ci in self.nodes[node][2]:
 						ec_expr -= x[(lseg + ci) * k + i]
 					for di in self.nodes[node][3]:
+						"""
 						dedge = []
 						if di < len(self.discordant_edges):
 							dedge = self.discordant_edges[di]
@@ -1965,7 +1966,8 @@ class bam_to_breakpoint_hybrid():
 						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
 							ec_expr -= 2 * x[(lseg + lc + di) * k + i]
 						else:
-							ec_expr -= x[(lseg + lc + di) * k + i]
+						"""
+						ec_expr -= x[(lseg + lc + di) * k + i]
 					for srci in self.nodes[node][4]:
 						ec_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] # connected to s
 						ec_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i] # connected to t
@@ -2337,7 +2339,9 @@ class bam_to_breakpoint_hybrid():
 			for pathi in paths:
 				if pathi not in path_constraint_indices_:
 					path_constraint_indices_.append(pathi)
-		p_path_constraints = len(path_constraint_indices_) * 0.9999 / len(pc_indices)
+		p_path_constraints = 0
+		if len(pc_list) > 0:
+			p_path_constraints = len(path_constraint_indices_) * 0.9999 / len(pc_indices)
 		
 		lseg = len(self.seq_edges)
 		lc = len(self.concordant_edges)
@@ -2414,6 +2418,7 @@ class bam_to_breakpoint_hybrid():
 					for ci in self.nodes[node][2]:
 						ec_expr -= x[(lseg + ci) * k + i]
 					for di in self.nodes[node][3]:
+						"""
 						dedge = []
 						if di < len(self.discordant_edges):
 							dedge = self.discordant_edges[di]
@@ -2422,7 +2427,8 @@ class bam_to_breakpoint_hybrid():
 						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
 							ec_expr -= 2 * x[(lseg + lc + di) * k + i]
 						else:
-							ec_expr -= x[(lseg + lc + di) * k + i]
+						"""
+						ec_expr -= x[(lseg + lc + di) * k + i]
 					for srci in self.nodes[node][4]:
 						ec_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + i] # connected to s
 						ec_expr -= x[(lseg + lc + ld + lnbp + 2 * srci) * k + k + i] # connected to t
@@ -2919,6 +2925,7 @@ class bam_to_breakpoint_hybrid():
 					for ci in self.nodes[node][2]:
 						ec_expr -= x[lseg + ci]
 					for di in self.nodes[node][3]:
+						"""
 						dedge = []
 						if di < len(self.discordant_edges):
 							dedge = self.discordant_edges[di]
@@ -2927,7 +2934,8 @@ class bam_to_breakpoint_hybrid():
 						if dedge[0] == dedge[3] and dedge[1] == dedge[4] and dedge[2] == dedge[5]:
 							ec_expr -= 2 * x[lseg + lc + di]
 						else:
-							ec_expr -= x[lseg + lc + di]
+						"""
+						ec_expr -= x[lseg + lc + di]
 					for srci in self.nodes[node][4]:
 						ec_expr -= x[lseg + lc + ld + lnbp + 2 * srci] # connected to s
 						ec_expr -= x[lseg + lc + ld + lnbp + 2 * srci + 1] # connected to t
