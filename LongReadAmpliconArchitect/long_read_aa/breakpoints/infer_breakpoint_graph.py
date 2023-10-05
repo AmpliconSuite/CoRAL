@@ -225,6 +225,7 @@ class bam_to_breakpoint_nanopore():
 			lcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][1]))[0].data
 			rcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][2]))[0].data
 			# Fix 09/28/23 - added flanking region while searching for amplicon intervals
+			print (lcni, rcni, self.amplicon_intervals[ai], self.cns_intervals_by_chr[chr][lcni][1], self.cns_intervals_by_chr[chr][rcni][2])
 			self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1]
 			if len(list(self.pos2cni(chr, self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta))) > 0:
 				self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta
@@ -318,6 +319,25 @@ class bam_to_breakpoint_nanopore():
 		connection_map = {connection: (min(ind_map[connection[0]], ind_map[connection[1]]), max(ind_map[connection[0]], ind_map[connection[1]])) for connection in self.amplicon_interval_connections.keys()}
 		self.amplicon_interval_connections = {connection_map[connection]: self.amplicon_interval_connections[connection] for connection in self.amplicon_interval_connections.keys()}
 		#print (self.amplicon_interval_connections)
+		# Reset ccids
+		#print (self.amplicon_intervals)
+		ai_explored = np.zeros(len(self.amplicon_intervals))
+		for ai in range(len(self.amplicon_intervals)):
+			ai_ccid = self.amplicon_intervals[ai][3]
+			if ai_explored[ai] == 0:
+				L = [ai] # BFS queue
+				while len(L) > 0:
+					ai_ = L.pop(0)
+					ai_explored[ai_] = 1
+					if self.amplicon_intervals[ai_][3] != ai_ccid:
+						self.amplicon_intervals[ai_][3] = ai_ccid
+					for (ai1, ai2) in self.amplicon_interval_connections.keys():
+						if ai1 == ai_ and ai_explored[ai2] == 0:
+							L.append(ai2)
+						elif ai2 == ai_ and ai_explored[ai1] == 0:
+							L.append(ai1)
+		#print (self.amplicon_intervals)
+		
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "There are %d amplicon intervals after merging." %len(self.amplicon_intervals))
 		for ai in range(len(self.amplicon_intervals)):
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAmplicon interval %s after merging." %self.amplicon_intervals[ai])
@@ -374,7 +394,7 @@ class bam_to_breakpoint_nanopore():
 						rint = self.chimeric_alignments[r][1]
 						for int_ in rint:
 							for i_ in int_[-1]:
-								if (int_[0] != chr) or (i_ < si or i_ > ei):
+								if (int_[0] != chr) or (i_ <= si or i_ >= ei):
 									try:
 										if i_!= -1:
 											d1_segs[int_[0]][i_].add(r)
@@ -1080,6 +1100,7 @@ class bam_to_breakpoint_nanopore():
 			bp_ccid = self.new_bp_ccids[bpi]
 			io1 = interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals)
 			io2 = interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals)
+			#print (bp[:6], io1, io2, self.amplicon_intervals[io1], self.amplicon_intervals[io2])
 			assert self.amplicon_intervals[io1][3] == self.amplicon_intervals[io2][3]
 			if self.amplicon_intervals[io1][3] != bp_ccid:
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset the ccid for breakpoint %s at index %d from %d to %d." \
@@ -2029,10 +2050,15 @@ class bam_to_breakpoint_nanopore():
 			m.addConstr(cycle_expr <= 1.0)
 
 		# special request for c added for max_seq_repeat >= 2
+		# Fix 1004
 		for i in range(k):
+			expr_xc = gp.QuadExpr(0.0)
 			for node in self.nodes[ccid].keys():
-				seqi = self.nodes[ccid][node][0][0]
-				m.addConstr(c[k * node_order[node] + i] * x[seq_edges_ccid.index(seqi) * k + i] <= 1.0)
+				for ci in set(self.nodes[ccid][node][1]):
+					expr_xc += c[k * node_order[node] + i] * x[(lseg + concordant_edges_ccid.index(ci)) * k + i]
+				for di in set(self.nodes[ccid][node][2]):	
+					expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
+			m.addConstr(expr_xc <= 1.0)
 			
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []
@@ -2467,10 +2493,16 @@ class bam_to_breakpoint_nanopore():
 			m.addConstr(cycle_expr <= 1.0)
 
 		# special request for c added for max_seq_repeat >= 2
+		# Fix 1004
 		for i in range(k):
+			expr_xc = gp.QuadExpr(0.0)
 			for node in self.nodes[ccid].keys():
-				seqi = self.nodes[ccid][node][0][0]
-				m.addConstr(c[k * node_order[node] + i] * x[seq_edges_ccid.index(seqi) * k + i] <= 1.0)
+				for ci in set(self.nodes[ccid][node][1]):
+					expr_xc += c[k * node_order[node] + i] * x[(lseg + concordant_edges_ccid.index(ci)) * k + i]
+				for di in set(self.nodes[ccid][node][2]):	
+					expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + discordant_edges_ccid.index(di)) * k + i]
+			m.addConstr(expr_xc <= 1.0)
+
 			
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []
@@ -2937,10 +2969,16 @@ class bam_to_breakpoint_nanopore():
 				cycle_expr += x[lseg + lc + ld + 2 * srci] # (s, v)
 			m.addConstr(cycle_expr <= 1.0)
 			
+
 			# special request for c added for max_seq_repeat >= 2
+			expr_xc = gp.QuadExpr(0.0)
 			for node in self.nodes[ccid].keys():
-				seqi = self.nodes[ccid][node][0][0]
-				m.addConstr(c[node_order[node]] * x[seq_edges_ccid.index(seqi)] <= 1.0)
+				for ci in set(self.nodes[ccid][node][1]):
+					expr_xc += c[node_order[node]] * x[lseg + concordant_edges_ccid.index(ci)]
+				for di in set(self.nodes[ccid][node][2]):	
+					expr_xc += c[node_order[node]] * x[lseg + lc + discordant_edges_ccid.index(di)]
+			m.addConstr(expr_xc <= 1.0)
+
 
 			# d: BFS/spanning tree order of the nodes in decomposition i
 			d_names = []

@@ -2056,9 +2056,15 @@ class bam_to_breakpoint_hybrid():
 			m.addConstr(cycle_expr <= 1.0)
 
 		# special request for c added for max_seq_repeat >= 2
+		# Fix 1004
 		for i in range(k):
+			expr_xc = gp.QuadExpr(0.0)
 			for node in self.nodes.keys():
-				m.addConstr(c[k * node_order[node] + i] * x[self.nodes[node][1][0] * k + i] <= 1.0)
+				for ci in set(self.nodes[node][2]):
+					expr_xc += (c[k * node_order[node] + i] * x[(lseg + ci) * k + i])
+				for di in set(self.nodes[node][3]):	
+					expr_xc += (c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i])
+			m.addConstr(expr_xc <= 1.0)
 			
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []
@@ -2517,9 +2523,15 @@ class bam_to_breakpoint_hybrid():
 			m.addConstr(cycle_expr <= 1.0)
 
 		# special request for c added for max_seq_repeat >= 2
+		# Fix 1004
 		for i in range(k):
+			expr_xc = gp.QuadExpr(0.0)
 			for node in self.nodes.keys():
-				m.addConstr(c[k * node_order[node] + i] * x[self.nodes[node][1][0] * k + i] <= 1.0)
+				for ci in set(self.nodes[node][2]):
+					expr_xc += (c[k * node_order[node] + i] * x[(lseg + ci) * k + i])
+				for di in set(self.nodes[node][3]):	
+					expr_xc += (c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i])
+			m.addConstr(expr_xc <= 1.0)
 			
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []
@@ -3011,8 +3023,14 @@ class bam_to_breakpoint_hybrid():
 			m.addConstr(cycle_expr <= 1.0)
 
 			# special request for c added for max_seq_repeat >= 2
+			# Fix 1004
+			expr_xc = gp.QuadExpr(0.0)
 			for node in self.nodes.keys():
-				m.addConstr(c[node_order[node]] * x[self.nodes[node][1][0]] <= 1.0)
+				for ci in set(self.nodes[node][2]):
+					expr_xc += (c[node_order[node]] * x[lseg + ci])
+				for di in set(self.nodes[node][3]):	
+					expr_xc += (c[node_order[node]] * x[lseg + lc + di])
+			m.addConstr(expr_xc <= 1.0)
 			
 			# d: BFS/spanning tree order of the nodes in decomposition i
 			d_names = []
