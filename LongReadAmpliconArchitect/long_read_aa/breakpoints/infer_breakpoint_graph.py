@@ -225,7 +225,7 @@ class bam_to_breakpoint_nanopore():
 			lcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][1]))[0].data
 			rcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][2]))[0].data
 			# Fix 09/28/23 - added flanking region while searching for amplicon intervals
-			print (lcni, rcni, self.amplicon_intervals[ai], self.cns_intervals_by_chr[chr][lcni][1], self.cns_intervals_by_chr[chr][rcni][2])
+			#print (lcni, rcni, self.amplicon_intervals[ai], self.cns_intervals_by_chr[chr][lcni][1], self.cns_intervals_by_chr[chr][rcni][2])
 			self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1]
 			if len(list(self.pos2cni(chr, self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta))) > 0:
 				self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta
@@ -2869,7 +2869,7 @@ class bam_to_breakpoint_nanopore():
 			z = m.addVars(1, vtype = GRB.BINARY, name = ["z0"])
 
 			# w[i]: the weight of cycle or path i, continuous variable
-			w = m.addVars(1, lb = 0.0, ub = self.max_CN, vtype = GRB.CONTINUOUS, name = ["w0"])
+			w = m.addVars(1, lb = 0.0, ub = self.max_CN[ccid], vtype = GRB.CONTINUOUS, name = ["w0"])
 
 			# Relationship between w[i] and z[i]
 			m.addConstr(w[0] <= z[0] * self.max_CN[ccid])
