@@ -671,7 +671,7 @@ class bam_to_breakpoint_hybrid():
 							self.new_bp_list_[bpi][1] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[0] = 0
-						elif seg[2] - self.min_bp_match_cutoff_ < bp[1] < seg[2] and ep == 0:
+						elif seg[2] - self.min_bp_match_cutoff_ < bp[1] <= seg[2] and ep == 0:
 							self.new_bp_list_[bpi][1] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[0] = 0
@@ -690,15 +690,15 @@ class bam_to_breakpoint_hybrid():
 							self.new_bp_list_[bpi][4] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[1] = 0
-						elif seg[2] - self.min_bp_match_cutoff_ < bp[4] < seg[2] and ep == 0:
+						elif seg[2] - self.min_bp_match_cutoff_ < bp[4] <= seg[2] and ep == 0:
 							self.new_bp_list_[bpi][4] = seg[2] + 1
 							self.discordant_edges_pos[(seg[0], int(seg[2]), int(seg[2]) + 1)][1].append(len(self.discordant_edges) + bpi)
 							nsplit[1] = 0
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "New breakpoint %s: nsplit = %s." %(bp[:6] + [len(bp[6])], nsplit))
 			for segi in range(len(self.seq_edges)):	
 				seg = self.seq_edges[segi]
-				if nsplit[0] == 1 and bp[0] == seg[0] and seg[1] < int(bp[1]) < seg[2]:
-					if bp[2] == '+':
+				if nsplit[0] == 1 and bp[0] == seg[0] and seg[1] <= int(bp[1]) <= seg[2]:
+					if bp[2] == '+' and int(bp[1]) < seg[2]:
 						try:
 							split_seg[segi].append((int(bp[1]), int(bp[1]) + 1, bpi, 1, '+'))
 						except:
@@ -707,7 +707,7 @@ class bam_to_breakpoint_hybrid():
 							self.discordant_edges_pos[(seg[0], int(bp[1]), int(bp[1]) + 1)][0].append(len(self.discordant_edges) + bpi)
 						except:
 							self.discordant_edges_pos[(seg[0], int(bp[1]), int(bp[1]) + 1)] = [[len(self.discordant_edges) + bpi], []]
-					if bp[2] == '-':
+					if bp[2] == '-' and int(bp[1]) > seg[1]:
 						try:
 							split_seg[segi].append((int(bp[1]) - 1, int(bp[1]), bpi, 1, '-'))
 						except:
@@ -716,8 +716,8 @@ class bam_to_breakpoint_hybrid():
 							self.discordant_edges_pos[(seg[0], int(bp[1]) - 1, int(bp[1]))][1].append(len(self.discordant_edges) + bpi)
 						except:
 							self.discordant_edges_pos[(seg[0], int(bp[1]) - 1, int(bp[1]))] = [[], [len(self.discordant_edges) + bpi]]
-				if nsplit[1] == 1 and bp[3] == seg[0] and seg[1] < int(bp[4]) < seg[2]:
-					if bp[5] == '+':
+				if nsplit[1] == 1 and bp[3] == seg[0] and seg[1] <= int(bp[4]) <= seg[2]:
+					if bp[5] == '+' and int(bp[4]) < seg[2]:
 						try:
 							split_seg[segi].append((int(bp[4]), int(bp[4]) + 1, bpi, 4, '+'))
 						except:
@@ -726,7 +726,7 @@ class bam_to_breakpoint_hybrid():
 							self.discordant_edges_pos[(seg[0], int(bp[4]), int(bp[4]) + 1)][0].append(len(self.discordant_edges) + bpi)
 						except:
 							self.discordant_edges_pos[(seg[0], int(bp[4]), int(bp[4]) + 1)] = [[len(self.discordant_edges) + bpi], []]
-					if bp[5] == '-':
+					if bp[5] == '-' and int(bp[4]) > seg[1]:
 						try:
 							split_seg[segi].append((int(bp[4]) - 1, int(bp[4]), bpi, 4, '-'))
 						except:
