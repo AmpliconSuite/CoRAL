@@ -92,9 +92,9 @@ def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
 							abs(int(bp[4]) - int(lbp[4])) < bp_distance_cutoff:
 							bpcim = bpci
 							break
-					if bpcim > 0:
+					if bpcim >= 0:
 						break
-				if bpcim > 0:
+				if bpcim >= 0:
 					bp_clusters_[bpcim].append(bp)
 				else:
 					bp_clusters_.append([bp])
@@ -140,7 +140,6 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
 		bp_stats[3] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[3] - bp_stats[1] * bp_stats[1]))
 	except:
 		bp_stats[3] = bp_distance_cutoff / 2.99
-	#print ("bp_stats", bp_stats)
 	bp1_list = []
 	bp4_list = []
 	for bp_ in bp_cluster:

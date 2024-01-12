@@ -64,14 +64,17 @@ if __name__ == '__main__':
 			s = line.strip().split()
 			if s[0] != "chromosome":
 				cn = 2*(2**float(s[4]))
+				# Require absolute CN >= max(GAIN, cn_cutoff_chrarm)
 				if cn >= GAIN and (int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]): 
 					# assume input CN segments sorted by chr and pos
 					if len(cur_seed) > 0 and s[0] == cur_seed[-1][0] and int(s[1]) - cur_seed[-1][2] <= CNGAP_MAX:
 						cur_seed.append((s[0], int(s[1]), int(s[2]), cn))
+						print (cur_seed)
 					else:
 						if len(cur_seed) == 0:
 							cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
 						else:
+							print (cur_seed)
 							cnv_seeds.append(cur_seed)
 							cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
 				if int(s[2]) <= chr_arms[s[0]][0][0]:
@@ -79,6 +82,7 @@ if __name__ == '__main__':
 				if int(s[1]) >= chr_arms[s[0]][0][1]:
 					chr_arms[s[0]][1][1].append((s[0], int(s[1]), int(s[2]), cn))
 	cnv_seeds.append(cur_seed)
+	#print (cnv_seeds)
 
 	for chr in chr_arms:
 		sum_cns_len_parm = sum([cns[2] - cns[1] for cns in chr_arms[chr][1][0]])
@@ -117,11 +121,11 @@ if __name__ == '__main__':
 				cn_cutoff_chrarm = cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][1] - 2.0
 			else:
 				os.abort()
-			print seed, cn_cutoff_chrarm
+			#print (seed, cn_cutoff_chrarm)
 			for ci in range(len(seed))[::-1]:
 				if seed[ci][3] < cn_cutoff_chrarm:
 					del seed[ci]
-			print seed
+			#print (seed)
 			if len(seed) > 0:
 				lastseg = []
 				sum_seed_len = 0
