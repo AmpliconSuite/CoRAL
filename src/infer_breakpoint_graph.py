@@ -415,11 +415,11 @@ class bam_to_breakpoint_nanopore():
 
 						# Breakpoint from local alignment i and i + 1
 						for ri in range(len(rr_int) - 1):
-							if interval_overlap(rr_int[ri], [nint_[0], ns, ne]) and \
+							if int(r_int[ri + 1][0]) - int(r_int[ri][1]) + self.min_bp_match_cutoff_ >= 0 and interval_overlap(rr_int[ri], [nint_[0], ns, ne]) and \
 								interval_overlap(rr_int[ri + 1], self.amplicon_intervals[ai_]) and q_[ri] >= 20 and q_[ri + 1] >= 20:
 								new_bp_list.append(interval2bp(rr_int[ri], rr_int[ri + 1], (r, ri, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri][1])) + [q_[ri], q_[ri + 1]])
 								bassigned[ri] = 1
-							elif interval_overlap(rr_int[ri + 1], [nint_[0], ns, ne]) and \
+							elif int(r_int[ri + 1][0]) - int(r_int[ri][1]) + self.min_bp_match_cutoff_ >= 0 and interval_overlap(rr_int[ri + 1], [nint_[0], ns, ne]) and \
 								interval_overlap(rr_int[ri], self.amplicon_intervals[ai_]) and q_[ri] >= 20 and q_[ri + 1] >= 20:
 								new_bp_list.append(interval2bp(rr_int[ri], rr_int[ri + 1], (r, ri, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri][1])) + [q_[ri], q_[ri + 1]])
 								bassigned[ri] = 1
@@ -697,7 +697,7 @@ class bam_to_breakpoint_nanopore():
 				"""
 				io1 = interval_overlap_l(rr_int[i], self.amplicon_intervals)
 				io2 = interval_overlap_l(rr_int[i + 1], self.amplicon_intervals)
-				if io1 >= 0 and io2 >= 0 and io1 == io2:
+				if int(r_int[i + 1][0]) - int(r_int[i][1]) + self.min_bp_match_cutoff_ >= 0 and io1 >= 0 and io2 >= 0 and io1 == io2:
 					if rr_int[i + 1][3] != rr_int[i][3]:
 						if q_[i] >= 20 and q_[i + 1] >= 20:
 							new_bp_list_.append(interval2bp(rr_int[i], rr_int[i + 1], (r, i, i + 1), int(r_int[i + 1][0]) - int(r_int[i][1])) + [q_[i], q_[i + 1]])
