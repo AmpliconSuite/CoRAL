@@ -7,7 +7,7 @@ import gurobipy as gp
 from gurobipy import GRB
 
 from breakpoint_graph import *
-from long_read_aa.breakpoints import global_names
+import global_names
 
 
 def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_seq_repeat = 2,

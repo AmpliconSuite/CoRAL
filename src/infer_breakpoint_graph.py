@@ -13,7 +13,7 @@ from breakpoint_utilities import *
 from breakpoint_graph import *
 from path_constraints import *
 from cycle_decomposition import *
-from long_read_aa.breakpoints import global_names
+import global_names
 global_names.TSTART = start_time
 
 
@@ -1350,7 +1350,7 @@ class bam_to_breakpoint_nanopore():
 		"""
 		for amplicon_idx in range(len(self.lr_graph)):
 			max_seq_repeat_amplicon = self.lr_graph[amplicon_idx].infer_max_seq_repeat()
-			if  max_seq_repeat > 0:
+			if max_seq_repeat > 0:
 				max_seq_repeat_amplicon = max_seq_repeat
 			lseg = len(self.lr_graph[amplicon_idx].sequence_edges)
 			lc = len(self.lr_graph[amplicon_idx].concordant_edges)

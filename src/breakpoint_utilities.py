@@ -5,7 +5,7 @@ import math
 import numpy as np
 from collections import Counter
 
-from long_read_aa.breakpoints import global_names
+import global_names
 
 
 def interval_overlap(int1, int2):

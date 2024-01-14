@@ -11,7 +11,7 @@ implement merge_alignment
 import logging
 import time
 
-from long_read_aa.breakpoints import global_names
+import global_names
 
 
 def cigar2posSM(cigar, strand, read_length):

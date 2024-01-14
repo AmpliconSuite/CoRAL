@@ -10,7 +10,7 @@ import numpy as np
 import cvxopt
 import cvxopt.modeling
 
-from long_read_aa.breakpoints import global_names
+import global_names
 
 
 class BreakpointGraph:
@@ -550,9 +550,9 @@ class BreakpointGraph:
 
 		Return: integer, estimated maximum multiplicity on sequence edges
 		"""
-		max_seq_repeat = 2
+		max_seq_repeat = repeat
 		seq_cn_list = [se[-1] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
-		seq_len_list = [se[-1] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
+		seq_len_list = [se[7] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
 		if len(seq_cn_list) > 0:
 			max_cn = max(seq_cn_list)
 			avg_cn = np.average(seq_cn_list, weights = seq_len_list)
