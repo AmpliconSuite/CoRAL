@@ -3,7 +3,6 @@ import argparse
 import pysam
 import matplotlib as mpl
 mpl.use('Agg')
-import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arc
 from pylab import rcParams
@@ -40,9 +39,10 @@ class graph_vis:
 					start = int(s[1].split(":")[1][:-1])
 					end = int(s[2].split(":")[1][:-1])
 					try:
-						self.sequence_edges_by_chr[schr].append([schr, start, end, float(s[3]), int(s[4]), int(s[5])])
+						#altered to use AA graph (not CoRAL)
+						self.sequence_edges_by_chr[schr].append([schr, start, end, float(s[3]), int(s[6]), int(s[5])])
 					except:
-						self.sequence_edges_by_chr[schr] = [[schr, start, end, float(s[3]), int(s[4]), int(s[5])]]
+						self.sequence_edges_by_chr[schr] = [[schr, start, end, float(s[3]), int(s[6]), int(s[5])]]
 					if float(s[3]) > self.maxCN:
 						self.maxCN = float(s[3])
 				elif s[0] == "discordant":
@@ -116,7 +116,7 @@ class graph_vis:
 			self.num_amplified_intervals += len(self.amplified_intervals_from_cycle[chr])
 
 
-	def plot_graph(self, title, output_fn, margin_between_intervals = 2, height = 7.5, fontsize = 18, dpi = 150):
+	def plot_graph(self, title, output_fn, margin_between_intervals = 2, height = 7.5, fontsize = 18, dpi = 300, max_cov_cutoff = float('inf'), quality_threshold=0):
 		"""
 		Plot discordant edges and coverage on sequence edges in breakpoint graph
 		"""
@@ -167,19 +167,24 @@ class graph_vis:
 			chr2 = bp[3]
 			pos2 = bp[4]
 			int1 = 0
-			while pos1 > self.amplified_intervals_from_graph[chr1][int1][1]:
-				int1 += 1
-			bp_x1 = amplified_intervals_start[chr1][int1] + (pos1 - self.amplified_intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
-			int2 = 0
-			while pos2 > self.amplified_intervals_from_graph[chr2][int2][1]:
-				int2 += 1
+			try:
+				while pos1 > self.amplified_intervals_from_graph[chr1][int1][1]:
+					int1 += 1
+				bp_x1 = amplified_intervals_start[chr1][int1] + (pos1 - self.amplified_intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
+				int2 = 0
+				while pos2 > self.amplified_intervals_from_graph[chr2][int2][1]:
+					int2 += 1
+			except IndexError:
+				continue
+
 			bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.amplified_intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
 			ort = bp[2] + bp[5]
 			if chr1 != chr2:
 				ort = "interchromosomal"
-			arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180, \
+			arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180, 
 					color = colorcode[ort], lw = min(3 * (bp[7] / avg_bp_rc), 3), zorder = 3)
 			ax2.add_patch(arc)
+			
 		ax2.set_ylim(0, 1.4 * ymax)
 		ax2.set_ylabel('CN', fontsize = fontsize)
 		ax2.tick_params(axis = 'y', labelsize = fontsize)
@@ -212,7 +217,7 @@ class graph_vis:
 					rect = Rectangle((x, 0), window_size * 100.0 / total_len_amp, cov, color ='silver', zorder = 1)
 					ax.add_patch(rect)
 		ax.set_ylabel('Coverage', fontsize = fontsize)
-		ax.set_ylim(0, 1.4 * max_cov)
+		ax.set_ylim(0, min(1.4 * max_cov, max_cov_cutoff))
 		ax.tick_params(axis = 'y', labelsize = fontsize)
 
 		# Ticks an labels
@@ -511,14 +516,16 @@ class graph_vis:
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description = "Long read only amplicon reconstruction pipeline.")
-	parser.add_argument("--lr_bam", help = "Sorted indexed (long read) bam file.", required = True)
-	parser.add_argument("--graph", help = "Long read *.graph file.", required = True)
-	parser.add_argument("--cycle", help = "Long read cycles file, in *.bed format.", required = True)
+	parser.add_argument("--bam", help = "Sorted & indexed bam file.", required = True)
+	parser.add_argument("--graph", help = "AmpliconSuite-formatted *.graph file.")
+	parser.add_argument("--cycle", help = "AmpliconSuite-formatted cycles file, in *.bed format.")
 	parser.add_argument("--output_prefix", help = "Prefix of output files.", required = True)
 	parser.add_argument("--plot_graph", help = "Visualize breakpoint graph.",  action = 'store_true')
 	parser.add_argument("--plot_cycles", help = "Visualize (selected) cycles.",  action = 'store_true')
 	parser.add_argument("--cycles_only", help = "Only plot cycles.",  action = 'store_true')
 	parser.add_argument("--num_cycles", help = "Only plot the first NUM_CYCLES cycles.",  type = int)
+	parser.add_argument("--max_coverage", help = "Limit the maximum visualized coverage in the graph", type = float, default = float('inf'))
+	parser.add_argument("--min_mapq", help = "Minimum mapping quality to count read in coverage plotting", type = float, default = 0)
 	args = parser.parse_args()
 
 	if args.plot_graph and args.graph == None:
@@ -528,16 +535,16 @@ if __name__ == '__main__':
 		print ("Please specify the cycle file, in *.bed format, to plot.")
 		os.abort()
 
-	g = graph_vis(args.lr_bam)
-	g.parse_graph_file(args.graph)
-	g.parse_cycle_file(args.cycle)
-	g.graph_amplified_intervals()
+	g = graph_vis(args.bam)
 	if args.plot_graph:
+		g.parse_graph_file(args.graph)
+		g.graph_amplified_intervals()
 		gtitle = args.output_prefix
 		if '/' in args.output_prefix:
 			gtitle = args.output_prefix.split('/')[-1]
-		g.plot_graph(gtitle, args.output_prefix + "_graph.png")
+		g.plot_graph(gtitle, args.output_prefix + "_graph.png", max_cov_cutoff=args.max_coverage, quality_threshold=args.min_mapq)
 	if args.plot_cycles:
+		g.parse_cycle_file(args.cycle)
 		cycle_ids_ = None
 		cycle_only_ = False
 		if args.num_cycles:
