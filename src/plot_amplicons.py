@@ -15,6 +15,7 @@ from breakpoint_utilities import *
 
 class graph_vis:
 	"""
+	Class for visualizing breakpoint graph and cycles 
 	"""
 	lr_bamfh = ""
 	maxCN = 0.0
@@ -40,9 +41,9 @@ class graph_vis:
 					start = int(s[1].split(":")[1][:-1])
 					end = int(s[2].split(":")[1][:-1])
 					try:
-						self.sequence_edges_by_chr[schr].append([schr, start, end, float(s[3]), int(s[4]), int(s[5])])
+						self.sequence_edges_by_chr[schr].append([schr, start, end, float(s[3]), int(s[6]), int(s[5])])
 					except:
-						self.sequence_edges_by_chr[schr] = [[schr, start, end, float(s[3]), int(s[4]), int(s[5])]]
+						self.sequence_edges_by_chr[schr] = [[schr, start, end, float(s[3]), int(s[6]), int(s[5])]]
 					if float(s[3]) > self.maxCN:
 						self.maxCN = float(s[3])
 				elif s[0] == "discordant":

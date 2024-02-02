@@ -674,10 +674,10 @@ def output_breakpoint_graph_lr(g, ogfile):
 	Write a breakpoint graph to file in AA graph format with only long read information
 	"""
 	with open(ogfile, 'w') as fp:
-		fp.write("SequenceEdge: StartPosition, EndPosition, PredictedCN, NumberOfLongReads, Size\n")
+		fp.write("SequenceEdge: StartPosition, EndPosition, PredictedCN, AverageCoverage, Size, NumberOfLongReads\n")
 		for se in g.sequence_edges:
-			fp.write("sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\n" 
-					%(se[0], se[1], se[0], se[2], se[-1], se[5], se[7]))
+			fp.write("sequence\t%s:%s-\t%s:%s+\t%f\t%f\t%d\t%d\n" 
+					%(se[0], se[1], se[0], se[2], se[-1], se[6] * 1.0 / se[7], se[7], se[5]))
 		fp.write("BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads\n")
 		for srce in g.source_edges:
 			fp.write("source\t%s:%s%s->%s:%s%s\t%f\t-1\n" %(srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1]))
@@ -713,7 +713,6 @@ def output_breakpoint_info_lr(g, obpfile, bp_stats):
 	"""
 	Write the list of breakpoints to file
 	"""
-	print (obpfile)
 	with open(obpfile, 'w') as fp:
 		fp.write("chr1\tpos1\tchr2\tpos2\torientation\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n")
 		for di in range(len(g.discordant_edges)):
