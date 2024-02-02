@@ -1434,11 +1434,11 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 										remaining_CN[('src', (xi - lseg - lc - ld - 1) // 2)] = 0.0
 							else:
 								assert x_xi == 1
-								if (xi_ - lseg - lc - ld - 2 * lsrc) % 2 == 0:
-									nsi = (xi_ - lseg - lc - ld - 2 * lsrc) // 2
+								if (xi - lseg - lc - ld - 2 * lsrc) % 2 == 0:
+									nsi = (xi - lseg - lc - ld - 2 * lsrc) // 2
 									cycle[('ns', nsi)] = 1 # source edge connected to s
 								else:
-									nti = (xi_ - lseg - lc - ld - 2 * lsrc - 1) // 2
+									nti = (xi - lseg - lc - ld - 2 * lsrc - 1) // 2
 									cycle[('nt', nti)] = 1 # source edge connected to t
 					for pi in range(len(pc_list)):
 						if sol_r[pi] >= 0.9:
