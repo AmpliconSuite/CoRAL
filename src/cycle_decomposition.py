@@ -10,8 +10,8 @@ from breakpoint_graph import *
 import global_names
 
 
-def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_seq_repeat = 2,
-		p_total_weight = 0.9, p_bp_cn = 0.9, num_threads = -1, time_limit = 7200, model_prefix = ""):
+def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, p_total_weight = 0.9,
+		p_bp_cn = 0.9, num_threads = -1, time_limit = 7200, model_prefix = ""):
 	"""
 	Cycle decomposition by minimizing the number of cycles/paths
 
@@ -23,8 +23,6 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 	pc_list: list of subpath constraints to be satisfied, each as a dict that maps an edge to its multiplicity
 		*** note that all subpath constraints in this list are required to be satisfied ***
 		*** otherwise will return infeasible ***
-	max_seq_repeat: integer, maximum multiplicity (num occurrence) allowed for each sequence edge in each cycle/path, 
-			default value is 2
 	p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths, 
 			default value is 0.9
 	p_bp_cn: float float between (0, 1), minimum proportion of CN for each discordant edge to be covered by the resulting cycles or paths, 
@@ -144,18 +142,10 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 		m.addQConstr(cn_expr <= g.source_edges[srci][-1])
 			
 	# Occurrence of breakpoints in each cycle/path
+	discordant_multiplicities = g.infer_discordant_edge_multiplicities()
 	for i in range(k):
-		for seqi in range(lseg):
-			m.addConstr(x[seqi * k + i] <= max_seq_repeat)
-	for i in range(k):
-		sum_inv = gp.LinExpr(1.0)
 		for di in range(ld):
-			dedge = g.discordant_edges[di]
-			if dedge[2] == dedge[5]:
-				sum_inv += x[(lseg + lc + di) * k + i]
-		for di in range(ld):
-			m.addConstr(x[(lseg + lc + di) * k + i] <= 2)
-			m.addConstr(x[(lseg + lc + di) * k + i] <= sum_inv)
+			m.addConstr(x[(lseg + lc + di) * k + i] <= discordant_multiplicities[di])
 
 	# c: decomposition i is a cycle, and start at particular node
 	c_names = []
@@ -175,16 +165,15 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 			cycle_expr += x[(lseg + lc + ld + 2 * srci) * k + i] # (s, v)
 		m.addConstr(cycle_expr <= 1.0)
 
-	# special request for c added for max_seq_repeat >= 2
-	if max_seq_repeat >= 2:
-		for i in range(k):
-			expr_xc = gp.QuadExpr(0.0)
-			for node in g.nodes.keys():
-				for ci in set(g.nodes[node][1]):
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
-				for di in set(g.nodes[node][2]):	
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
-			m.addConstr(expr_xc <= 1.0)
+	# There must be a concordant/discordant edge occuring one time
+	for i in range(k):
+		expr_xc = gp.QuadExpr(0.0)
+		for node in g.nodes.keys():
+			for ci in set(g.nodes[node][1]):
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
+			for di in set(g.nodes[node][2]):	
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
+		m.addConstr(expr_xc <= 1.0)
 			
 	# d: BFS/spanning tree order of the nodes in decomposition i
 	d_names = []
@@ -468,8 +457,8 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 		return m.Status, total_weights_included, len(path_constraints_satisfied_set), cycles, cycle_weights, path_constraints_satisfied
 
 
-def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, init_sol, max_seq_repeat = 2, 
-		p_total_weight = 0.9, resolution = 0.1, num_threads = -1, time_limit = 7200, model_prefix = ""):
+def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, init_sol, p_total_weight = 0.9,
+		resolution = 0.1, num_threads = -1, time_limit = 7200, model_prefix = ""):
 	"""
 	Cycle decomposition by postprocessing the greedy solution
 
@@ -478,8 +467,6 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 	node_order: dict maps each node in the input breakpoint graphg to a distinct integer, indicating a total order of the nodes in g
 	pc_list: list of subpath constraints to be satisfied, each as a dict that maps an edge to its multiplicity
 	init_sol: initial solution returned by maximize_weights_greedy
-	max_seq_repeat: integer, maximum multiplicity (num occurrence) allowed for each sequence edge in each cycle/path, 
-			default value is 2
 	p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths, 
 			default value is 0.9
 	resolution: float, minimum CN for each cycle or path, default value is 0.1
@@ -630,18 +617,10 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 		m.addQConstr(cn_expr <= g.source_edges[srci][-1])
 
 	# Occurrence of breakpoints in each cycle/path
+	discordant_multiplicities = g.infer_discordant_edge_multiplicities()
 	for i in range(k):
-		for seqi in range(lseg):
-			m.addConstr(x[seqi * k + i] <= max_seq_repeat)
-	for i in range(k):
-		sum_inv = gp.LinExpr(1.0)
 		for di in range(ld):
-			dedge = g.discordant_edges[di]
-			if dedge[2] == dedge[5]:
-				sum_inv += x[(lseg + lc + di) * k + i]
-		for di in range(ld):
-			m.addConstr(x[(lseg + lc + di) * k + i] <= 2)
-			m.addConstr(x[(lseg + lc + di) * k + i] <= sum_inv)
+			m.addConstr(x[(lseg + lc + di) * k + i] <= discordant_multiplicities[di])
 
 	# c: decomposition i is a cycle, and start at particular node
 	c_names = []
@@ -661,16 +640,15 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 			cycle_expr += x[(lseg + lc + ld + 2 * srci) * k + i] # (s, v)
 		m.addConstr(cycle_expr <= 1.0)
 
-	# special request for c added for max_seq_repeat >= 2
-	if max_seq_repeat >= 2:
-		for i in range(k):
-			expr_xc = gp.QuadExpr(0.0)
-			for node in g.nodes.keys():
-				for ci in set(g.nodes[node][1]):
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
-				for di in set(g.nodes[node][2]):	
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
-			m.addConstr(expr_xc <= 1.0)
+	# There must be a concordant/discordant edge occuring one time
+	for i in range(k):
+		expr_xc = gp.QuadExpr(0.0)
+		for node in g.nodes.keys():
+			for ci in set(g.nodes[node][1]):
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
+			for di in set(g.nodes[node][2]):	
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
+		m.addConstr(expr_xc <= 1.0)
 
 	# d: BFS/spanning tree order of the nodes in decomposition i
 	d_names = []
@@ -996,9 +974,9 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 		return m.Status, total_weights_included, len(path_constraints_satisfied_set), cycles, cycle_weights, path_constraints_satisfied
 
 
-def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, alpha = 0.01, max_seq_repeat = 2,
-			p_total_weight = 0.9, resolution = 0.1, cn_tol = 0.005, p_subpaths = 0.9, num_threads = -1, 
-			postprocess = 0, time_limit = 7200, model_prefix = ""):
+def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, alpha = 0.01, p_total_weight = 0.9,
+			resolution = 0.1, cn_tol = 0.005, p_subpaths = 0.9, num_threads = -1, postprocess = 0, 
+			time_limit = 7200, model_prefix = ""):
 	"""
 	Greedy cycle decomposition by maximizing the length-weighted CN of a single cycle/path
 
@@ -1012,8 +990,6 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 		(alpha * remaining length-weighted CN in the graph / num remaining unsatisfied subpath constraints) * 
 		num subpath constraints satisfied by the next cycle or path
 		*** when alpha < 0, just maximizing total length-weighted CN
-	max_seq_repeat: integer, maximum multiplicity (num occurrence) allowed for each sequence edge in each cycle/path, 
-			default value is 2
 	p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths, 
 			default value is 0.9
 	resolution: float, minimum CN for each cycle or path, default value is 0.1
@@ -1047,6 +1023,7 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 		
 	remaining_weights = total_weights
 	unsatisfied_pc = [i for i in range(len(pc_list))]
+	discordant_multiplicities = g.infer_discordant_edge_multiplicities()
 	remaining_CN = dict()
 	for segi in range(lseg):
 		remaining_CN[('s', segi)] = g.sequence_edges[segi][-1]
@@ -1156,16 +1133,8 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 			m.addQConstr(cn_expr <= remaining_CN[('src', srci)])
 			
 		# Occurrence of breakpoints in each cycle/path
-		for seqi in range(lseg):
-			m.addConstr(x[seqi] <= max_seq_repeat)
-		sum_inv = gp.LinExpr(1.0)
 		for di in range(ld):
-			dedge = g.discordant_edges[di]
-			if dedge[2] == dedge[5]:
-				sum_inv += x[lseg + lc + di]
-		for di in range(ld):
-			m.addConstr(x[lseg + lc + di] <= 2)
-			m.addConstr(x[lseg + lc + di] <= sum_inv)
+			m.addConstr(x[lseg + lc + di] <= discordant_multiplicities[di])
 			
 		# c: decomposition i is a cycle, and start at particular node
 		c_names = []
@@ -1183,15 +1152,14 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 			cycle_expr += x[lseg + lc + ld + 2 * srci] # (s, v)
 		m.addConstr(cycle_expr <= 1.0)
 
-		# special request for c added for max_seq_repeat >= 2
-		if max_seq_repeat >= 2:
-			expr_xc = gp.QuadExpr(0.0)
-			for node in g.nodes.keys():
-				for ci in set(g.nodes[node][1]):
-					expr_xc += c[node_order[node]] * x[lseg + ci]
-				for di in set(g.nodes[node][2]):	
-					expr_xc += c[node_order[node]] * x[lseg + lc + di]
-			m.addConstr(expr_xc <= 1.0)
+		# There must be a concordant/discordant edge occuring one time
+		expr_xc = gp.QuadExpr(0.0)
+		for node in g.nodes.keys():
+			for ci in set(g.nodes[node][1]):
+				expr_xc += c[node_order[node]] * x[lseg + ci]
+			for di in set(g.nodes[node][2]):	
+				expr_xc += c[node_order[node]] * x[lseg + lc + di]
+		m.addConstr(expr_xc <= 1.0)
 
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []

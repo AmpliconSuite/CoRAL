@@ -1356,7 +1356,6 @@ class bam_to_breakpoint_nanopore():
 		Caller for cycle decomposition functions
 		"""
 		for amplicon_idx in range(len(self.lr_graph)):
-			max_seq_repeat_amplicon = self.lr_graph[amplicon_idx].infer_max_seq_repeat()
 			lseg = len(self.lr_graph[amplicon_idx].sequence_edges)
 			lc = len(self.lr_graph[amplicon_idx].concordant_edges)
 			ld = len(self.lr_graph[amplicon_idx].discordant_edges)
@@ -1392,7 +1391,7 @@ class bam_to_breakpoint_nanopore():
 				if nedges > 100 or (3 * k + 3 * k * nedges + 2 * k * nnodes + k * len(self.longest_path_constraints[amplicon_idx][0])) >= 10000:
 					total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-						alpha, max_seq_repeat_amplicon, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
+						alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed greedy cycle decomposition.")
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
@@ -1400,7 +1399,7 @@ class bam_to_breakpoint_nanopore():
 					if postprocess == 1:
 						status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
 							self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
-							path_constraints_satisfied_init], max_seq_repeat_amplicon, min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
+							path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
@@ -1417,7 +1416,7 @@ class bam_to_breakpoint_nanopore():
 				else:
 					status_, total_cycle_weights_, total_path_satisfied_, cycles_, cycle_weights_, path_constraints_satisfied_ =  minimize_cycles(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], k, total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-						max_seq_repeat_amplicon, p_total_weight, 0.9, num_threads, time_limit, model_prefix)
+						p_total_weight, 0.9, num_threads, time_limit, model_prefix)
 					if status_ == GRB.INFEASIBLE:
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition is infeasible.")
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Doubling k from %d to %d." %(k, k * 2))
@@ -1436,7 +1435,7 @@ class bam_to_breakpoint_nanopore():
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition is infeasible, switch to greedy cycle decomposition.")
 				total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
 					self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-					alpha, max_seq_repeat_amplicon, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
+					alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed greedy cycle decomposition.")
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
@@ -1444,7 +1443,7 @@ class bam_to_breakpoint_nanopore():
 				if postprocess == 1:
 					status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
-						path_constraints_satisfied_init], max_seq_repeat_amplicon, min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
+						path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))

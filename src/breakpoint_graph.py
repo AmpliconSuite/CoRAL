@@ -6,11 +6,78 @@ from a given sequencing file.
 import time
 import logging
 import warnings
+import math
 import numpy as np
 import cvxopt
 import cvxopt.modeling
 
 import global_names
+
+
+def test_clustering(rc_list, partition, max_multiplicity = 5):
+	if partition[0] == partition[1]:
+		return (True, partition[0], 0.0)
+	rc_list_p = rc_list[partition[0]: partition[1] + 1]
+	if rc_list_p[-1] < rc_list_p[0] * 2.0:
+		return (True, partition[1], 0.0)
+	base_ri = 0
+	while base_ri < len(rc_list_p) and rc_list_p[base_ri] < rc_list_p[0] * 2.0:
+		base_ri += 1
+	base_avg_rc = np.average(rc_list_p[: base_ri])
+	if rc_list_p[-1] / base_avg_rc >= max_multiplicity + 0.5:
+		return (False, None, None)
+	score = -10.0
+	best_ri = base_ri
+	sum_deviation = 1.0
+	for base_ri_ in range(base_ri, 0, -1):
+		base_avg_rc = np.average(rc_list_p[: base_ri_])
+		base_size = len(rc_list_p[: base_ri_])
+		sizes = dict()
+		# Cluster breakpoints with higher multiplicities
+		li = base_ri_
+		multiplicity = 2
+		if rc_list_p[base_ri_] / base_avg_rc < multiplicity - 0.5:
+			continue
+		while rc_list_p[base_ri_] / base_avg_rc >= multiplicity + 0.5:
+			multiplicity += 1
+		sum_gap = math.log2(rc_list_p[base_ri_]) - math.log2(rc_list_p[base_ri_ - 1])
+		# Note: sometimes int(round()) will convert 1.5 to 1
+		# The following procedure works well
+		for i in range(base_ri_, len(rc_list_p)):
+			if rc_list_p[i] / base_avg_rc >= multiplicity + 0.5:
+				sum_gap += (math.log2(rc_list_p[i]) - math.log2(rc_list_p[i - 1]))
+				sizes[multiplicity] = [li, i - 1]
+				li = i
+				while rc_list_p[i] / base_avg_rc >= multiplicity + 0.5:
+					multiplicity += 1
+		sizes[multiplicity] = [li, len(rc_list_p) - 1]
+		if multiplicity > max_multiplicity:
+			continue
+		size_flag = True
+		for m in range(2, multiplicity + 1):
+			if m in sizes and sizes[m][1] - sizes[m][0] >= base_size:
+				size_flag = False
+				break
+		if not size_flag:
+			continue
+		sum_deviation_ = sum([abs(m - np.average(rc_list_p[sizes[m][0]: sizes[m][1] + 1] / base_avg_rc)) for m in range(2, multiplicity + 1) if m in sizes])
+		if sum_gap - sum_deviation_ > score:
+			score = sum_gap - sum_deviation_
+			sum_deviation = sum_deviation_
+			best_ri = base_ri_
+	if sum_deviation < 1.0:
+		return (True, best_ri + partition[0] - 1, score)
+	else:
+		return (False, None, None)
+	
+
+def enumerate_partitions(k, start, end):
+	if k == 0:
+		yield [[start, end]]
+	else:
+		for i in range(1, end - start - k + 2):
+			for res in enumerate_partitions(k - 1, start + i, end):
+				yield [[start, start + i - 1]] + res
 
 
 class BreakpointGraph:
@@ -539,25 +606,91 @@ class BreakpointGraph:
 		self.max_cn += 1.0
 
 
-	def infer_max_seq_repeat(self, gain = 5.0, size_cutoff = 10000, repeat = 2):
+	def infer_max_seq_multiplicity(self, gain = 5.0, size_cutoff = 10000, multiplicity = 2):
 		"""
 		Estimate maximum allowed multiplicities in cycles/paths for any sequence edge
 
 		gain: float, only consider sequence edges with predicted CN >= gain
 		size_cutoff: integer, only consider sequence edges of size CN >= size_cutoff
-		repeat: integer, default maximum multiplicity
+		multiplicity: integer, default maximum multiplicity
 			default value is 2, indicating both orientations
 
 		Return: integer, estimated maximum multiplicity on sequence edges
 		"""
-		max_seq_repeat = repeat
+		max_seq_multiplicity = multiplicity
 		seq_cn_list = [se[-1] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
 		seq_len_list = [se[7] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
 		if len(seq_cn_list) > 0:
 			max_cn = max(seq_cn_list)
 			avg_cn = np.average(seq_cn_list, weights = seq_len_list)
-			max_seq_repeat = int(round(max_cn / avg_cn)) + 1
-		return max_seq_repeat
+			max_seq_multiplicity = int(round(max_cn / avg_cn)) + 1
+		return max_seq_multiplicity
+
+
+	def infer_discordant_edge_multiplicities(self, max_multiplicity = 5):
+		"""
+		Estimate multiplicities in for each discordant edge
+
+		Return: a list of integers corresponding to the multiplicities of each  discordant edge
+		"""
+		rc_list = [de[9] for de in self.discordant_edges]
+		if len(rc_list) == 0:
+			return []
+		rc_indices = np.argsort(rc_list)
+		rc_list = sorted(rc_list)
+		if math.log2(rc_list[-1]) - math.log2(rc_list[0]) < 1.0:
+			return [1 for i in rc_indices]
+		else:
+			# Minimize clusters, with maximum sum gap - sum deviations from multiplicities
+			num_clusters = 1
+			valid_clustering = False
+			best_score_all = -10.0
+			best_partitions = []
+			distinct_all = []
+			while not valid_clustering:
+				valid_clustering = False
+				for partitions in enumerate_partitions(num_clusters - 1, 0, len(rc_list) - 1):
+					valid_partition = True
+					score_all = 0.0
+					distinct = []
+					for pi in range(len(partitions)):
+						partition = partitions[pi]
+						valid, base_ri, score = test_clustering(rc_list, partition, max_multiplicity)
+						if not valid:
+							valid_partition = False
+							break
+						score_all += score
+						distinct.append([partitions[pi][0], base_ri])
+						if pi > 0:
+							score_all += (math.log2(rc_list[partitions[pi][0]]) - math.log2(rc_list[partitions[pi - 1][1]]))
+					if valid_partition:
+						valid_clustering = True
+						if score_all > best_score_all:
+							best_score_all = score_all
+							best_partitions = partitions
+							distinct_all = distinct
+				if not valid_clustering:
+					num_clusters += 1
+			multiplicities_sorted = []
+			for pi in range(len(best_partitions)):
+				partition = partitions[pi]
+				base_ = distinct_all[pi]
+				for i in range(base_[0], base_[1] + 1):
+					multiplicities_sorted.append(1)
+				base_ri = base_[1] + 1
+				if base_ri > partition[1]:
+					continue
+				base_avg_rc = np.average(rc_list[base_[0]: base_[1] + 1])
+				multiplicity = 2
+				while rc_list[base_ri] / base_avg_rc >= multiplicity + 0.5:
+					multiplicity += 1
+				# Note: sometimes int(round()) will convert 1.5 to 1
+				# The following procedure works well
+				for i in range(base_ri, partition[1] + 1):
+					while rc_list[i] / base_avg_rc >= multiplicity + 0.5:
+						multiplicity += 1
+					multiplicities_sorted.append(multiplicity)
+			return [multiplicities_sorted[list(rc_indices).index(i)] for i in range(len(rc_list))]
 
 
 	def nextminus(self, chr, pos, min_bp_match_cutoff_ = 100):
