@@ -673,7 +673,7 @@ class BreakpointGraph:
 					num_clusters += 1
 			multiplicities_sorted = []
 			for pi in range(len(best_partitions)):
-				partition = partitions[pi]
+				partition = best_partitions[pi]
 				base_ = distinct_all[pi]
 				for i in range(base_[0], base_[1] + 1):
 					multiplicities_sorted.append(1)
