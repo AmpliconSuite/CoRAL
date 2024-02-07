@@ -284,7 +284,8 @@ class graph_vis:
                 int2 = 0
                 while pos2 > self.amplified_intervals_from_graph[chr2][int2][1]:
                     int2 += 1
-            except IndexError:
+            except:
+                print(str(bp), "not placeable")
                 continue
 
             bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.amplified_intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
@@ -422,7 +423,8 @@ class graph_vis:
         ax3.yaxis.set_major_formatter(ticker.NullFormatter())
         ax3.set_ylim(0,1)
         fig.subplots_adjust(hspace=0)
-        plt.savefig(output_fn, dpi = dpi)
+        plt.savefig(output_fn + ".png", dpi = dpi)
+        plt.savefig(output_fn + ".pdf")
 
 
     def close_bam(self):
@@ -666,7 +668,9 @@ class graph_vis:
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
         plt.tight_layout()
-        plt.savefig(output_fn, dpi = dpi)
+        plt.savefig(output_fn + '.png', dpi = dpi)
+        plt.savefig(output_fn + '.pdf')
+
 
 
 
@@ -704,7 +708,7 @@ if __name__ == '__main__':
         gtitle = args.output_prefix
         if '/' in args.output_prefix:
             gtitle = args.output_prefix.split('/')[-1]
-        g.plot_graph(gtitle, args.output_prefix + "_graph.png", max_cov_cutoff=args.max_coverage, quality_threshold=args.min_mapq,
+        g.plot_graph(gtitle, args.output_prefix + "_graph", max_cov_cutoff=args.max_coverage, quality_threshold=args.min_mapq,
                      hide_genes=args.hide_genes, gene_font_size=args.gene_fontsize)
     if args.plot_cycles:
         g.parse_cycle_file(args.cycle)
@@ -719,9 +723,9 @@ if __name__ == '__main__':
         if '/' in args.output_prefix:
             gtitle = args.output_prefix.split('/')[-1]
         if args.num_cycles:
-            g.plotcycle(gtitle, args.output_prefix + "_cycles.png", num_cycles = args.num_cycles, cycle_only = cycle_only_)
+            g.plotcycle(gtitle, args.output_prefix + "_cycles", num_cycles = args.num_cycles, cycle_only = cycle_only_)
         else:
-            g.plotcycle(gtitle, args.output_prefix + "_cycles.png", cycle_only = cycle_only_)
+            g.plotcycle(gtitle, args.output_prefix + "_cycles", cycle_only = cycle_only_)
     g.close_bam()
     print ("Visualization completed.")
 
