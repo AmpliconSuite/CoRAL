@@ -182,7 +182,7 @@ class graph_vis:
             self.num_amplified_intervals += len(self.amplified_intervals_from_cycle[chr])
 
 
-    def set_gene_heights(self, rel_genes, padding=0):
+    def set_gene_heights(self, rel_genes, padding=0.0):
         if not rel_genes:
             return
 
@@ -219,7 +219,7 @@ class graph_vis:
         if not hide_genes:
             gs = gridspec.GridSpec(2, 1, height_ratios=[8,2])
         else:
-            gs = gridspec.GridSpec(2, 1, height_ratios=[8, 0])
+            gs = gridspec.GridSpec(2, 1, height_ratios=[8, 0.000001])
         ax = fig.add_subplot(gs[0,0])
         plt.subplots_adjust(left=73/1000.0, right=1-73/1000.0, bottom=1/4.0, top=1-1/20.0)
         ax.set_title(title, fontsize = fontsize)
@@ -290,8 +290,8 @@ class graph_vis:
 
             bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.amplified_intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
             ort = bp[2] + bp[5]
-            if chr1 != chr2:
-                ort = "interchromosomal"
+            # if chr1 != chr2:
+            #     ort = "interchromosomal"
             arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180,
                     color = colorcode[ort], lw = min(3 * (bp[7] / avg_bp_rc), 3), zorder = 3)
             ax2.add_patch(arc)
@@ -343,10 +343,12 @@ class graph_vis:
                     for gene_obj in rel_genes:
                         height = gene_obj.height
                         print(gene_obj)
+                        cut_gs = max(int_[0], gene_obj.gstart)
+                        cut_ge = min(int_[1], gene_obj.gend)
                         gene_start = amplified_intervals_start[chrom][inti] + (
-                                    gene_obj.gstart - int_[0]) * 100.0 / total_len_amp
+                                    cut_gs - int_[0]) * 100.0 / total_len_amp
                         gene_end = amplified_intervals_start[chrom][inti] + (
-                                    gene_obj.gend - int_[0]) * 100.0 / total_len_amp
+                                    cut_ge - int_[0]) * 100.0 / total_len_amp
                         ax3.hlines(height, gene_start, gene_end, color='cornflowerblue', lw=4.5)  # Draw horizontal bars for genes
 
                         ax3.text((gene_start + gene_end) / 2, height + 0.05, gene_obj.gname, ha='center', va='bottom',
@@ -358,10 +360,15 @@ class graph_vis:
                             ax3.plot(gene_end, height, marker='<', color='black', markersize=7)
 
                         for exon_start, exon_end in gene_obj.eposns:
+                            if not exon_end > int_[0] or not exon_start < int_[1]:
+                                continue
+
+                            cut_es = max(int_[0], exon_start)
+                            cut_ee = min(int_[1], exon_end)
                             exon_start_pos = amplified_intervals_start[chrom][inti] + (
-                                        exon_start - int_[0]) * 100.0 / total_len_amp
+                                        cut_es - int_[0]) * 100.0 / total_len_amp
                             exon_end_pos = amplified_intervals_start[chrom][inti] + (
-                                        exon_end - int_[0]) * 100.0 / total_len_amp
+                                        cut_ee - int_[0]) * 100.0 / total_len_amp
 
                             exon_min_width = 0.2  # Adjust the minimum width as needed
                             exon_width = exon_end_pos - exon_start_pos
@@ -432,7 +439,7 @@ class graph_vis:
 
 
     def plotcycle(self, title, output_fn, num_cycles = -1, cycle_only = False, margin_between_intervals = 2,
-            fontsize = 18, dpi = 150):
+            fontsize = 18, dpi = 300, hide_genes=False, gene_font_size=12):
         """
         Plot cycles & paths returned from cycle decomposition
         """
@@ -444,31 +451,44 @@ class graph_vis:
             cycles_to_plot = [cycle_id for cycle_id in cycles_to_plot if self.cycle_flags[cycle_id][0]]
         cycles_to_plot = sorted(cycles_to_plot)
         height = sum([2 * len(self.cycles[cycle_id]) - 1 for cycle_id in cycles_to_plot]) + 6 * (len(cycles_to_plot) - 1)
-        fig, ax = plt.subplots(figsize = (width, max(4, height * 0.25)))
+        fig = plt.figure(figsize = (width, max(4, height * 0.25)))
+        if not hide_genes:
+            vrat = 50 / height
+            gs = gridspec.GridSpec(2, 1, height_ratios=[8,vrat])
+        else:
+            gs = gridspec.GridSpec(2, 1, height_ratios=[8, 0.000001])
+        ax = fig.add_subplot(gs[0,0])
         ax.set_title(title, fontsize = fontsize)
+        ax.xaxis.set_visible(False)
+        ax3 = fig.add_subplot(gs[1, 0], sharex=ax)
+        ax3.yaxis.set_visible(False)
+        ax3.spines['left'].set_visible(False)
+        ax3.spines['right'].set_visible(False)
+        ax3.spines['top'].set_visible(False)
 
         # Compute the x coordinates for each amplified interval
         total_len_amp = 0 # Total length of amplified intervals
-        for chr in self.amplified_intervals_from_cycle.keys():
-            total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.amplified_intervals_from_cycle[chr]])
+        for chrom in self.amplified_intervals_from_cycle.keys():
+            total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.amplified_intervals_from_cycle[chrom]])
         sorted_chrs = sorted(self.amplified_intervals_from_cycle.keys(), key = lambda chr: global_names.chr_idx[chr])
         amplified_intervals_start = dict()
         x = margin_between_intervals
-        for chr in sorted_chrs:
-            amplified_intervals_start[chr] = [x]
-            for interval_idx in range(len(self.amplified_intervals_from_cycle[chr])):
-                int_ = self.amplified_intervals_from_cycle[chr][interval_idx]
+        for chrom in sorted_chrs:
+            amplified_intervals_start[chrom] = [x]
+            for interval_idx in range(len(self.amplified_intervals_from_cycle[chrom])):
+                int_ = self.amplified_intervals_from_cycle[chrom][interval_idx]
                 x += (int_[1] - int_[0]) * 100.0 / total_len_amp
                 x += margin_between_intervals
-                if interval_idx < len(self.amplified_intervals_from_cycle[chr]) - 1:
-                    amplified_intervals_start[chr].append(x)
+                if interval_idx < len(self.amplified_intervals_from_cycle[chrom]) - 1:
+                    amplified_intervals_start[chrom].append(x)
 
         # Draw amplified interval separators
-        for chr in amplified_intervals_start.keys():
-            if chr != sorted_chrs[0]:
-                plt.axvline(x = amplified_intervals_start[chr][0] - margin_between_intervals * 0.5, linestyle = "--", lw = 2)
-            for i in range(1, len(amplified_intervals_start[chr])):
-                plt.axvline(x = amplified_intervals_start[chr][i] - margin_between_intervals * 0.5, linestyle = ":", lw = 2)
+        for chrom in amplified_intervals_start.keys():
+            if chrom != sorted_chrs[0]:
+                ax.axvline(x =amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5, linestyle ="--", lw = 2)
+                ax3.axvline(x =amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5, linestyle ="--", lw = 2)
+            for i in range(1, len(amplified_intervals_start[chrom])):
+                ax.axvline(x =amplified_intervals_start[chrom][i] - margin_between_intervals * 0.5, linestyle =":", lw = 2)
 
         # Draw cycles
         y_cur = -2
@@ -485,7 +505,7 @@ class graph_vis:
                     interval_idx += 1
                 x1 = amplified_intervals_start[seg[0]][interval_idx] + (seg[1] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                 xlen = (seg[2] - seg[1]) * 100.0 / total_len_amp
-                rect = Rectangle((x1, y_cur), xlen, 1, facecolor='#FFFEF7', linewidth = 2, edgecolor = 'k')
+                rect = Rectangle((x1, y_cur), xlen, 1, facecolor='antiquewhite', linewidth = 2, edgecolor = 'dimgrey')
                 ax.add_patch(rect)
 
                 # Connections between segment i and i + 1
@@ -618,60 +638,113 @@ class graph_vis:
                 cycleticklabels.append("path " + cycle_id + ":\nCN = " + str(round(self.cycle_flags[cycle_id][1], 2)))
             y_cur -= 4
 
+        if not hide_genes:
+            for chrom in sorted_chrs:
+                for inti in range(len(self.amplified_intervals_from_graph[chrom])):
+                    int_ = self.amplified_intervals_from_graph[chrom][inti]
+                    rel_genes = [x.data for x in self.genes[chrom][int_[0]:int_[1]]]
+                    gene_padding = total_len_amp * 0.02
+                    self.set_gene_heights(rel_genes, gene_padding)
+
+                    for gene_obj in rel_genes:
+                        height = gene_obj.height
+                        # print(gene_obj)
+                        cut_gs = max(int_[0], gene_obj.gstart)
+                        cut_ge = min(int_[1], gene_obj.gend)
+                        gene_start = amplified_intervals_start[chrom][inti] + (
+                                cut_gs - int_[0]) * 100.0 / total_len_amp
+                        gene_end = amplified_intervals_start[chrom][inti] + (
+                                cut_ge - int_[0]) * 100.0 / total_len_amp
+                        ax3.hlines(height, gene_start, gene_end, color='cornflowerblue',
+                                   lw=4.5)  # Draw horizontal bars for genes
+
+                        ax3.text((gene_start + gene_end) / 2, height + 0.05, gene_obj.gname, ha='center', va='bottom',
+                                 fontsize=gene_font_size)
+
+                        if gene_obj.strand == '+':
+                            ax3.plot(gene_start, height, marker='>', color='black', markersize=7)
+                        elif gene_obj.strand == '-':
+                            ax3.plot(gene_end, height, marker='<', color='black', markersize=7)
+
+                        for exon_start, exon_end in gene_obj.eposns:
+                            if not exon_end > int_[0] or not exon_start < int_[1]:
+                                continue
+
+                            cut_es = max(int_[0], exon_start)
+                            cut_ee = min(int_[1], exon_end)
+                            exon_start_pos = amplified_intervals_start[chrom][inti] + (
+                                    cut_es - int_[0]) * 100.0 / total_len_amp
+                            exon_end_pos = amplified_intervals_start[chrom][inti] + (
+                                    cut_ee - int_[0]) * 100.0 / total_len_amp
+
+                            exon_min_width = 0.2  # Adjust the minimum width as needed
+                            exon_width = exon_end_pos - exon_start_pos
+                            if exon_width < exon_min_width:
+                                diff = (exon_min_width - exon_width) / 2
+                                exon_start_pos -= diff
+                                exon_end_pos += diff
+
+                            ax3.hlines(height, exon_start_pos, exon_end_pos, color='black', lw=7.5)
+
         # Ticks an labels
-        plt.xlim(-1, 101 + (self.num_amplified_intervals + 1) * margin_between_intervals)
-        plt.ylim(y_cur + 2, 0)
+        ax.set_xlim(-1, 101 + (self.num_amplified_intervals + 1) * margin_between_intervals)
+        ax.set_ylim(y_cur + 2, 0)
         xtickpos = []
-        for chr in sorted_chrs:
-            nint_chr = len(self.amplified_intervals_from_cycle[chr])
-            for inti in range(len(amplified_intervals_start[chr])):
+        for chrom in sorted_chrs:
+            nint_chr = len(self.amplified_intervals_from_cycle[chrom])
+            for inti in range(len(amplified_intervals_start[chrom])):
                 if inti > 0:
-                    xtickpos.append(amplified_intervals_start[chr][inti] - margin_between_intervals)
+                    xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals)
                     if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2 + 1:
-                        xtickpos.append(amplified_intervals_start[chr][inti] - margin_between_intervals * 0.5)
-                    xtickpos.append(amplified_intervals_start[chr][inti])
+                        xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals * 0.5)
+                    xtickpos.append(amplified_intervals_start[chrom][inti])
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
-                        xtickpos.append((amplified_intervals_start[chr][inti] + amplified_intervals_start[chr][inti + 1] -
-                                margin_between_intervals) * 0.5)
+                        xtickpos.append((amplified_intervals_start[chrom][inti] + amplified_intervals_start[chrom][inti + 1] -
+                                         margin_between_intervals) * 0.5)
                 else:
-                    if chr != sorted_chrs[0]:
-                        xtickpos.append(amplified_intervals_start[chr][0] - margin_between_intervals)
-                    xtickpos.append(amplified_intervals_start[chr][0])
+                    if chrom != sorted_chrs[0]:
+                        xtickpos.append(amplified_intervals_start[chrom][0] - margin_between_intervals)
+                    xtickpos.append(amplified_intervals_start[chrom][0])
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
-                        chri = sorted_chrs.index(chr)
+                        chri = sorted_chrs.index(chrom)
                         if chri == len(sorted_chrs) - 1:
                             amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
                         else:
                             amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
-                        xtickpos.append((amplified_intervals_start[chr][inti] + amplified_intervals_end) * 0.5)
+                        xtickpos.append((amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5)
         xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
         xticklabels = []
-        for chr in sorted_chrs:
-            nint_chr = len(self.amplified_intervals_from_cycle[chr])
+        for chrom in sorted_chrs:
+            nint_chr = len(self.amplified_intervals_from_cycle[chrom])
             for inti in range(nint_chr):
-                int_ = self.amplified_intervals_from_cycle[chr][inti]
+                int_ = self.amplified_intervals_from_cycle[chrom][inti]
                 xticklabels.append(str(int_[0]) + "   ")
                 if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
-                    xticklabels.append(chr)
+                    xticklabels.append(chrom)
                 xticklabels.append(str(int_[1]) + "   ")
                 if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2:
-                    xticklabels.append(chr)
-        ax.set_xticks(xtickpos)
-        ax.set_xticklabels(xticklabels, size = fontsize)
-        ticks_labels = ax.get_xticklabels()
+                    xticklabels.append(chrom)
+        ax3.set_xticks(xtickpos)
+        ax3.set_xticklabels(xticklabels, size = fontsize)
+        ticks_labels = ax3.get_xticklabels()
         for ti in range(len(xticklabels)):
-            if xticklabels[ti][:3] != 'chr':
+            if not xticklabels[ti] in sorted_chrs:
                 ticks_labels[ti].set_rotation(90)
+            else:
+                ax3.xaxis.get_major_ticks()[ti].tick1line.set_visible(False)
+
         ax.set_yticks(cycleticks)
         ax.set_yticklabels(cycleticklabels, fontsize = fontsize)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
         plt.tight_layout()
+        ax3.yaxis.set_major_formatter(ticker.NullFormatter())
+        ax3.set_ylim(0, 1)
+        fig.subplots_adjust(hspace=0)
         plt.savefig(output_fn + '.png', dpi = dpi)
         plt.savefig(output_fn + '.pdf')
-
-
 
 
 if __name__ == '__main__':
@@ -723,9 +796,9 @@ if __name__ == '__main__':
         if '/' in args.output_prefix:
             gtitle = args.output_prefix.split('/')[-1]
         if args.num_cycles:
-            g.plotcycle(gtitle, args.output_prefix + "_cycles", num_cycles = args.num_cycles, cycle_only = cycle_only_)
+            g.plotcycle(gtitle, args.output_prefix + "_cycles", num_cycles = args.num_cycles, cycle_only = cycle_only_, hide_genes=args.hide_genes, gene_font_size=args.gene_fontsize)
         else:
-            g.plotcycle(gtitle, args.output_prefix + "_cycles", cycle_only = cycle_only_)
+            g.plotcycle(gtitle, args.output_prefix + "_cycles", cycle_only = cycle_only_, hide_genes=args.hide_genes, gene_font_size=args.gene_fontsize)
     g.close_bam()
     print ("Visualization completed.")
 
