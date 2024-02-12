@@ -24,14 +24,14 @@ rcParams['pdf.fonttype'] = 42
 # makes a gene object from parsed refGene data
 # this stores global properties for the gene
 class gene(object):
-    def __init__(self, gchrom, gstart, gend, gdata, highlight_name):
+    def __init__(self, gchrom, gstart, gend, gdata):
         self.gchrom = gchrom
         self.gstart = gstart
         self.gend = gend
         self.gname = gdata[-4]
         self.strand = gdata[3]
         self.height = 0.5
-        self.highlight_name = highlight_name
+        # self.highlight_name = highlight_name
         estarts = [int(x) for x in gdata[9].rsplit(",") if x]
         eends = [int(x) for x in gdata[10].rsplit(",") if x]
         self.eposns = list(zip(estarts, eends))
@@ -57,7 +57,7 @@ class graph_vis:
     def open_bam(self, bam_fn):
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
 
-    def parse_genes(self, ref, gene_highlight_list, restrict_to_bushman=False):
+    def parse_genes(self, ref, gene_subset_list=None, restrict_to_bushman=False):
         __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
         if ref == "GRCh37" or ref == "hg19":
             refGene_name = "refGene_hg19.txt"
@@ -90,10 +90,12 @@ class graph_vis:
                 is_other_feature = (gname.startswith("LOC") or gname.startswith("LINC") or gname.startswith("MIR"))
                 if restrict_to_bushman and gname not in bushman_set:
                     continue
+                elif gene_subset_list and gname not in gene_subset_list:
+                    continue
 
                 if gname not in seenNames and not is_other_feature:
                     seenNames.add(gname)
-                    currGene = gene(currChrom, tstart, tend, fields, gname in gene_highlight_list)
+                    currGene = gene(currChrom, tstart, tend, fields)
                     self.genes[currChrom][tstart:tend] = currGene
 
 
