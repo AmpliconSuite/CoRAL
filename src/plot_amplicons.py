@@ -159,9 +159,9 @@ class graph_vis:
                 else:
                     self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
 
-    # takes a list of interval tuples (pos1, pos2). Assumes from same chrom
-    # return a list of interval tuples that are merged if overlapping or directly adjacent, or within padding distance
     def merge_intervals(self, interval_list, padding=0.0):
+        # takes a list of interval tuples (pos1, pos2). Assumes from same chrom
+        # return a list of interval tuples that are merged if overlapping or directly adjacent, or within padding distance
         sorted_intervals = sorted(interval_list)
         merged = [sorted_intervals[0]]
         for current in sorted_intervals[1:]:
@@ -521,6 +521,8 @@ class graph_vis:
         cycleticklabels = []
         for cycle_id in cycles_to_plot:
             ystart_cycle_id = y_cur
+            cycle_min_x = float('inf')
+            cycle_max_x = 0.0
             for i in range(len(self.cycles[cycle_id])):
                 # Segment i
                 seg = self.cycles[cycle_id][i]
@@ -528,7 +530,11 @@ class graph_vis:
                 while seg[1] > self.amplified_intervals_from_cycle[seg[0]][interval_idx][1]:
                     interval_idx += 1
                 x1 = amplified_intervals_start[seg[0]][interval_idx] + (seg[1] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                if x1 < cycle_min_x:
+                    cycle_min_x = x1
                 xlen = (seg[2] - seg[1]) * 100.0 / total_len_amp
+                if x1 + xlen > cycle_max_x:
+                    cycle_max_x = x1 + xlen
                 rect = Rectangle((x1, y_cur), xlen, 1, facecolor='antiquewhite', linewidth = 2, edgecolor = 'dimgrey')
                 ax.add_patch(rect)
 
@@ -606,8 +612,15 @@ class graph_vis:
                     x1 += (seg[1] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                     ax.hlines(y = y_cur + 0.5, xmin = x1 - 2 * extension, xmax = x1, colors = 'b', lw = 2)
             else: # Cycles
-                xmin_ = 0.5
-                xmax_ = 99.5 + (self.num_amplified_intervals + 1) * margin_between_intervals
+                # xmin_ = 0.5
+                xmin_ = cycle_min_x - extension
+                xmax_ = cycle_max_x + extension
+
+                if len(self.cycles[cycle_id]) > 1:
+                    xmin_ -= extension
+                    xmax_ += extension
+
+                #xmax_ = 99.5 + (self.num_amplified_intervals + 1) * margin_between_intervals
                 seg1 = self.cycles[cycle_id][0]
                 interval_idx1 = 0
                 while seg1[1] > self.amplified_intervals_from_cycle[seg1[0]][interval_idx1][1]:
