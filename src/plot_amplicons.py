@@ -3,6 +3,7 @@
 import argparse
 from collections import defaultdict
 import os
+import sys
 
 from intervaltree import IntervalTree
 import matplotlib as mpl
@@ -42,7 +43,7 @@ class gene(object):
 class graph_vis:
     """
     """
-    lr_bamfh = ""
+    lr_bamfh = None
     maxCN = 0.0
     sequence_edges_by_chr = dict()
     amplified_intervals_from_graph = dict()
@@ -53,7 +54,7 @@ class graph_vis:
     cycle_flags = dict()
     genes = defaultdict(IntervalTree)
 
-    def __init__(self, bam_fn):
+    def open_bam(self, bam_fn):
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
 
     def parse_genes(self, ref, gene_highlight_list, restrict_to_bushman=False):
@@ -158,8 +159,21 @@ class graph_vis:
                 else:
                     self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
 
+    # takes a list of interval tuples (pos1, pos2). Assumes from same chrom
+    # return a list of interval tuples that are merged if overlapping or directly adjacent, or within padding distance
+    def merge_intervals(self, interval_list, padding=0.0):
+        sorted_intervals = sorted(interval_list)
+        merged = [sorted_intervals[0]]
+        for current in sorted_intervals[1:]:
+            prev = merged[-1]
+            if current[0] <= prev[1] + padding:
+                merged[-1] = (prev[0], max(prev[1], current[1]))
+            else:
+                merged.append(current)
 
-    def cycle_amplified_intervals(self, cycle_ids = None, cycle_only = False):
+        return merged
+
+    def cycle_amplified_intervals(self, cycle_ids = None, cycle_only = False, graph_given=False):
         """
         Derive amplified intervals from (selected) cycles
         """
@@ -168,19 +182,33 @@ class graph_vis:
             cycle_ids = [cycle_id for cycle_id in self.cycle_flags.keys()]
         if cycle_only:
             cycle_ids = [cycle_id for cycle_id in self.cycle_flags.keys() if self.cycle_flags[cycle_id][0]]
-        for cycle_id in cycle_ids:
-            for segment in self.cycles[cycle_id]:
-                for int_ in self.amplified_intervals_from_graph[segment[0]]:
-                    if interval_include(segment, [segment[0], int_[0], int_[1]]):
-                        if segment[0] not in self.amplified_intervals_from_cycle:
-                            self.amplified_intervals_from_cycle[segment[0]] = []
-                        if int_ not in self.amplified_intervals_from_cycle[segment[0]]:
-                            self.amplified_intervals_from_cycle[segment[0]].append(int_)
-                        break
+
+        if graph_given:  # if the graph file is given, use this to set the amplified intervals
+            for cycle_id in cycle_ids:
+                for segment in self.cycles[cycle_id]:
+                    for int_ in self.amplified_intervals_from_graph[segment[0]]:
+                        if interval_include(segment, [segment[0], int_[0], int_[1]]):
+                            if segment[0] not in self.amplified_intervals_from_cycle:
+                                self.amplified_intervals_from_cycle[segment[0]] = []
+                            if int_ not in self.amplified_intervals_from_cycle[segment[0]]:
+                                self.amplified_intervals_from_cycle[segment[0]].append(int_)
+                            break
+
+        else:  # if the graph file is not given extract from the cycles file
+            # collect a list of intervals for each chrom
+            cycle_ivald = defaultdict(list)
+            for cycle_id in self.cycles:
+                for segment in self.cycles[cycle_id]:
+                    cycle_ivald[segment[0]].append((segment[1], segment[2]))
+
+            # merge
+                for chrom, ival_list in cycle_ivald.items():
+                    merged = self.merge_intervals(ival_list)
+                    self.amplified_intervals_from_cycle[chrom] = merged
+
         for chr in self.amplified_intervals_from_cycle.keys():
             self.amplified_intervals_from_cycle[chr] = sorted(self.amplified_intervals_from_cycle[chr])
             self.num_amplified_intervals += len(self.amplified_intervals_from_cycle[chr])
-
 
     def set_gene_heights(self, rel_genes, padding=0.0):
         if not rel_genes:
@@ -189,14 +217,7 @@ class graph_vis:
         gname_to_gobj = {x.gname: x for x in rel_genes}
         # merge intervals
         intervals = [(x.gstart, x.gend) for x in rel_genes]
-        sorted_intervals = sorted(intervals)
-        merged = [sorted_intervals[0]]
-        for current in sorted_intervals[1:]:
-            prev = merged[-1]
-            if current[0] <= prev[1] + padding:
-                merged[-1] = (prev[0], max(prev[1], current[1]))
-            else:
-                merged.append(current)
+        merged = self.merge_intervals(intervals, padding=padding)
 
         gene_ival_t = IntervalTree()
         for x in rel_genes:
@@ -340,7 +361,7 @@ class graph_vis:
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
 
-                    for gene_obj in rel_genes:
+                    for gene_obj in rel_genes:  # plot line for the gene
                         height = gene_obj.height
                         print(gene_obj)
                         cut_gs = max(int_[0], gene_obj.gstart)
@@ -359,7 +380,7 @@ class graph_vis:
                         elif gene_obj.strand == '-':
                             ax3.plot(gene_end, height, marker='<', color='black', markersize=7)
 
-                        for exon_start, exon_end in gene_obj.eposns:
+                        for exon_start, exon_end in gene_obj.eposns:  # plot exon bars
                             if not exon_end > int_[0] or not exon_start < int_[1]:
                                 continue
 
@@ -435,7 +456,10 @@ class graph_vis:
 
 
     def close_bam(self):
-        self.lr_bamfh.close()
+        try:
+            self.lr_bamfh.close()
+        except AttributeError:
+            pass
 
 
     def plotcycle(self, title, output_fn, num_cycles = -1, cycle_only = False, margin_between_intervals = 2,
@@ -640,13 +664,13 @@ class graph_vis:
 
         if not hide_genes:
             for chrom in sorted_chrs:
-                for inti in range(len(self.amplified_intervals_from_graph[chrom])):
-                    int_ = self.amplified_intervals_from_graph[chrom][inti]
+                for inti in range(len(self.amplified_intervals_from_cycle[chrom])):
+                    int_ = self.amplified_intervals_from_cycle[chrom][inti]
                     rel_genes = [x.data for x in self.genes[chrom][int_[0]:int_[1]]]
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
 
-                    for gene_obj in rel_genes:
+                    for gene_obj in rel_genes:  # plot gene lines
                         height = gene_obj.height
                         # print(gene_obj)
                         cut_gs = max(int_[0], gene_obj.gstart)
@@ -666,7 +690,7 @@ class graph_vis:
                         elif gene_obj.strand == '-':
                             ax3.plot(gene_end, height, marker='<', color='black', markersize=7)
 
-                        for exon_start, exon_end in gene_obj.eposns:
+                        for exon_start, exon_end in gene_obj.eposns:  # plot exon bars
                             if not exon_end > int_[0] or not exon_start < int_[1]:
                                 continue
 
@@ -750,13 +774,13 @@ class graph_vis:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description = "Long read only amplicon reconstruction pipeline.")
     parser.add_argument("--ref", help = "Name of reference genome used", choices=["hg19", "hg38", "mm10"], required=True)
-    parser.add_argument("--bam", help = "Sorted & indexed bam file.", required = True)
-    parser.add_argument("--graph", help = "AmpliconSuite-formatted *.graph file.", required=True)
+    parser.add_argument("--bam", help = "Sorted & indexed bam file.")
+    parser.add_argument("--graph", help = "AmpliconSuite-formatted *.graph file.")
     parser.add_argument("--cycle", help = "AmpliconSuite-formatted cycles file, in *.bed format.")
     parser.add_argument("--output_prefix", help = "Prefix of output files.", required = True)
     parser.add_argument("--plot_graph", help = "Visualize breakpoint graph.",  action = 'store_true')
     parser.add_argument("--plot_cycles", help = "Visualize (selected) cycles.",  action = 'store_true')
-    parser.add_argument("--cycles_only", help = "Only plot cycles.",  action = 'store_true')
+    parser.add_argument("--only_cyclic_paths", help = "Only plot cyclic paths from cycles file",  action = 'store_true')
     parser.add_argument("--num_cycles", help = "Only plot the first NUM_CYCLES cycles.",  type = int)
     parser.add_argument("--max_coverage", help = "Limit the maximum visualized coverage in the graph", type = float, default = float('inf'))
     parser.add_argument("--min_mapq", help = "Minimum mapping quality to count read in coverage plotting", type = float, default = 0)
@@ -766,32 +790,46 @@ if __name__ == '__main__':
     parser.add_argument("--bushman_genes", help="Reduce gene set to the Bushman cancer-related gene set", action='store_true', default=False)
     args = parser.parse_args()
 
-    if args.plot_graph and args.graph == None:
-        print ("Please specify the breakpoint graph file to plot.")
-        os.abort()
-    if args.plot_cycles and args.cycle == None:
-        print ("Please specify the cycle file, in *.bed format, to plot.")
-        os.abort()
-
-    g = graph_vis(args.bam)
-    g.parse_genes(args.ref, set(args.gene_subset_list), args.bushman_genes)
-    g.parse_graph_file(args.graph)
     if args.plot_graph:
+        if not args.graph:
+            print ("Please specify the breakpoint graph file to plot.")
+            sys.exit(1)
+        if not args.bam:
+            print("Please specify the bam file to plot.")
+            sys.exit(1)
+
+    if args.plot_cycles and not args.cycle:
+        print ("Please specify the cycle file, in *.bed format, to plot.")
+        sys.exit(1)
+
+
+    g = graph_vis()
+    g.parse_genes(args.ref, set(args.gene_subset_list), args.bushman_genes)
+    if args.plot_graph:
+        g.open_bam(args.bam)
+        g.parse_graph_file(args.graph)
         g.graph_amplified_intervals()
         gtitle = args.output_prefix
         if '/' in args.output_prefix:
             gtitle = args.output_prefix.split('/')[-1]
         g.plot_graph(gtitle, args.output_prefix + "_graph", max_cov_cutoff=args.max_coverage, quality_threshold=args.min_mapq,
                      hide_genes=args.hide_genes, gene_font_size=args.gene_fontsize)
+
     if args.plot_cycles:
         g.parse_cycle_file(args.cycle)
         cycle_ids_ = None
         cycle_only_ = False
         if args.num_cycles:
             cycle_ids_ = [str(i + 1) for i in range(args.num_cycles)]
-        if args.cycles_only:
+        if args.only_cyclic_paths:
             cycle_only_ = True
-        g.cycle_amplified_intervals(cycle_ids = cycle_ids_, cycle_only = cycle_only_)
+
+        graph_given_ = args.graph is not None
+        if graph_given_:
+            g.parse_graph_file(args.graph)
+            g.graph_amplified_intervals()
+
+        g.cycle_amplified_intervals(cycle_ids = cycle_ids_, cycle_only = cycle_only_, graph_given=graph_given_)
         gtitle = args.output_prefix
         if '/' in args.output_prefix:
             gtitle = args.output_prefix.split('/')[-1]
