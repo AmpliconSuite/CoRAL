@@ -10,8 +10,8 @@ from breakpoint_graph import *
 import global_names
 
 
-def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_seq_repeat = 2,
-		p_total_weight = 0.9, p_bp_cn = 0.9, num_threads = 16, time_limit = 7200, model_prefix = ""):
+def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, p_total_weight = 0.9,
+		p_bp_cn = 0.9, num_threads = -1, time_limit = 7200, model_prefix = ""):
 	"""
 	Cycle decomposition by minimizing the number of cycles/paths
 
@@ -23,13 +23,11 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 	pc_list: list of subpath constraints to be satisfied, each as a dict that maps an edge to its multiplicity
 		*** note that all subpath constraints in this list are required to be satisfied ***
 		*** otherwise will return infeasible ***
-	max_seq_repeat: integer, maximum multiplicity (num occurrence) allowed for each sequence edge in each cycle/path, 
-			default value is 2
 	p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths, 
 			default value is 0.9
 	p_bp_cn: float float between (0, 1), minimum proportion of CN for each discordant edge to be covered by the resulting cycles or paths, 
 			default value is 0.9
-	num_threads: integer, number of working threads for gurobipy, default is 16
+	num_threads: integer, number of working threads for gurobipy, by default it tries to use up all available cores 
 	time_limit: integer, maximum allowed running time, in seconds, default is 7200 (2 hour)
 	model_prefix: output prefix for gurobi *.lp model
 
@@ -144,18 +142,10 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 		m.addQConstr(cn_expr <= g.source_edges[srci][-1])
 			
 	# Occurrence of breakpoints in each cycle/path
+	discordant_multiplicities = g.infer_discordant_edge_multiplicities()
 	for i in range(k):
-		for seqi in range(lseg):
-			m.addConstr(x[seqi * k + i] <= max_seq_repeat)
-	for i in range(k):
-		sum_inv = gp.LinExpr(1.0)
 		for di in range(ld):
-			dedge = g.discordant_edges[di]
-			if dedge[2] == dedge[5]:
-				sum_inv += x[(lseg + lc + di) * k + i]
-		for di in range(ld):
-			m.addConstr(x[(lseg + lc + di) * k + i] <= 2)
-			m.addConstr(x[(lseg + lc + di) * k + i] <= sum_inv)
+			m.addConstr(x[(lseg + lc + di) * k + i] <= discordant_multiplicities[di])
 
 	# c: decomposition i is a cycle, and start at particular node
 	c_names = []
@@ -175,16 +165,15 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 			cycle_expr += x[(lseg + lc + ld + 2 * srci) * k + i] # (s, v)
 		m.addConstr(cycle_expr <= 1.0)
 
-	# special request for c added for max_seq_repeat >= 2
-	if max_seq_repeat >= 2:
-		for i in range(k):
-			expr_xc = gp.QuadExpr(0.0)
-			for node in g.nodes.keys():
-				for ci in set(g.nodes[node][1]):
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
-				for di in set(g.nodes[node][2]):	
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
-			m.addConstr(expr_xc <= 1.0)
+	# There must be a concordant/discordant edge occuring one time
+	for i in range(k):
+		expr_xc = gp.QuadExpr(0.0)
+		for node in g.nodes.keys():
+			for ci in set(g.nodes[node][1]):
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
+			for di in set(g.nodes[node][2]):	
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
+		m.addConstr(expr_xc <= 1.0)
 			
 	# d: BFS/spanning tree order of the nodes in decomposition i
 	d_names = []
@@ -363,7 +352,8 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 					m.addConstr(x[(lseg + lc + edge[1]) * k + i] >= r[pi * k + i] * path_constraint_[edge])
 
 	m.setParam(GRB.Param.LogToConsole, 0)
-	m.setParam(GRB.Param.Threads, num_threads)
+	if num_threads > 0:
+		m.setParam(GRB.Param.Threads, num_threads)
 	m.setParam(GRB.Param.NonConvex, 2)
 	m.setParam(GRB.Param.TimeLimit, max(time_limit, ld * 300)) # each breakpoint edge is assigned 5 minutes
 	logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tCompleted gurobi model setup.")
@@ -467,8 +457,8 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, max_s
 		return m.Status, total_weights_included, len(path_constraints_satisfied_set), cycles, cycle_weights, path_constraints_satisfied
 
 
-def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, init_sol, max_seq_repeat = 2, 
-		p_total_weight = 0.9, resolution = 0.1, num_threads = 16, time_limit = 7200, model_prefix = ""):
+def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, init_sol, p_total_weight = 0.9,
+		resolution = 0.1, num_threads = -1, time_limit = 7200, model_prefix = ""):
 	"""
 	Cycle decomposition by postprocessing the greedy solution
 
@@ -477,12 +467,10 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 	node_order: dict maps each node in the input breakpoint graphg to a distinct integer, indicating a total order of the nodes in g
 	pc_list: list of subpath constraints to be satisfied, each as a dict that maps an edge to its multiplicity
 	init_sol: initial solution returned by maximize_weights_greedy
-	max_seq_repeat: integer, maximum multiplicity (num occurrence) allowed for each sequence edge in each cycle/path, 
-			default value is 2
 	p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths, 
 			default value is 0.9
 	resolution: float, minimum CN for each cycle or path, default value is 0.1
-	num_threads: integer, number of working threads for gurobipy, default is 16
+	num_threads: integer, number of working threads for gurobipy, by default it tries to use up all available cores
 	time_limit: integer, maximum allowed running time, in seconds, default is 7200 (2 hour)
 	model_prefix: output prefix for gurobi *.lp model
 
@@ -629,18 +617,10 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 		m.addQConstr(cn_expr <= g.source_edges[srci][-1])
 
 	# Occurrence of breakpoints in each cycle/path
+	discordant_multiplicities = g.infer_discordant_edge_multiplicities()
 	for i in range(k):
-		for seqi in range(lseg):
-			m.addConstr(x[seqi * k + i] <= max_seq_repeat)
-	for i in range(k):
-		sum_inv = gp.LinExpr(1.0)
 		for di in range(ld):
-			dedge = g.discordant_edges[di]
-			if dedge[2] == dedge[5]:
-				sum_inv += x[(lseg + lc + di) * k + i]
-		for di in range(ld):
-			m.addConstr(x[(lseg + lc + di) * k + i] <= 2)
-			m.addConstr(x[(lseg + lc + di) * k + i] <= sum_inv)
+			m.addConstr(x[(lseg + lc + di) * k + i] <= discordant_multiplicities[di])
 
 	# c: decomposition i is a cycle, and start at particular node
 	c_names = []
@@ -660,16 +640,15 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 			cycle_expr += x[(lseg + lc + ld + 2 * srci) * k + i] # (s, v)
 		m.addConstr(cycle_expr <= 1.0)
 
-	# special request for c added for max_seq_repeat >= 2
-	if max_seq_repeat >= 2:
-		for i in range(k):
-			expr_xc = gp.QuadExpr(0.0)
-			for node in g.nodes.keys():
-				for ci in set(g.nodes[node][1]):
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
-				for di in set(g.nodes[node][2]):	
-					expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
-			m.addConstr(expr_xc <= 1.0)
+	# There must be a concordant/discordant edge occuring one time
+	for i in range(k):
+		expr_xc = gp.QuadExpr(0.0)
+		for node in g.nodes.keys():
+			for ci in set(g.nodes[node][1]):
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + ci) * k + i]
+			for di in set(g.nodes[node][2]):	
+				expr_xc += c[k * node_order[node] + i] * x[(lseg + lc + di) * k + i]
+		m.addConstr(expr_xc <= 1.0)
 
 	# d: BFS/spanning tree order of the nodes in decomposition i
 	d_names = []
@@ -889,7 +868,8 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 	m.update()
 
 	m.setParam(GRB.Param.LogToConsole, 0)
-	m.setParam(GRB.Param.Threads, num_threads)
+	if num_threads > 0:
+		m.setParam(GRB.Param.Threads, num_threads)
 	m.setParam(GRB.Param.NonConvex, 2)
 	m.setParam(GRB.Param.Heuristics, 0.25)
 	m.setParam(GRB.Param.TimeLimit, max(time_limit, ld * 300)) # each breakpoint edge is assigned 5 minutes
@@ -994,8 +974,8 @@ def minimize_cycles_post(amplicon_id, g, total_weights, node_order, pc_list, ini
 		return m.Status, total_weights_included, len(path_constraints_satisfied_set), cycles, cycle_weights, path_constraints_satisfied
 
 
-def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, alpha = 0.01, max_seq_repeat = 2,
-			p_total_weight = 0.9, resolution = 0.1, cn_tol = 0.005, p_subpaths = 0.9, num_threads = 16, 
+def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, alpha = 0.01, p_total_weight = 0.9,
+			resolution = 0.1, cn_tol = 0.005, p_subpaths = 0.9, num_threads = -1, postprocess = 0, 
 			time_limit = 7200, model_prefix = ""):
 	"""
 	Greedy cycle decomposition by maximizing the length-weighted CN of a single cycle/path
@@ -1010,8 +990,6 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 		(alpha * remaining length-weighted CN in the graph / num remaining unsatisfied subpath constraints) * 
 		num subpath constraints satisfied by the next cycle or path
 		*** when alpha < 0, just maximizing total length-weighted CN
-	max_seq_repeat: integer, maximum multiplicity (num occurrence) allowed for each sequence edge in each cycle/path, 
-			default value is 2
 	p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths, 
 			default value is 0.9
 	resolution: float, minimum CN for each cycle or path, default value is 0.1
@@ -1019,7 +997,7 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 		< cn_tol * total_weights, default value is 0.005
 	p_subpaths: float between (0, 1), minimum proportion of subpath constraints to be satisfied by the resulting cycles or paths, 
 		default value is 0.9
-	num_threads: integer, number of working threads for gurobipy, default is 16
+	num_threads: integer, number of working threads for gurobipy, by default it tries to use up all available cores
 	time_limit: integer, maximum allowed running time, in seconds, default is 7200 (2 hour)
 	model_prefix: output prefix for gurobi *.lp model
 
@@ -1045,6 +1023,7 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 		
 	remaining_weights = total_weights
 	unsatisfied_pc = [i for i in range(len(pc_list))]
+	discordant_multiplicities = g.infer_discordant_edge_multiplicities()
 	remaining_CN = dict()
 	for segi in range(lseg):
 		remaining_CN[('s', segi)] = g.sequence_edges[segi][-1]
@@ -1154,16 +1133,8 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 			m.addQConstr(cn_expr <= remaining_CN[('src', srci)])
 			
 		# Occurrence of breakpoints in each cycle/path
-		for seqi in range(lseg):
-			m.addConstr(x[seqi] <= max_seq_repeat)
-		sum_inv = gp.LinExpr(1.0)
 		for di in range(ld):
-			dedge = g.discordant_edges[di]
-			if dedge[2] == dedge[5]:
-				sum_inv += x[lseg + lc + di]
-		for di in range(ld):
-			m.addConstr(x[lseg + lc + di] <= 2)
-			m.addConstr(x[lseg + lc + di] <= sum_inv)
+			m.addConstr(x[lseg + lc + di] <= discordant_multiplicities[di])
 			
 		# c: decomposition i is a cycle, and start at particular node
 		c_names = []
@@ -1181,15 +1152,14 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 			cycle_expr += x[lseg + lc + ld + 2 * srci] # (s, v)
 		m.addConstr(cycle_expr <= 1.0)
 
-		# special request for c added for max_seq_repeat >= 2
-		if max_seq_repeat >= 2:
-			expr_xc = gp.QuadExpr(0.0)
-			for node in g.nodes.keys():
-				for ci in set(g.nodes[node][1]):
-					expr_xc += c[node_order[node]] * x[lseg + ci]
-				for di in set(g.nodes[node][2]):	
-					expr_xc += c[node_order[node]] * x[lseg + lc + di]
-			m.addConstr(expr_xc <= 1.0)
+		# There must be a concordant/discordant edge occuring one time
+		expr_xc = gp.QuadExpr(0.0)
+		for node in g.nodes.keys():
+			for ci in set(g.nodes[node][1]):
+				expr_xc += c[node_order[node]] * x[lseg + ci]
+			for di in set(g.nodes[node][2]):	
+				expr_xc += c[node_order[node]] * x[lseg + lc + di]
+		m.addConstr(expr_xc <= 1.0)
 
 		# d: BFS/spanning tree order of the nodes in decomposition i
 		d_names = []
@@ -1346,7 +1316,8 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 					m.addConstr(x[lseg + lc + edge[1]] >= r[pi] * path_constraint_[edge])
 		
 		m.setParam(GRB.Param.LogToConsole, 0)
-		m.setParam(GRB.Param.Threads, num_threads)
+		if num_threads > 0:
+			m.setParam(GRB.Param.Threads, num_threads)
 		m.setParam(GRB.Param.NonConvex, 2)
 		m.setParam(GRB.Param.TimeLimit, time_limit) # each breakpoint edge is assigned 5 minutes
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tCompleted gurobi setup for model %d." %(cycle_id + 1))
@@ -1386,50 +1357,65 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 						cycle_flag = ci
 						break
 				cycle = dict()
+				cycle_for_postprocess = dict()
 				for xi in range(len(sol_x)):
-					cycle[('x', xi)] = sol_x[xi]
+					cycle_for_postprocess[('x', xi)] = sol_x[xi]
 				for ci in range(len(sol_c)):
-					cycle[('c', ci)] = sol_c[ci]
+					cycle_for_postprocess[('c', ci)] = sol_c[ci]
 				for di in range(len(sol_d)):
-					cycle[('d', di)] = sol_d[di]
+					cycle_for_postprocess[('d', di)] = sol_d[di]
 				for yi in range(len(sol_y1)):
-					cycle[('y1', yi)] = sol_y1[yi]
+					cycle_for_postprocess[('y1', yi)] = sol_y1[yi]
 				for yi in range(len(sol_y2)):
-					cycle[('y2', yi)] = sol_y2[yi]
+					cycle_for_postprocess[('y2', yi)] = sol_y2[yi]
 				if cycle_flag == -1:
 					path_constraints_s = []
 					for xi in range(len(sol_x)):
 						if sol_x[xi] >= 0.9:
 							x_xi = int(round(sol_x[xi]))
 							if xi < lseg:
+								cycle[('e', xi)] = x_xi
 								remaining_CN[('s', xi)] -= (sol_x[xi] * sol_w[0])
 								if remaining_CN[('s', xi)] < resolution:
 									remaining_CN[('s', xi)] = 0.0
 							elif xi < lseg + lc:
+								cycle[('c', xi - lseg)] = x_xi
 								remaining_CN[('c', xi - lseg)] -= (sol_x[xi] * sol_w[0])
 								if remaining_CN[('c', xi - lseg)] < resolution:
 									remaining_CN[('c', xi - lseg)] = 0.0
 							elif xi < lseg + lc + ld:
+								cycle[('d', xi - lseg - lc)] = x_xi
 								remaining_CN[('d', xi - lseg - lc)] -= (sol_x[xi] * sol_w[0])
 								if remaining_CN[('d', xi - lseg - lc)] < resolution:
 									remaining_CN[('d', xi - lseg - lc)] = 0.0
 							elif xi < lseg + lc + ld + 2 * lsrc:
 								assert x_xi == 1
 								if (xi - lseg - lc - ld) % 2 == 0:
+									cycle[('s', (xi_ - lseg - lc - ld) // 2)] = 1 # source edge connected to s
 									remaining_CN[('src', (xi - lseg - lc - ld) // 2)] -= sol_w[0]
 									if remaining_CN[('src', (xi - lseg - lc - ld) // 2)] < resolution:
 										remaining_CN[('src', (xi - lseg - lc - ld) // 2)] = 0.0
 								else:
+									cycle[('t', (xi_ - lseg - lc - ld - 1) // 2)] = 1 # source edge connected to t
 									remaining_CN[('src', (xi - lseg - lc - ld - 1) // 2)] -= sol_w[0]
 									if remaining_CN[('src', (xi - lseg - lc - ld - 1) // 2)] < resolution:
 										remaining_CN[('src', (xi - lseg - lc - ld - 1) // 2)] = 0.0
 							else:
 								assert x_xi == 1
+								if (xi - lseg - lc - ld - 2 * lsrc) % 2 == 0:
+									nsi = (xi - lseg - lc - ld - 2 * lsrc) // 2
+									cycle[('ns', nsi)] = 1 # source edge connected to s
+								else:
+									nti = (xi - lseg - lc - ld - 2 * lsrc - 1) // 2
+									cycle[('nt', nti)] = 1 # source edge connected to t
 					for pi in range(len(pc_list)):
 						if sol_r[pi] >= 0.9:
 							path_constraints_s.append(pi)
 							unsatisfied_pc[pi] = -1
-					cycles[1].append(cycle)
+					if postprocess == 1:
+						cycles[1].append(cycle_for_postprocess)
+					else:
+						cycles[1].append(cycle)
 					cycle_weights[1].append(sol_w[0])
 					path_constraints_satisfied[1].append(path_constraints_s)
 				else:
@@ -1438,14 +1424,17 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 						if sol_x[xi] >= 0.9:
 							x_xi = int(round(sol_x[xi]))
 							if xi < lseg:
+								cycle[('e', xi)] = x_xi
 								remaining_CN[('s', xi)] -= (sol_x[xi] * sol_w[0])
 								if remaining_CN[('s', xi)] < resolution:
 									remaining_CN[('s', xi)] = 0.0
 							elif xi < lseg + lc:
+								cycle[('c', xi - lseg)] = x_xi
 								remaining_CN[('c', xi - lseg)] -= (sol_x[xi] * sol_w[0])
 								if remaining_CN[('c', xi - lseg)] < resolution:
 									remaining_CN[('c', xi - lseg)] = 0.0
 							elif xi < lseg + lc + ld:
+								cycle[('d', xi - lseg - lc)] = x_xi
 								remaining_CN[('d', xi - lseg - lc)] -= (sol_x[xi] * sol_w[0])
 								if remaining_CN[('d', xi - lseg - lc)] < resolution:
 									remaining_CN[('d', xi - lseg - lc)] = 0.0
@@ -1458,7 +1447,10 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 						if sol_r[pi] >= 0.9:
 							path_constraints_s.append(pi)
 							unsatisfied_pc[pi] = -1
-					cycles[0].append(cycle)
+					if postprocess == 1:
+						cycles[1].append(cycle_for_postprocess)
+					else:
+						cycles[0].append(cycle)
 					cycle_weights[0].append(sol_w[0])
 					path_constraints_satisfied[0].append(path_constraints_s)
 				for seqi in range(lseg):
@@ -1632,10 +1624,11 @@ def eulerian_cycle_t(g, edges_next_cycle, path_constraints_next_cycle, path_cons
 							s = 1
 							break
 			if s == 0 and valid == 1:
-				valid = -1
 				path_metric[0].append(pathi)
 				path_metric[1] += len(path_)
 				path_metric[2] += path_constraints_support[pathi]
+		if valid == 1 and len(path_metric[0]) > 0:
+			valid = -1
 		if valid != 0 and (len(path_metric[0]) < len(unsatisfied_path_metric[0])) or \
 			(len(path_metric[0]) == len(unsatisfied_path_metric[0]) and path_metric[1] < unsatisfied_path_metric[1]) or \
 			(len(path_metric[0]) == len(unsatisfied_path_metric[0]) and path_metric[1] == unsatisfied_path_metric[1] and \
@@ -1809,10 +1802,11 @@ def eulerian_path_t(g, edges_next_path, path_constraints_next_path, path_constra
 					s = 1
 					break
 			if s == 0 and valid == 1:
-				valid = -1
 				path_metric[0].append(pathi)
 				path_metric[1] += len(path_)
 				path_metric[2] += path_constraints_support[pathi]
+		if valid == 1 and len(path_metric[0]) > 0:
+			valid = -1
 		if valid != 0 and (len(path_metric[0]) < len(unsatisfied_path_metric[0])) or \
 			(len(path_metric[0]) == len(unsatisfied_path_metric[0]) and path_metric[1] < unsatisfied_path_metric[1]) or \
 			(len(path_metric[0]) == len(unsatisfied_path_metric[0]) and path_metric[1] == unsatisfied_path_metric[1] and \

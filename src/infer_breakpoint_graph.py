@@ -1306,13 +1306,16 @@ class bam_to_breakpoint_nanopore():
 				for pi in range(len(paths)):
 					path = paths[pi]
 					if len(path) > 5 and valid_path(self.lr_graph[amplicon_idx], path):
-						if path not in self.path_constraints[amplicon_idx][0]:
+						if path in self.path_constraints[amplicon_idx][0]:
+							pci = self.path_constraints[amplicon_idx][0].index(path)
+							self.path_constraints[amplicon_idx][1][pci] += 1
+						elif path[::-1] in self.path_constraints[amplicon_idx][0]:
+							pci = self.path_constraints[amplicon_idx][0].index(path[::-1])
+							self.path_constraints[amplicon_idx][1][pci] += 1
+						else:
 							self.path_constraints[amplicon_idx][0].append(path)
 							self.path_constraints[amplicon_idx][1].append(1)
 							self.path_constraints[amplicon_idx][2].append(amplicon_idx)
-						else:
-							pci = self.path_constraints[amplicon_idx][0].index(path)
-							self.path_constraints[amplicon_idx][1][pci] += 1
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
 					"There are %d distinct subpaths due to reads involving breakpoints in amplicon %d." %(len(self.path_constraints[amplicon_idx][0]), amplicon_idx + 1))
 			
@@ -1333,25 +1336,26 @@ class bam_to_breakpoint_nanopore():
 					if q >= 20 and rn in concordant_reads:
 						path = alignment_to_path(self.lr_graph[amplicon_idx], [read.reference_name, read.reference_start, read.reference_end])
 						if len(path) > 5 and valid_path(self.lr_graph[amplicon_idx], path):
-							if path not in self.path_constraints[amplicon_idx][0]:
-								self.path_constraints[amplicon_idx][0].append(path)
-								self.path_constraints[amplicon_idx][1].append(1)
-								self.path_constraints[amplicon_idx][2].append(concordant_reads[rn])
-							else:
+							if path in self.path_constraints[amplicon_idx][0]:
 								pci = self.path_constraints[amplicon_idx][0].index(path)
 								self.path_constraints[amplicon_idx][1][pci] += 1
+							elif path[::-1] in self.path_constraints[amplicon_idx][0]:
+								pci = self.path_constraints[amplicon_idx][0].index(path[::-1])
+								self.path_constraints[amplicon_idx][1][pci] += 1
+							else: 
+								self.path_constraints[amplicon_idx][0].append(path)
+								self.path_constraints[amplicon_idx][1].append(1)
+								self.path_constraints[amplicon_idx][2].append(concordant_reads[rn])		
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "There are %d distinct subpaths in total in amplicon %d." 
 					%(len(self.path_constraints[amplicon_idx][0]), amplicon_idx + 1))
 
 
-	def cycle_decomposition(self, alpha = 0.01, max_seq_repeat = -1, p_total_weight = 0.9, resolution = 0.1, model_prefix = ""):
+	def cycle_decomposition(self, alpha = 0.01, p_total_weight = 0.9, resolution = 0.1, num_threads = -1, postprocess = 0, \
+				time_limit = 7200, model_prefix = ""):
 		"""
 		Caller for cycle decomposition functions
 		"""
 		for amplicon_idx in range(len(self.lr_graph)):
-			max_seq_repeat_amplicon = self.lr_graph[amplicon_idx].infer_max_seq_repeat()
-			if max_seq_repeat > 0:
-				max_seq_repeat_amplicon = max_seq_repeat
 			lseg = len(self.lr_graph[amplicon_idx].sequence_edges)
 			lc = len(self.lr_graph[amplicon_idx].concordant_edges)
 			ld = len(self.lr_graph[amplicon_idx].discordant_edges)
@@ -1387,27 +1391,32 @@ class bam_to_breakpoint_nanopore():
 				if nedges > 100 or (3 * k + 3 * k * nedges + 2 * k * nnodes + k * len(self.longest_path_constraints[amplicon_idx][0])) >= 10000:
 					total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-						alpha, max_seq_repeat_amplicon, p_total_weight, resolution, 0.005, 0.9, 16, 7200, model_prefix)
+						alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed greedy cycle decomposition.")
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
 					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
-					status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
-						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
-						path_constraints_satisfied_init], max_seq_repeat_amplicon, min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, 16, 7200, model_prefix)
+					if postprocess == 1:
+						status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
+							self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
+							path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
+						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
+						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
+						self.cycles[amplicon_idx] = cycles_post
+						self.cycle_weights[amplicon_idx] = cycle_weights_post
+						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
+					else:
+						self.cycles[amplicon_idx] = cycles_init
+						self.cycle_weights[amplicon_idx] = cycle_weights_init
+						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init
 					sol_flag = 1
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
-					self.cycles[amplicon_idx] = cycles_post
-					self.cycle_weights[amplicon_idx] = cycle_weights_post
-					self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
 					break 
 				else:
 					status_, total_cycle_weights_, total_path_satisfied_, cycles_, cycle_weights_, path_constraints_satisfied_ =  minimize_cycles(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], k, total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-						max_seq_repeat_amplicon, p_total_weight, 0.9, 16, 7200, model_prefix)
+						p_total_weight, 0.9, num_threads, time_limit, model_prefix)
 					if status_ == GRB.INFEASIBLE:
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition is infeasible.")
 						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Doubling k from %d to %d." %(k, k * 2))
@@ -1426,24 +1435,29 @@ class bam_to_breakpoint_nanopore():
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition is infeasible, switch to greedy cycle decomposition.")
 				total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
 					self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-					alpha, max_seq_repeat_amplicon, p_total_weight, resolution, 0.005, 0.9, 16, 7200, model_prefix)
+					alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed greedy cycle decomposition.")
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
 				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
-				status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
+				if postprocess == 1:
+					status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
-						path_constraints_satisfied_init], max_seq_repeat_amplicon, min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, 16, 7200, model_prefix)
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
-				self.cycles[amplicon_idx] = cycles_post
-				self.cycle_weights[amplicon_idx] = cycle_weights_post
-				self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post						
+						path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
+					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
+					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
+					self.cycles[amplicon_idx] = cycles_post
+					self.cycle_weights[amplicon_idx] = cycle_weights_post
+					self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
+				else:
+					self.cycles[amplicon_idx] = cycles_init
+					self.cycle_weights[amplicon_idx] = cycle_weights_init
+					self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init			
 
 
-	def output_cycles(self, cycle_file_prefix):
+	def output_cycles(self, cycle_file_prefix, output_all_paths = False):
 		"""
 		Write the result from cycle decomposition into *.cycles files
 		"""
@@ -1460,35 +1474,57 @@ class bam_to_breakpoint_nanopore():
 			for seqi in range(len(self.lr_graph[amplicon_idx].sequence_edges)):
 				sseg = self.lr_graph[amplicon_idx].sequence_edges[seqi]
 				fp.write("Segment\t%d\t%s\t%d\t%d\n" %(seqi + 1, sseg[0], sseg[1], sseg[2]))
-			fp.write("List of (longest) subpath constraints\n")
-			path_constraint_indices_ = []
-			for paths in (self.path_constraints_satisfied[amplicon_idx][0] + self.path_constraints_satisfied[amplicon_idx][1]):
-				for pathi in paths:
-					if pathi not in path_constraint_indices_:
-						path_constraint_indices_.append(pathi)
-			for constraint_i in range(len(self.longest_path_constraints[amplicon_idx][1])):
-				fp.write("Path constraint\t%d\t" %(constraint_i + 1))
-				pathi = self.longest_path_constraints[amplicon_idx][1][constraint_i]
-				path_ = self.path_constraints[amplicon_idx][0][pathi]
-				if path_[0][1] > path_[-1][1]:
-					path_ = path_[::-1]
-				for i in range(len(path_)):
-					if i % 4 == 0:
-						if i < len(path_) - 1:
-							if path_[i + 1][2] == '+':
-								fp.write("%d+," %(path_[i][1] + 1))
+			if output_all_paths:
+				fp.write("List of all subpath constraints\n")
+				for pathi in range(len(self.path_constraints[amplicon_idx][0])):
+					fp.write("Path constraint\t%d\t" %(pathi + 1))
+					path_ = self.path_constraints[amplicon_idx][0][pathi]
+					if path_[0][1] > path_[-1][1]:
+						path_ = path_[::-1]
+					for i in range(len(path_)):
+						if i % 4 == 0:
+							if i < len(path_) - 1:
+								if path_[i + 1][2] == '+':
+									fp.write("%d+," %(path_[i][1] + 1))
+								else:
+									fp.write("%d-," %(path_[i][1] + 1))
 							else:
-								fp.write("%d-," %(path_[i][1] + 1))
-						else:
-							if path_[i - 1][2] == '+':
-								fp.write("%d-\t" %(path_[i][1] + 1))
+								if path_[i - 1][2] == '+':
+									fp.write("%d-\t" %(path_[i][1] + 1))
+								else:
+									fp.write("%d+\t" %(path_[i][1] + 1))
+					fp.write("Support=%d\n" %(self.path_constraints[amplicon_idx][1][pathi]))
+			else:
+				fp.write("List of longest subpath constraints\n")
+				path_constraint_indices_ = []
+				for paths in (self.path_constraints_satisfied[amplicon_idx][0] + self.path_constraints_satisfied[amplicon_idx][1]):
+					for pathi in paths:
+						if pathi not in path_constraint_indices_:
+							path_constraint_indices_.append(pathi)
+				for constraint_i in range(len(self.longest_path_constraints[amplicon_idx][1])):
+					fp.write("Path constraint\t%d\t" %(constraint_i + 1))
+					pathi = self.longest_path_constraints[amplicon_idx][1][constraint_i]
+					path_ = self.path_constraints[amplicon_idx][0][pathi]
+					if path_[0][1] > path_[-1][1]:
+						path_ = path_[::-1]
+					for i in range(len(path_)):
+						if i % 4 == 0:
+							if i < len(path_) - 1:
+								if path_[i + 1][2] == '+':
+									fp.write("%d+," %(path_[i][1] + 1))
+								else:
+									fp.write("%d-," %(path_[i][1] + 1))
 							else:
-								fp.write("%d+\t" %(path_[i][1] + 1))
-				fp.write("Support=%d\t" %(self.longest_path_constraints[amplicon_idx][2][constraint_i]))
-				if constraint_i in path_constraint_indices_:
-					fp.write("Satisfied\n")
-				else:
-					fp.write("Unsatisfied\n")
+								if path_[i - 1][2] == '+':
+									fp.write("%d-\t" %(path_[i][1] + 1))
+								else:
+									fp.write("%d+\t" %(path_[i][1] + 1))
+					fp.write("Support=%d\t" %(self.longest_path_constraints[amplicon_idx][2][constraint_i]))
+					if constraint_i in path_constraint_indices_:
+						fp.write("Satisfied\n")
+					else:
+						fp.write("Unsatisfied\n")
+
 			# sort cycles according to weights
 			cycle_indices = sorted([(0, i) for i in range(len(self.cycle_weights[amplicon_idx][0]))] + [(1, i) for i in range(len(self.cycle_weights[amplicon_idx][1]))], 
 						key = lambda item: self.cycle_weights[amplicon_idx][item[0]][item[1]], reverse = True)
@@ -1510,12 +1546,15 @@ class bam_to_breakpoint_nanopore():
 					fp.write("Segments=")
 					for segi in range(len(cycle_seg_list) - 2):
 						fp.write("%d%s," %(int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
-					fp.write("%d%s;" %(int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
-					fp.write("Path_constraints_satisfied=")
-					for pathi in range(len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
-						fp.write("%d," %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
-					if len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
-						fp.write("%d\n" %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
+					fp.write("%d%s" %(int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
+					if not output_all_paths:
+						fp.write(";Path_constraints_satisfied=")
+						for pathi in range(len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
+							fp.write("%d," %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
+						if len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+							fp.write("%d\n" %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
+						else:
+							fp.write("\n")
 					else:
 						fp.write("\n")
 				else: # paths
@@ -1533,12 +1572,15 @@ class bam_to_breakpoint_nanopore():
 					fp.write("Segments=0+,")
 					for segi in range(len(cycle_seg_list) - 1):
 						fp.write("%d%s," %(int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
-					fp.write("%d%s,0-;" %(int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
-					fp.write("Path_constraints_satisfied=")
-					for pathi in range(len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
-						fp.write("%d," %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
-					if len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
-						fp.write("%d\n" %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
+					fp.write("%d%s,0-" %(int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
+					if not output_all_paths:
+						fp.write(";Path_constraints_satisfied=")
+						for pathi in range(len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
+							fp.write("%d," %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
+						if len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+							fp.write("%d\n" %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
+						else:
+							fp.write("\n")
 					else:
 						fp.write("\n")
 			fp.close()
@@ -1558,11 +1600,13 @@ if __name__ == '__main__':
 	parser.add_argument("--lr_bam", help = "Sorted indexed (long read) bam file.", required = True)
 	parser.add_argument("--seed", help = "File including seed intervals.", required = True)
 	parser.add_argument("--output_prefix", help = "Prefix of output files.", required = True)
-	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.",  action = 'store_true')
 	parser.add_argument("--cnseg", help = "Long read CNV segmentation file.", required = True)
-	parser.add_argument("--ilp_alpha", help = "Parameter used to balance CN weight and path constraints in greedy cycle extraction.", type = float)
-	parser.add_argument("--max_repeat", help = "Maximum allowed number of times a sequence edge can be traversed in any cycle/path.", type = int)
-	#parser.add_argument("--log_fn", help = "Name of log file.")
+	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.", action = 'store_true')
+	parser.add_argument("--output_all_path_constraints", help = "If specified, output all path constraints in *.cycles file.", action = 'store_true')
+	parser.add_argument("--cycle_decomp_alpha", help = "Parameter used to balance CN weight and path constraints in greedy cycle extraction.", type = float)
+	parser.add_argument("--cycle_decomp_time_limit", help = "Maximum running time (in seconds) reserved for integer program solvers.", type = int)
+	parser.add_argument("--cycle_decomp_threads", help = "Number of threads reserved for integer program solvers.", type = int)
+	parser.add_argument("--postprocess_greedy_sol", help = "Postprocess the cycles/paths returned in greedy cycle extraction.", action = 'store_true')
 	parser.add_argument("--log_fn", help = "Name of log file.")
 	args = parser.parse_args()
 
@@ -1624,15 +1668,24 @@ if __name__ == '__main__':
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote breakpoint graph for all complicons to %s." %(args.output_prefix + '_amplicon*_graph.txt'))
 		b2bn.compute_path_constraints()
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Computed all subpath constraints.")
-		max_repeat = -1
-		ilp_alpha = 0.01
-		if args.max_repeat:
-			max_repeat = args.max_repeat
-		if args.ilp_alpha:
-			ilp_alpha = args.ilp_alpha
-		b2bn.cycle_decomposition(alpha = args.ilp_alpha, max_seq_repeat = max_repeat, model_prefix = args.output_prefix) # This needs to be corrected for parsing max_repeat
+		alpha_ = 0.01
+		postprocess_ = 0
+		nthreads = -1
+		time_limit_ = 7200
+		if args.cycle_decomp_alpha:
+			alpha_ = args.cycle_decomp_alpha
+		if args.postprocess_greedy_sol:
+			postprocess_ = 1
+		if args.cycle_decomp_threads:
+			nthreads = args.cycle_decomp_threads
+		if args.cycle_decomp_time_limit:
+			time_limit_ = args.cycle_decomp_time_limit
+		b2bn.cycle_decomposition(alpha = alpha_, num_threads = nthreads, postprocess = postprocess_, time_limit = time_limit_, model_prefix = args.output_prefix)
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed cycle decomposition for all amplicons.")
-		b2bn.output_cycles(args.output_prefix)
+		if args.output_all_path_constraints:
+			b2bn.output_cycles(args.output_prefix, output_all_paths = True)
+		else:
+			b2bn.output_cycles(args.output_prefix)
 		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote cycles for all complicons to %s." %(args.output_prefix + '_amplicon*_cycles.txt'))
 		
 	b2bn.closebam()
