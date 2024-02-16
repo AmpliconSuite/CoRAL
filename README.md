@@ -1,9 +1,9 @@
-# Detecting ecDNA structures from long read data
-A repository for scripts, utilities, notebooks, and other modules supporting long-read identification of ecDNA species from sequencing data.
+#  CoRAL - Complete Reconstruction of Amplifications with Long reads
+## Reference
+https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
 
-There are three main folders that will be used for organizing our analysis code:
-* `./notebooks` will store jupyter notebooks for interactive analysis and plotting.
-* `./scripts` will store scripts for automated, pipeline processing of data.
-* `./utilities` will store functions and modules that are helpful / necessary for analyzing the data.
+## Installation
+CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
 
-Our best practices will be to write functions in separate utilities files that will be imported into jupyter notebooks or scripts. 
+CoRAL Requires python>=3.7.
+
