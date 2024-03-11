@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import copy
 from collections import defaultdict
 import os
 import sys
@@ -46,16 +47,19 @@ class graph_vis:
     lr_bamfh = None
     maxCN = 0.0
     sequence_edges_by_chr = dict()
-    amplified_intervals_from_graph = dict()
+    intervals_from_graph = dict()
     num_amplified_intervals = 0
-    amplified_intervals_from_cycle = dict()
+    intervals_from_cycle = dict()
     discordant_edges = []
     cycles = dict()
     cycle_flags = dict()
     genes = defaultdict(IntervalTree)
+    plot_bounds = None
+
 
     def open_bam(self, bam_fn):
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
+
 
     def parse_genes(self, ref, gene_subset_list=None, restrict_to_bushman=False):
         __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -126,26 +130,6 @@ class graph_vis:
                     self.discordant_edges.append([chr1, pos1, o1, chr2, pos2, o2, float(s[2]), int(s[3])])
 
 
-    def graph_amplified_intervals(self):
-        for chr in self.sequence_edges_by_chr.keys():
-            lstart, lend = -2, -2
-            if chr not in self.amplified_intervals_from_graph:
-                self.amplified_intervals_from_graph[chr] = []
-            for se in self.sequence_edges_by_chr[chr]:
-                start = se[1]
-                end = se[2]
-                if start != lend + 1:
-                    if lstart >= 0:
-                        self.amplified_intervals_from_graph[chr].append([lstart, lend])
-                        self.num_amplified_intervals += 1
-                    lstart = start
-                    lend = end
-                else:
-                    lend = end
-            self.amplified_intervals_from_graph[chr].append([lstart, lend])
-            self.num_amplified_intervals += 1
-
-
     def parse_cycle_file(self, cycle_fn):
         with open(cycle_fn, 'r') as fp:
             for line in fp:
@@ -160,6 +144,31 @@ class graph_vis:
                         self.cycle_flags[s[4]] = [False, float(s[6])]
                 else:
                     self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
+
+
+    def sort_chrom_names(self, chromlist):
+        return sorted(chromlist, key=lambda x: int(val) if (val := x[3:]).isnumeric() else ord(val))
+
+
+    def graph_amplified_intervals(self):
+        for chrom in self.sequence_edges_by_chr.keys():
+            lstart, lend = -2, -2
+            if chrom not in self.intervals_from_graph:
+                self.intervals_from_graph[chrom] = []
+            for se in self.sequence_edges_by_chr[chrom]:
+                start = se[1]
+                end = se[2]
+                if start != lend + 1:
+                    if lstart >= 0:
+                        self.intervals_from_graph[chrom].append([lstart, lend])
+                        self.num_amplified_intervals += 1
+                    lstart = start
+                    lend = end
+                else:
+                    lend = end
+            self.intervals_from_graph[chrom].append([lstart, lend])
+            self.num_amplified_intervals += 1
+
 
     def merge_intervals(self, interval_list, padding=0.0):
         # takes a list of interval tuples (pos1, pos2). Assumes from same chrom
@@ -188,12 +197,12 @@ class graph_vis:
         if graph_given:  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
                 for segment in self.cycles[cycle_id]:
-                    for int_ in self.amplified_intervals_from_graph[segment[0]]:
+                    for int_ in self.intervals_from_graph[segment[0]]:
                         if interval_include(segment, [segment[0], int_[0], int_[1]]):
-                            if segment[0] not in self.amplified_intervals_from_cycle:
-                                self.amplified_intervals_from_cycle[segment[0]] = []
-                            if int_ not in self.amplified_intervals_from_cycle[segment[0]]:
-                                self.amplified_intervals_from_cycle[segment[0]].append(int_)
+                            if segment[0] not in self.intervals_from_cycle:
+                                self.intervals_from_cycle[segment[0]] = []
+                            if int_ not in self.intervals_from_cycle[segment[0]]:
+                                self.intervals_from_cycle[segment[0]].append(int_)
                             break
 
         else:  # if the graph file is not given extract from the cycles file
@@ -206,11 +215,11 @@ class graph_vis:
             # merge
                 for chrom, ival_list in cycle_ivald.items():
                     merged = self.merge_intervals(ival_list)
-                    self.amplified_intervals_from_cycle[chrom] = merged
+                    self.intervals_from_cycle[chrom] = merged
 
-        for chr in self.amplified_intervals_from_cycle.keys():
-            self.amplified_intervals_from_cycle[chr] = sorted(self.amplified_intervals_from_cycle[chr])
-            self.num_amplified_intervals += len(self.amplified_intervals_from_cycle[chr])
+        for chr in self.intervals_from_cycle.keys():
+            self.intervals_from_cycle[chr] = sorted(self.intervals_from_cycle[chr])
+            self.num_amplified_intervals += len(self.intervals_from_cycle[chr])
 
     def set_gene_heights(self, rel_genes, padding=0.0):
         if not rel_genes:
@@ -259,9 +268,10 @@ class graph_vis:
 
         # Draw sequence edges
         total_len_amp = 0 # Total length of amplified intervals
-        for chrom in self.amplified_intervals_from_graph.keys():
-            total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.amplified_intervals_from_graph[chrom]])
-        sorted_chrs = sorted(self.amplified_intervals_from_graph.keys(), key = lambda chr: global_names.chr_idx[chr])
+        for chrom in self.intervals_from_graph.keys():
+            total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.intervals_from_graph[chrom]])
+        # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: global_names.chr_idx[chr])
+        sorted_chrs = self.sort_chrom_names(self.intervals_from_graph.keys())
         amplified_intervals_start = dict()
         ymax = 0
         x = margin_between_intervals
@@ -269,8 +279,9 @@ class graph_vis:
             interval_idx = 0
             amplified_intervals_start[chrom] = [x]
             for seq in self.sequence_edges_by_chr[chrom]:
-                if seq[1] > self.amplified_intervals_from_graph[chrom][interval_idx][1]:
-                    int_ = self.amplified_intervals_from_graph[chrom][interval_idx]
+                if chrom not in self.intervals_from_graph or (interval_idx >= len(self.intervals_from_graph[chrom]) or
+                        seq[1] > self.intervals_from_graph[chrom][interval_idx][1]):
+                    # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
                     amplified_intervals_start[chrom].append(x)
                     interval_idx += 1
@@ -300,24 +311,27 @@ class graph_vis:
             chr2 = bp[3]
             pos2 = bp[4]
             int1 = 0
-            try:
-                while pos1 > self.amplified_intervals_from_graph[chr1][int1][1]:
+            int2 = 0
+            ort = bp[2] + bp[5]
+            if chr1 in self.intervals_from_graph and chr2 in self.intervals_from_graph:
+                while pos1 > self.intervals_from_graph[chr1][int1][1]:
                     int1 += 1
-                bp_x1 = amplified_intervals_start[chr1][int1] + (pos1 - self.amplified_intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
-                int2 = 0
-                while pos2 > self.amplified_intervals_from_graph[chr2][int2][1]:
+                bp_x1 = amplified_intervals_start[chr1][int1] + (pos1 - self.intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
+                while pos2 > self.intervals_from_graph[chr2][int2][1]:
                     int2 += 1
-            except:
-                print(str(bp), "not placeable")
+                bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
+
+                # if chr1 != chr2:
+                #     ort = "interchromosomal"
+                arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180,
+                        color = colorcode[ort], lw = min(3 * (bp[7] / avg_bp_rc), 3), zorder = 3)
+                ax2.add_patch(arc)
+
+
+            else:
+                print("Could not place " + str(bp))
                 continue
 
-            bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.amplified_intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
-            ort = bp[2] + bp[5]
-            # if chr1 != chr2:
-            #     ort = "interchromosomal"
-            arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180,
-                    color = colorcode[ort], lw = min(3 * (bp[7] / avg_bp_rc), 3), zorder = 3)
-            ax2.add_patch(arc)
 
         ax2.set_ylim(0, 1.4 * ymax)
         ax2.set_ylabel('CN', fontsize = fontsize)
@@ -326,8 +340,8 @@ class graph_vis:
         # Draw coverage within amplified intervals
         max_cov = 0
         for chrom in sorted_chrs:
-            for inti in range(len(self.amplified_intervals_from_graph[chrom])):
-                int_ = self.amplified_intervals_from_graph[chrom][inti]
+            for inti in range(len(self.intervals_from_graph[chrom])):
+                int_ = self.intervals_from_graph[chrom][inti]
                 window_size = 150
                 if int_[1] - int_[0] >= 1000000:
                     window_size = 10000
@@ -357,8 +371,8 @@ class graph_vis:
         # draw genes below plot
         if not hide_genes:
             for chrom in sorted_chrs:
-                for inti in range(len(self.amplified_intervals_from_graph[chrom])):
-                    int_ = self.amplified_intervals_from_graph[chrom][inti]
+                for inti in range(len(self.intervals_from_graph[chrom])):
+                    int_ = self.intervals_from_graph[chrom][inti]
                     rel_genes = [x.data for x in self.genes[chrom][int_[0]:int_[1]]]
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
@@ -408,7 +422,7 @@ class graph_vis:
         ax3.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
         xtickpos = []
         for chrom in sorted_chrs:
-            nint_chr = len(self.amplified_intervals_from_graph[chrom])
+            nint_chr = len(self.intervals_from_graph[chrom])
             for inti in range(len(amplified_intervals_start[chrom])):
                 if inti > 0:
                     xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals)
@@ -432,9 +446,9 @@ class graph_vis:
         xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
         xticklabels = []
         for chrom in sorted_chrs:
-            nint_chr = len(self.amplified_intervals_from_graph[chrom])
+            nint_chr = len(self.intervals_from_graph[chrom])
             for inti in range(nint_chr):
-                int_ = self.amplified_intervals_from_graph[chrom][inti]
+                int_ = self.intervals_from_graph[chrom][inti]
                 xticklabels.append(str(int_[0]) + "   ")
                 if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                     xticklabels.append(chrom)
@@ -452,6 +466,37 @@ class graph_vis:
 
         ax3.yaxis.set_major_formatter(ticker.NullFormatter())
         ax3.set_ylim(0,1)
+
+        if self.plot_bounds:
+            # look up the segment
+            pchrom, pstart, pend = self.plot_bounds
+            nint_chr = len(self.intervals_from_graph[pchrom])
+            relint = None
+            rint_ = None
+            for inti in range(nint_chr):
+                istart, iend = self.intervals_from_graph[pchrom][inti][0], self.intervals_from_graph[pchrom][inti][1]
+                if istart <= pstart <= iend:
+                    relint = inti
+                    rint_ = self.intervals_from_graph[pchrom][inti]
+                    break
+
+            if relint is None:
+                print(f"Could not identify region {pchrom}:{pstart}-{pend} in graph regions. Region should be fully contained in graph.")
+
+            else:
+                plot_start = amplified_intervals_start[pchrom][relint] + (pstart - rint_[0]) * 100.0 / total_len_amp
+                plot_end = amplified_intervals_start[pchrom][relint] + (pend - rint_[0]) * 100.0 / total_len_amp
+                xtickpos.append(plot_start)
+                xtickpos.append(plot_end)
+                xticklabels.append(pchrom +":" + str(pstart))
+                xticklabels.append(pchrom +":" + str(pend))
+                ax3.set_xticks(xtickpos)
+                ax3.set_xticklabels(xticklabels, size=fontsize-4)
+
+                ax.set_xlim(plot_start, plot_end)
+                ax2.set_xlim(plot_start, plot_end)
+                ax3.set_xlim(plot_start, plot_end)
+
         fig.subplots_adjust(hspace=0)
         plt.savefig(output_fn + ".png", dpi = dpi)
         plt.savefig(output_fn + ".pdf")
@@ -494,18 +539,19 @@ class graph_vis:
 
         # Compute the x coordinates for each amplified interval
         total_len_amp = 0 # Total length of amplified intervals
-        for chrom in self.amplified_intervals_from_cycle.keys():
-            total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.amplified_intervals_from_cycle[chrom]])
-        sorted_chrs = sorted(self.amplified_intervals_from_cycle.keys(), key = lambda chr: global_names.chr_idx[chr])
+        for chrom in self.intervals_from_cycle.keys():
+            total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.intervals_from_cycle[chrom]])
+        # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: global_names.chr_idx[chr])
+        sorted_chrs = self.sort_chrom_names(self.intervals_from_cycle.keys())
         amplified_intervals_start = dict()
         x = margin_between_intervals
         for chrom in sorted_chrs:
             amplified_intervals_start[chrom] = [x]
-            for interval_idx in range(len(self.amplified_intervals_from_cycle[chrom])):
-                int_ = self.amplified_intervals_from_cycle[chrom][interval_idx]
+            for interval_idx in range(len(self.intervals_from_cycle[chrom])):
+                int_ = self.intervals_from_cycle[chrom][interval_idx]
                 x += (int_[1] - int_[0]) * 100.0 / total_len_amp
                 x += margin_between_intervals
-                if interval_idx < len(self.amplified_intervals_from_cycle[chrom]) - 1:
+                if interval_idx < len(self.intervals_from_cycle[chrom]) - 1:
                     amplified_intervals_start[chrom].append(x)
 
         # Draw amplified interval separators
@@ -529,9 +575,9 @@ class graph_vis:
                 # Segment i
                 seg = self.cycles[cycle_id][i]
                 interval_idx = 0
-                while seg[1] > self.amplified_intervals_from_cycle[seg[0]][interval_idx][1]:
+                while seg[1] > self.intervals_from_cycle[seg[0]][interval_idx][1]:
                     interval_idx += 1
-                x1 = amplified_intervals_start[seg[0]][interval_idx] + (seg[1] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                x1 = amplified_intervals_start[seg[0]][interval_idx] + (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                 if x1 < cycle_min_x:
                     cycle_min_x = x1
                 xlen = (seg[2] - seg[1]) * 100.0 / total_len_amp
@@ -544,19 +590,19 @@ class graph_vis:
                 if i < len(self.cycles[cycle_id]) - 1:
                     nseg = self.cycles[cycle_id][i + 1]
                     interval_idx_n = 0
-                    while nseg[1] > self.amplified_intervals_from_cycle[nseg[0]][interval_idx_n][1]:
+                    while nseg[1] > self.intervals_from_cycle[nseg[0]][interval_idx_n][1]:
                         interval_idx_n += 1
                     if seg[3] == '+' and nseg[3] == '-':
                         x2 = x1 + xlen
                         x2n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x2n += (nseg[2] - self.amplified_intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x2n += (nseg[2] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
                         ax.vlines(x = max(x2, x2n) + extension, ymin = y_cur + 0.5, ymax = y_cur - 1.5, colors = 'b', lw = 2)
                         ax.hlines(y = y_cur + 0.5, xmin = x2, xmax = max(x2, x2n) + extension, colors = 'b', lw = 2)
                         ax.hlines(y = y_cur - 1.5, xmin = x2n, xmax = max(x2, x2n) + extension, colors = 'b', lw = 2)
                         y_cur -= 2
                     elif seg[3] == '-' and nseg[3] == '+':
                         x1n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x1n += (nseg[1] - self.amplified_intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x1n += (nseg[1] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
                         ax.vlines(x = min(x1, x1n) - extension, ymin = y_cur + 0.5, ymax = y_cur - 1.5, colors = 'b', lw = 2)
                         ax.hlines(y = y_cur + 0.5, xmin = min(x1, x1n) - extension, xmax = x1, colors = 'b', lw = 2)
                         ax.hlines(y = y_cur - 1.5, xmin = min(x1, x1n) - extension, xmax = x1n, colors = 'b', lw = 2)
@@ -564,7 +610,7 @@ class graph_vis:
                     elif seg[3] == '+' and nseg[3] == '+':
                         x2 = x1 + xlen
                         x1n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x1n += (nseg[1] - self.amplified_intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x1n += (nseg[1] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
                         if x2 <= x1n:
                             ax.hlines(y = y_cur + 0.5, xmin = x2, xmax = x1n, colors = 'b', lw = 2)
                         else:
@@ -576,7 +622,7 @@ class graph_vis:
                             y_cur -= 2
                     else: # seg[3] == '-' and nseg[3] == '-'
                         x2n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x2n += (nseg[2] - self.amplified_intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x2n += (nseg[2] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
                         if x1 >= x2n:
                             ax.hlines(y = y_cur + 0.5, xmin = x2n, xmax = x1, colors = 'b', lw = 2)
                         else:
@@ -591,27 +637,27 @@ class graph_vis:
             if not self.cycle_flags[cycle_id][0]: # Paths
                 seg = self.cycles[cycle_id][0]
                 interval_idx = 0
-                while seg[1] > self.amplified_intervals_from_cycle[seg[0]][interval_idx][1]:
+                while seg[1] > self.intervals_from_cycle[seg[0]][interval_idx][1]:
                     interval_idx += 1
                 if seg[3] == '+':
                     x1 = amplified_intervals_start[seg[0]][interval_idx] + \
-                        (seg[1] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                        (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                     ax.hlines(y = ystart_cycle_id + 0.5, xmin = x1 - 2 * extension, xmax = x1, colors = 'b', lw = 2)
                 else:
                     x2 = amplified_intervals_start[seg[0]][interval_idx] + \
-                        (seg[2] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                        (seg[2] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                     ax.hlines(y = ystart_cycle_id + 0.5, xmin = x2, xmax = x2 + 2 * extension, colors = 'b', lw = 2)
                 seg = self.cycles[cycle_id][-1]
                 interval_idx = 0
-                while seg[1] > self.amplified_intervals_from_cycle[seg[0]][interval_idx][1]:
+                while seg[1] > self.intervals_from_cycle[seg[0]][interval_idx][1]:
                     interval_idx += 1
                 if seg[3] == '+':
                     x2 = amplified_intervals_start[seg[0]][interval_idx]
-                    x2 += (seg[2] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                    x2 += (seg[2] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                     ax.hlines(y = y_cur + 0.5, xmin = x2, xmax = x2 + 2 * extension, colors = 'b', lw = 2)
                 else:
                     x1 = amplified_intervals_start[seg[0]][interval_idx]
-                    x1 += (seg[1] - self.amplified_intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                    x1 += (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
                     ax.hlines(y = y_cur + 0.5, xmin = x1 - 2 * extension, xmax = x1, colors = 'b', lw = 2)
             else: # Cycles
                 # xmin_ = 0.5
@@ -625,33 +671,33 @@ class graph_vis:
                 #xmax_ = 99.5 + (self.num_amplified_intervals + 1) * margin_between_intervals
                 seg1 = self.cycles[cycle_id][0]
                 interval_idx1 = 0
-                while seg1[1] > self.amplified_intervals_from_cycle[seg1[0]][interval_idx1][1]:
+                while seg1[1] > self.intervals_from_cycle[seg1[0]][interval_idx1][1]:
                     interval_idx1 += 1
                 seg2 = self.cycles[cycle_id][-1]
                 interval_idx2 = 0
-                while seg2[1] > self.amplified_intervals_from_cycle[seg2[0]][interval_idx2][1]:
+                while seg2[1] > self.intervals_from_cycle[seg2[0]][interval_idx2][1]:
                     interval_idx2 += 1
                 if seg1[3] == '-' and seg2[3] == '+':
                     x2 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x2 += (seg1[2] - self.amplified_intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x2 += (seg1[2] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
                     x2n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x2n += (seg2[2] - self.amplified_intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x2n += (seg2[2] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
                     ax.vlines(x = xmax_, ymin = y_cur + 0.5, ymax = ystart_cycle_id + 0.5, colors = 'b', lw = 2)
                     ax.hlines(y = ystart_cycle_id + 0.5, xmin = x2, xmax = xmax_, colors = 'b', lw = 2)
                     ax.hlines(y = y_cur + 0.5, xmin = x2n, xmax = xmax_, colors = 'b', lw = 2)
                 elif seg1[3] == '+' and seg2[3] == '-':
                     x1 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x1 += (seg1[1] - self.amplified_intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x1 += (seg1[1] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
                     x1n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x1n += (seg2[1] - self.amplified_intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x1n += (seg2[1] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
                     ax.vlines(x = xmin_, ymin = y_cur + 0.5, ymax = ystart_cycle_id + 0.5, colors = 'b', lw = 2)
                     ax.hlines(y = ystart_cycle_id + 0.5, xmin = xmin_, xmax = x1, colors = 'b', lw = 2)
                     ax.hlines(y = y_cur + 0.5, xmin = xmin_, xmax = x1n, colors = 'b', lw = 2)
                 elif seg1[3] == '-' and seg2[3] == '-':
                     x2 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x2 += (seg1[2] - self.amplified_intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x2 += (seg1[2] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
                     x1n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x1n += (seg2[1] - self.amplified_intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x1n += (seg2[1] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
                     ax.vlines(x = xmax_, ymin = y_cur - 0.5, ymax = ystart_cycle_id + 0.5, colors = 'b', lw = 2)
                     ax.vlines(x = x1n - extension, ymin = y_cur - 0.5, ymax = y_cur + 0.5, colors = 'b', lw = 2)
                     ax.hlines(y = ystart_cycle_id + 0.5, xmin = x2, xmax = xmax_, colors = 'b', lw = 2)
@@ -659,9 +705,9 @@ class graph_vis:
                     ax.hlines(y = y_cur - 0.5, xmin = x1n - extension, xmax = xmax_, colors = 'b', lw = 2)
                 else:
                     x1 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x1 += (seg1[1] - self.amplified_intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x1 += (seg1[1] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
                     x2n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x2n += (seg2[2] - self.amplified_intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x2n += (seg2[2] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
                     ax.vlines(x = xmin_, ymin = y_cur - 0.5, ymax = ystart_cycle_id + 0.5, colors = 'b', lw = 2)
                     ax.vlines(x = x2n + extension, ymin = y_cur - 0.5, ymax = y_cur + 0.5, colors = 'b', lw = 2)
                     ax.hlines(y = ystart_cycle_id + 0.5, xmin = xmin_, xmax = x1, colors = 'b', lw = 2)
@@ -679,8 +725,8 @@ class graph_vis:
 
         if not hide_genes:
             for chrom in sorted_chrs:
-                for inti in range(len(self.amplified_intervals_from_cycle[chrom])):
-                    int_ = self.amplified_intervals_from_cycle[chrom][inti]
+                for inti in range(len(self.intervals_from_cycle[chrom])):
+                    int_ = self.intervals_from_cycle[chrom][inti]
                     rel_genes = [x.data for x in self.genes[chrom][int_[0]:int_[1]]]
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
@@ -730,7 +776,7 @@ class graph_vis:
         ax.set_ylim(y_cur + 2, 0)
         xtickpos = []
         for chrom in sorted_chrs:
-            nint_chr = len(self.amplified_intervals_from_cycle[chrom])
+            nint_chr = len(self.intervals_from_cycle[chrom])
             for inti in range(len(amplified_intervals_start[chrom])):
                 if inti > 0:
                     xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals)
@@ -754,9 +800,9 @@ class graph_vis:
         xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
         xticklabels = []
         for chrom in sorted_chrs:
-            nint_chr = len(self.amplified_intervals_from_cycle[chrom])
+            nint_chr = len(self.intervals_from_cycle[chrom])
             for inti in range(nint_chr):
-                int_ = self.amplified_intervals_from_cycle[chrom][inti]
+                int_ = self.intervals_from_cycle[chrom][inti]
                 xticklabels.append(str(int_[0]) + "   ")
                 if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                     xticklabels.append(chrom)
@@ -803,6 +849,7 @@ if __name__ == '__main__':
     parser.add_argument("--hide_genes", help="Do not show gene track", action='store_true', default=False)
     parser.add_argument("--gene_fontsize", help="Change size of gene font", type=float, default=12)
     parser.add_argument("--bushman_genes", help="Reduce gene set to the Bushman cancer-related gene set", action='store_true', default=False)
+    parser.add_argument("--region", help="(Graph plotting) Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'.")
     args = parser.parse_args()
 
     if args.plot_graph:
@@ -823,6 +870,10 @@ if __name__ == '__main__':
     if args.plot_graph:
         g.open_bam(args.bam)
         g.parse_graph_file(args.graph)
+        if args.region:
+            pchrom = args.region.split(':')[0]
+            pb1,pb2 = args.region.split(':')[1].rsplit('-')
+            g.plot_bounds = (pchrom, int(pb1), int(pb2))
         g.graph_amplified_intervals()
         gtitle = args.output_prefix
         if '/' in args.output_prefix:
@@ -854,5 +905,4 @@ if __name__ == '__main__':
             g.plotcycle(gtitle, args.output_prefix + "_cycles", cycle_only = cycle_only_, hide_genes=args.hide_genes, gene_font_size=args.gene_fontsize)
     g.close_bam()
     print ("Visualization completed.")
-
 
