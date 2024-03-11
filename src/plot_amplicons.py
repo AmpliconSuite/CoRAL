@@ -145,9 +145,12 @@ class graph_vis:
                 else:
                     self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
 
-
     def sort_chrom_names(self, chromlist):
-        return sorted(chromlist, key=lambda x: int(val) if (val := x[3:]).isnumeric() else ord(val))
+        def sort_key(x):
+            val = x[3:]
+            return int(val) if val.isnumeric() else ord(val)
+
+        return sorted(chromlist, key=sort_key)
 
 
     def graph_amplified_intervals(self):
