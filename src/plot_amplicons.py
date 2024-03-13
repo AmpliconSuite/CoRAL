@@ -297,10 +297,6 @@ class graph_vis:
                 x1 = x
                 x += (seq[2] - seq[1]) * 100.0 / total_len_amp
                 x2 = x
-                y = seq[3]
-                if y > ymax:
-                    ymax = y
-
                 if self.plot_bounds:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
@@ -308,7 +304,12 @@ class graph_vis:
                     if not (seq[2] >= self.plot_bounds[1] and seq[1] <= self.plot_bounds[2]):
                         continue  # Skip if interval doesn't overlap with plot bounds
 
+                y = seq[3]
+                if y > ymax:
+                    ymax = y
+
                 ax2.hlines(y, x1, x2, color = "black", lw = 6, zorder = 2)
+
 
             x += margin_between_intervals
 
@@ -360,7 +361,7 @@ class graph_vis:
                 continue
 
 
-        ax2.set_ylim(0, 1.5 * ymax)
+        ax2.set_ylim(0, 1.4 * ymax)
         ax2.set_ylabel('CN', fontsize = fontsize)
         ax2.tick_params(axis = 'y', labelsize = fontsize)
 
