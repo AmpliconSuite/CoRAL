@@ -343,18 +343,14 @@ class graph_vis:
                 # check if either bp overlaps before plotting
                 if self.plot_bounds:
                     # Check if both breakpoints belong to the same chromosome as in plot bounds
-                    if chr1 != self.plot_bounds[0] or chr2 != self.plot_bounds[0]:
-                        continue  # Skip plotting if chromosomes don't match plot bounds
-
-                    # Check if either breakpoint overlaps with the plot bounds
-                    if not (self.plot_bounds[1] <= pos1 <= self.plot_bounds[2] or
-                            self.plot_bounds[1] <= pos2 <= self.plot_bounds[2]):
-                        continue  # Skip plotting if neither breakpoint overlaps with the plot bounds
+                    hit1 = (chr1 == self.plot_bounds[0] and self.plot_bounds[1] <= pos1 <= self.plot_bounds[2])
+                    hit2 = (chr2 == self.plot_bounds[0] and self.plot_bounds[1] <= pos2 <= self.plot_bounds[2])
+                    if not hit1 and not hit2:
+                        continue
 
                 arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180,
                         color = colorcode[ort], lw = min(3 * (bp[7] / avg_bp_rc), 3), zorder = 3)
                 ax2.add_patch(arc)
-
 
             else:
                 print("Could not place " + str(bp))
@@ -405,7 +401,7 @@ class graph_vis:
                     rect = Rectangle((x, 0), window_size * 100.0 / total_len_amp, cov, color ='silver', zorder = 1)
                     ax.add_patch(rect)
         ax.set_ylabel('Coverage', fontsize = fontsize)
-        ax.set_ylim(0, min(1.3 * max_cov, max_cov_cutoff))
+        ax.set_ylim(0, min(1.25 * max_cov, max_cov_cutoff))
         ax.tick_params(axis = 'y', labelsize = fontsize)
 
         # draw genes below plot
