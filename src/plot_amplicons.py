@@ -249,7 +249,10 @@ class graph_vis:
         """
         Plot discordant edges and coverage on sequence edges in breakpoint graph
         """
-        width = max(15, 2 * self.num_amplified_intervals)
+        if not self.plot_bounds:
+            width = max(15, 2 * self.num_amplified_intervals)
+        else:
+            width = 15
         fig = plt.figure(figsize = (width, height))
         if not hide_genes:
             gs = gridspec.GridSpec(2, 1, height_ratios=[8,2])
@@ -274,6 +277,9 @@ class graph_vis:
         for chrom in self.intervals_from_graph.keys():
             total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.intervals_from_graph[chrom]])
         # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: global_names.chr_idx[chr])
+        zoom_factor = 1.0
+        if self.plot_bounds:
+            zoom_factor = float(self.plot_bounds[2] - self.plot_bounds[1])/total_len_amp
         sorted_chrs = self.sort_chrom_names(self.intervals_from_graph.keys())
         amplified_intervals_start = dict()
         ymax = 0
@@ -294,16 +300,26 @@ class graph_vis:
                 y = seq[3]
                 if y > ymax:
                     ymax = y
+
+                if self.plot_bounds:
+                    if chrom != self.plot_bounds[0]:
+                        continue  # Skip if chromosome doesn't match plot bounds
+
+                    if not (seq[2] >= self.plot_bounds[1] and seq[1] <= self.plot_bounds[2]):
+                        continue  # Skip if interval doesn't overlap with plot bounds
+
                 ax2.hlines(y, x1, x2, color = "black", lw = 6, zorder = 2)
+
             x += margin_between_intervals
 
         # Draw amplified interval separators
-        for chrom in amplified_intervals_start.keys():
-            if chrom != sorted_chrs[0]:
-                ax.axvline(x =amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5, linestyle ="--", lw = 2, zorder = 2)
-                ax3.axvline(x =amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5, linestyle ="--", lw = 2, zorder = 2)
-            for i in range(1, len(amplified_intervals_start[chrom])):
-                ax.axvline(x =amplified_intervals_start[chrom][i] - margin_between_intervals * 0.5, linestyle =":", lw = 2, zorder = 2)
+        if not self.plot_bounds:
+            for chrom in amplified_intervals_start.keys():
+                if chrom != sorted_chrs[0]:
+                    ax.axvline(x =amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5, linestyle ="--", lw = 2, zorder = 2)
+                    ax3.axvline(x =amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5, linestyle ="--", lw = 2, zorder = 2)
+                for i in range(1, len(amplified_intervals_start[chrom])):
+                    ax.axvline(x =amplified_intervals_start[chrom][i] - margin_between_intervals * 0.5, linestyle =":", lw = 2, zorder = 2)
 
         # Draw discordant edges
         colorcode = {"+-": "red", "++": "magenta", "-+": (139/256.0, 69/256.0, 19/256.0), "--": "teal", "interchromosomal": "blue"}
@@ -323,9 +339,17 @@ class graph_vis:
                 while pos2 > self.intervals_from_graph[chr2][int2][1]:
                     int2 += 1
                 bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
+                # check if either bp overlaps before plotting
+                if self.plot_bounds:
+                    # Check if both breakpoints belong to the same chromosome as in plot bounds
+                    if chr1 != self.plot_bounds[0] or chr2 != self.plot_bounds[0]:
+                        continue  # Skip plotting if chromosomes don't match plot bounds
 
-                # if chr1 != chr2:
-                #     ort = "interchromosomal"
+                    # Check if either breakpoint overlaps with the plot bounds
+                    if not (self.plot_bounds[1] <= pos1 <= self.plot_bounds[2] or
+                            self.plot_bounds[1] <= pos2 <= self.plot_bounds[2]):
+                        continue  # Skip plotting if neither breakpoint overlaps with the plot bounds
+
                 arc = Arc(((bp_x1 + bp_x2) * 0.5, 0), bp_x1 - bp_x2, 2 * ymax, theta1 = 0, theta2 = 180,
                         color = colorcode[ort], lw = min(3 * (bp[7] / avg_bp_rc), 3), zorder = 3)
                 ax2.add_patch(arc)
@@ -336,7 +360,7 @@ class graph_vis:
                 continue
 
 
-        ax2.set_ylim(0, 1.4 * ymax)
+        ax2.set_ylim(0, 1.5 * ymax)
         ax2.set_ylabel('CN', fontsize = fontsize)
         ax2.tick_params(axis = 'y', labelsize = fontsize)
 
@@ -345,11 +369,23 @@ class graph_vis:
         for chrom in sorted_chrs:
             for inti in range(len(self.intervals_from_graph[chrom])):
                 int_ = self.intervals_from_graph[chrom][inti]
+                if self.plot_bounds:
+                    if chrom != self.plot_bounds[0]:
+                        continue  # Skip if chromosome doesn't match plot bounds
+
+                    if not (int_[1] >= self.plot_bounds[1] and int_[0] <= self.plot_bounds[2]):
+                        continue  # Skip if interval doesn't overlap with plot bounds
+
                 window_size = 150
-                if int_[1] - int_[0] >= 1000000:
+                ival_len = int_[1] - int_[0]
+                if self.plot_bounds:
+                   ival_len = self.plot_bounds[2] - self.plot_bounds[1]
+
+                if ival_len >= 1000000:
                     window_size = 10000
-                elif int_[1] - int_[0] >= 100000:
+                elif ival_len >= 100000:
                     window_size = 1000
+
                 for w in range(int_[0], int_[1], window_size):
                     cov = sum([sum(nc) for nc in self.lr_bamfh.count_coverage(chrom, w, w + window_size,
                                                                               quality_threshold = quality_threshold, read_callback = 'nofilter')]) * 1.0 / window_size
@@ -368,7 +404,7 @@ class graph_vis:
                     rect = Rectangle((x, 0), window_size * 100.0 / total_len_amp, cov, color ='silver', zorder = 1)
                     ax.add_patch(rect)
         ax.set_ylabel('Coverage', fontsize = fontsize)
-        ax.set_ylim(0, min(1.4 * max_cov, max_cov_cutoff))
+        ax.set_ylim(0, min(1.3 * max_cov, max_cov_cutoff))
         ax.tick_params(axis = 'y', labelsize = fontsize)
 
         # draw genes below plot
@@ -376,6 +412,13 @@ class graph_vis:
             for chrom in sorted_chrs:
                 for inti in range(len(self.intervals_from_graph[chrom])):
                     int_ = self.intervals_from_graph[chrom][inti]
+                    if self.plot_bounds:
+                        if chrom != self.plot_bounds[0]:
+                            continue  # Skip if chromosome doesn't match plot bounds
+
+                        if not (int_[1] >= self.plot_bounds[1] and int_[0] <= self.plot_bounds[2]):
+                            continue  # Skip if interval doesn't overlap with plot bounds
+
                     rel_genes = [x.data for x in self.genes[chrom][int_[0]:int_[1]]]
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
@@ -410,7 +453,7 @@ class graph_vis:
                             exon_end_pos = amplified_intervals_start[chrom][inti] + (
                                         cut_ee - int_[0]) * 100.0 / total_len_amp
 
-                            exon_min_width = 0.2  # Adjust the minimum width as needed
+                            exon_min_width = 0.2 * zoom_factor  # Adjust the minimum width as needed
                             exon_width = exon_end_pos - exon_start_pos
                             if exon_width < exon_min_width:
                                 diff = (exon_min_width - exon_width) / 2
@@ -420,57 +463,55 @@ class graph_vis:
                             ax3.hlines(height, exon_start_pos, exon_end_pos, color='black', lw=7.5)
 
         # Ticks and labels
-        ax.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
-        ax2.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
-        ax3.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
         xtickpos = []
-        for chrom in sorted_chrs:
-            nint_chr = len(self.intervals_from_graph[chrom])
-            for inti in range(len(amplified_intervals_start[chrom])):
-                if inti > 0:
-                    xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals)
-                    if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2 + 1:
-                        xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals * 0.5)
-                    xtickpos.append(amplified_intervals_start[chrom][inti])
-                    if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
-                        xtickpos.append((amplified_intervals_start[chrom][inti] + amplified_intervals_start[chrom][inti + 1] -
-                                         margin_between_intervals) * 0.5)
-                else:
-                    if chrom != sorted_chrs[0]:
-                        xtickpos.append(amplified_intervals_start[chrom][0] - margin_between_intervals)
-                    xtickpos.append(amplified_intervals_start[chrom][0])
-                    if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
-                        chri = sorted_chrs.index(chrom)
-                        if chri == len(sorted_chrs) - 1:
-                            amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
-                        else:
-                            amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
-                        xtickpos.append((amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5)
-        xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
         xticklabels = []
-        for chrom in sorted_chrs:
-            nint_chr = len(self.intervals_from_graph[chrom])
-            for inti in range(nint_chr):
-                int_ = self.intervals_from_graph[chrom][inti]
-                xticklabels.append(str(int_[0]) + "   ")
-                if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
-                    xticklabels.append(chrom)
-                xticklabels.append(str(int_[1]) + "   ")
-                if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2:
-                    xticklabels.append(chrom)
-        ax3.set_xticks(xtickpos)
-        ax3.set_xticklabels(xticklabels, size = fontsize)
-        ticks_labels = ax3.get_xticklabels()
-        for ti in range(len(xticklabels)):
-            if not xticklabels[ti] in sorted_chrs:
-                ticks_labels[ti].set_rotation(90)
-            else:
-                ax3.xaxis.get_major_ticks()[ti].tick1line.set_visible(False)
+        if not self.plot_bounds:
+            ax.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
+            ax2.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
+            ax3.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
+            for chrom in sorted_chrs:
+                nint_chr = len(self.intervals_from_graph[chrom])
+                for inti in range(len(amplified_intervals_start[chrom])):
+                    if inti > 0:
+                        xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals)
+                        if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2 + 1:
+                            xtickpos.append(amplified_intervals_start[chrom][inti] - margin_between_intervals * 0.5)
+                        xtickpos.append(amplified_intervals_start[chrom][inti])
+                        if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
+                            xtickpos.append((amplified_intervals_start[chrom][inti] + amplified_intervals_start[chrom][inti + 1] -
+                                             margin_between_intervals) * 0.5)
+                    else:
+                        if chrom != sorted_chrs[0]:
+                            xtickpos.append(amplified_intervals_start[chrom][0] - margin_between_intervals)
+                        xtickpos.append(amplified_intervals_start[chrom][0])
+                        if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
+                            chri = sorted_chrs.index(chrom)
+                            if chri == len(sorted_chrs) - 1:
+                                amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
+                            else:
+                                amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
+                            xtickpos.append((amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5)
+            xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
+            for chrom in sorted_chrs:
+                nint_chr = len(self.intervals_from_graph[chrom])
+                for inti in range(nint_chr):
+                    int_ = self.intervals_from_graph[chrom][inti]
+                    xticklabels.append(str(int_[0]) + "   ")
+                    if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
+                        xticklabels.append(chrom)
+                    xticklabels.append(str(int_[1]) + "   ")
+                    if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2:
+                        xticklabels.append(chrom)
+            ax3.set_xticks(xtickpos)
+            ax3.set_xticklabels(xticklabels, size = fontsize)
+            ticks_labels = ax3.get_xticklabels()
+            for ti in range(len(xticklabels)):
+                if not xticklabels[ti] in sorted_chrs:
+                    ticks_labels[ti].set_rotation(90)
+                else:
+                    ax3.xaxis.get_major_ticks()[ti].tick1line.set_visible(False)
 
-        ax3.yaxis.set_major_formatter(ticker.NullFormatter())
-        ax3.set_ylim(0,1)
-
-        if self.plot_bounds:
+        else:  # self.plot_bounds are given
             # look up the segment
             pchrom, pstart, pend = self.plot_bounds
             nint_chr = len(self.intervals_from_graph[pchrom])
@@ -500,6 +541,8 @@ class graph_vis:
                 ax2.set_xlim(plot_start, plot_end)
                 ax3.set_xlim(plot_start, plot_end)
 
+        ax3.yaxis.set_major_formatter(ticker.NullFormatter())
+        ax3.set_ylim(0, 1)
         fig.subplots_adjust(hspace=0)
         plt.savefig(output_fn + ".png", dpi = dpi)
         plt.savefig(output_fn + ".pdf")
@@ -841,7 +884,7 @@ if __name__ == '__main__':
     parser.add_argument("--bam", help = "Sorted & indexed bam file.")
     parser.add_argument("--graph", help = "AmpliconSuite-formatted *.graph file.")
     parser.add_argument("--cycle", help = "AmpliconSuite-formatted cycles file, in *.bed format.")
-    parser.add_argument("--output_prefix", help = "Prefix of output files.", required = True)
+    parser.add_argument("--output_prefix", "-o", help = "Prefix of output files.", required = True)
     parser.add_argument("--plot_graph", help = "Visualize breakpoint graph.",  action = 'store_true')
     parser.add_argument("--plot_cycles", help = "Visualize (selected) cycles.",  action = 'store_true')
     parser.add_argument("--only_cyclic_paths", help = "Only plot cyclic paths from cycles file",  action = 'store_true')
