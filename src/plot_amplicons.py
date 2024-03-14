@@ -446,7 +446,6 @@ class graph_vis:
                                 gene_end = amplified_intervals_start[chrom][inti] + (
                                         cut_ge - int_[0]) * 100.0 / total_len_amp
 
-                                
                         ax3.text((gene_start + gene_end) / 2, height + 0.05, gene_obj.gname, ha='center', va='bottom',
                              fontsize=gene_font_size, style='italic')
 
