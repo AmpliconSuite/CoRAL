@@ -451,7 +451,7 @@ class bam_to_breakpoint_nanopore():
 								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t\tNum long read support = %d" %(len(set(bpr))))
 								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t\tbp_stats = %s" %(bp_stats_))
 								if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or \
-									(len(set(bpr)) >= max(self.normal_cov, 3.0)):
+									(len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)):
 									bpi = self.addbp(bp, set(bpr), bp_stats_, ccid)
 									if bpi not in new_bp_refined:
 										new_bp_refined.append(bpi)
@@ -752,7 +752,7 @@ class bam_to_breakpoint_nanopore():
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp = %s" %(bp))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum long read support = %d" %(len(set(bpr))))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp_stats = %s" %(bp_stats_))
-					if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (len(set(bpr)) >= max(self.normal_cov, 3.0)):
+					if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)):
 						io1 = interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals)
 						io2 = interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals)
 						if io1 >= 0 and io2 >= 0:
@@ -814,7 +814,7 @@ class bam_to_breakpoint_nanopore():
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp = %s" %(bp))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum long read support = %d" %(len(set(bpr))))
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp_stats = %s" %(bp_stats_))
-					if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (len(set(bpr)) >= max(self.normal_cov, 3.0)):
+					if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)):
 						io1 = interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals)
 						io2 = interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals)
 						if io1 >= 0 and io2 >= 0:
@@ -1539,7 +1539,7 @@ class bam_to_breakpoint_nanopore():
 						path_constraints_satisfied_cycle.append(self.path_constraints[amplicon_idx][0][pathi_])
 						path_constraints_support_cycle.append(self.longest_path_constraints[amplicon_idx][2][pathi])
 					cycle_seg_list = eulerian_cycle_t(self.lr_graph[amplicon_idx], self.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]], \
-						path_constraints_satisfied_cycle, path_constraints_support_cycle)
+									path_constraints_satisfied_cycle, path_constraints_support_cycle)
 					assert cycle_seg_list[0] == cycle_seg_list[-1]
 					fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
 					fp.write("Copy_count=%s;" %str(self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]))
@@ -1566,7 +1566,7 @@ class bam_to_breakpoint_nanopore():
 						path_constraints_satisfied_path.append(self.path_constraints[amplicon_idx][0][pathi_])
 						path_constraints_support_path.append(self.longest_path_constraints[amplicon_idx][2][pathi])
 					cycle_seg_list = eulerian_path_t(self.lr_graph[amplicon_idx], self.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]], \
-						path_constraints_satisfied_path, path_constraints_support_path)
+									path_constraints_satisfied_path, path_constraints_support_path)
 					fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
 					fp.write("Copy_count=%s;" %str(self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]))
 					fp.write("Segments=0+,")
@@ -1603,6 +1603,7 @@ if __name__ == '__main__':
 	parser.add_argument("--cnseg", help = "Long read CNV segmentation file.", required = True)
 	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.", action = 'store_true')
 	parser.add_argument("--output_all_path_constraints", help = "If specified, output all path constraints in *.cycles file.", action = 'store_true')
+	parser.add_argument("--min_bp_support", help = "Ignore breakpoints with less than (min_bp_support * normal coverage) long read support.", type = float, default = 1.0)
 	parser.add_argument("--cycle_decomp_alpha", help = "Parameter used to balance CN weight and path constraints in greedy cycle extraction.", type = float)
 	parser.add_argument("--cycle_decomp_time_limit", help = "Maximum running time (in seconds) reserved for integer program solvers.", type = int)
 	parser.add_argument("--cycle_decomp_threads", help = "Number of threads reserved for integer program solvers.", type = int)
@@ -1625,6 +1626,7 @@ if __name__ == '__main__':
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + commandstring)
 
 	b2bn = bam_to_breakpoint_nanopore(args.lr_bam, args.seed)
+	b2bn.min_bp_cov_factor = args.min_bp_support
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Opened LR bam files.")
 	b2bn.read_cns(args.cnseg)
 	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed parsing CN segment files.")

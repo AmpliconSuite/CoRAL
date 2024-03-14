@@ -1448,7 +1448,7 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 							path_constraints_s.append(pi)
 							unsatisfied_pc[pi] = -1
 					if postprocess == 1:
-						cycles[1].append(cycle_for_postprocess)
+						cycles[0].append(cycle_for_postprocess)
 					else:
 						cycles[0].append(cycle)
 					cycle_weights[0].append(sol_w[0])
