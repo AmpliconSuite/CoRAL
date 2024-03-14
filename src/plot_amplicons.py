@@ -425,14 +425,30 @@ class graph_vis:
                         print(gene_obj)
                         cut_gs = max(int_[0], gene_obj.gstart)
                         cut_ge = min(int_[1], gene_obj.gend)
+                        # if self.plot_bounds:
+                        #     cut_gs = max(self.plot_bounds[1], cut_gs)
+                        #     cut_ge = min(self.plot_bounds[2], cut_ge)
+
                         gene_start = amplified_intervals_start[chrom][inti] + (
                                     cut_gs - int_[0]) * 100.0 / total_len_amp
                         gene_end = amplified_intervals_start[chrom][inti] + (
                                     cut_ge - int_[0]) * 100.0 / total_len_amp
                         ax3.hlines(height, gene_start, gene_end, color='cornflowerblue', lw=4.5)  # Draw horizontal bars for genes
+                        if self.plot_bounds:
+                            if cut_ge < self.plot_bounds[1] or cut_gs > self.plot_bounds[2]:
+                                continue
 
+                            else:
+                                cut_gs = max(self.plot_bounds[1], cut_gs)
+                                cut_ge = min(self.plot_bounds[2], cut_ge)
+                                gene_start = amplified_intervals_start[chrom][inti] + (
+                                        cut_gs - int_[0]) * 100.0 / total_len_amp
+                                gene_end = amplified_intervals_start[chrom][inti] + (
+                                        cut_ge - int_[0]) * 100.0 / total_len_amp
+
+                                
                         ax3.text((gene_start + gene_end) / 2, height + 0.05, gene_obj.gname, ha='center', va='bottom',
-                                 fontsize=gene_font_size)
+                             fontsize=gene_font_size, style='italic')
 
                         if gene_obj.strand == '+':
                             ax3.plot(gene_start, height, marker='>', color='black', markersize=7)
@@ -445,6 +461,10 @@ class graph_vis:
 
                             cut_es = max(int_[0], exon_start)
                             cut_ee = min(int_[1], exon_end)
+                            # if self.plot_bounds:
+                            #     cut_es = max(self.plot_bounds[1], cut_es)
+                            #     cut_ee = min(self.plot_bounds[2], cut_ee)
+                            #
                             exon_start_pos = amplified_intervals_start[chrom][inti] + (
                                         cut_es - int_[0]) * 100.0 / total_len_amp
                             exon_end_pos = amplified_intervals_start[chrom][inti] + (
@@ -787,7 +807,7 @@ class graph_vis:
                                    lw=4.5)  # Draw horizontal bars for genes
 
                         ax3.text((gene_start + gene_end) / 2, height + 0.05, gene_obj.gname, ha='center', va='bottom',
-                                 fontsize=gene_font_size)
+                                 fontsize=gene_font_size, style='italic')
 
                         if gene_obj.strand == '+':
                             ax3.plot(gene_start, height, marker='>', color='black', markersize=7)
