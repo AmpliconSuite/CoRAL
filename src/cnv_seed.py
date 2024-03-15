@@ -45,7 +45,8 @@ if __name__ == '__main__':
 	if args.max_seg_gap:
 		CNGAP_MAX = args.max_seg_gap
 
-	with open("/nucleus/libs/AmpliconArchitect/data_repo_dev/GRCh38/GRCh38_centromere.bed", 'r') as fp:
+	__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+	with open(os.path.join(__location__, "annotations", "GRCh38_centromere.bed"), 'r') as fp:
 		for line in fp:
 			s = line.strip().split()
 			if len(s[0]) <= 5: # chr1 - chrM
@@ -55,7 +56,6 @@ if __name__ == '__main__':
 				if 'q' in s[3]:
 					chr_arms[s[0]][0].append(int(s[2]))
 					chr_arms[s[0]][2].append(chr_sizes[s[0]] - int(s[2]))
-	#print blocked_intervals
 
 	cnv_seeds = []
 	cur_seed = []
@@ -69,12 +69,10 @@ if __name__ == '__main__':
 					# assume input CN segments sorted by chr and pos
 					if len(cur_seed) > 0 and s[0] == cur_seed[-1][0] and int(s[1]) - cur_seed[-1][2] <= CNGAP_MAX:
 						cur_seed.append((s[0], int(s[1]), int(s[2]), cn))
-						print (cur_seed)
 					else:
 						if len(cur_seed) == 0:
 							cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
 						else:
-							print (cur_seed)
 							cnv_seeds.append(cur_seed)
 							cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
 				if int(s[2]) <= chr_arms[s[0]][0][0]:
@@ -82,7 +80,6 @@ if __name__ == '__main__':
 				if int(s[1]) >= chr_arms[s[0]][0][1]:
 					chr_arms[s[0]][1][1].append((s[0], int(s[1]), int(s[2]), cn))
 	cnv_seeds.append(cur_seed)
-	#print (cnv_seeds)
 
 	for chr in chr_arms:
 		sum_cns_len_parm = sum([cns[2] - cns[1] for cns in chr_arms[chr][1][0]])
@@ -121,11 +118,9 @@ if __name__ == '__main__':
 				cn_cutoff_chrarm = cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][1] - 2.0
 			else:
 				os.abort()
-			#print (seed, cn_cutoff_chrarm)
 			for ci in range(len(seed))[::-1]:
 				if seed[ci][3] < cn_cutoff_chrarm:
 					del seed[ci]
-			#print (seed)
 			if len(seed) > 0:
 				lastseg = []
 				sum_seed_len = 0
