@@ -29,10 +29,11 @@ Usage:
 * ```--cnseg <FILE>``` - CNV segmentation (```*.cns```) file given by CNVkit.
 
 **1.2 Optional arguments:**
+* ```--min_bp_support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction.
 * ```--output_all_path_constraints``` - If specified, output all path constraints given by long reads in ```*.cycles``` file (see "Expected output" below).
 * ```--cycle_decomp_alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
 * ```--cycle_decomp_time_limit <INT>``` - Maximum running time (in seconds) reserved for solving the quadratic program with Gurobi (integer program solver). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
-* ```--cycle_decomp_threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working operating system. 
+* ```--cycle_decomp_threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
 * ```--postprocess_greedy_sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
 *	```--log_fn <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```infer_breakpoint_graph.py``` run(s). 
 
