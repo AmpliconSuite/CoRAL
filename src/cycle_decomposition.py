@@ -419,10 +419,11 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, p_tot
 					for pi in range(len(pc_list)):
 						if sol_r[pi * k + i] >= 0.9:
 							path_constraints_s.append(pi)
-					cycles[1].append(cycle)
-					cycle_weights[1].append(sol_w[i])
-					path_constraints_satisfied[1].append(path_constraints_s)
-					path_constraints_satisfied_set |= set(path_constraints_s)
+					if sol_w[i] > 0.0:
+						cycles[1].append(cycle)
+						cycle_weights[1].append(sol_w[i])
+						path_constraints_satisfied[1].append(path_constraints_s)
+						path_constraints_satisfied_set |= set(path_constraints_s)
 				else:
 					cycle = dict()
 					path_constraints_s = []
@@ -444,10 +445,11 @@ def minimize_cycles(amplicon_id, g, k, total_weights, node_order, pc_list, p_tot
 					for pi in range(len(pc_list)):
 						if sol_r[pi * k + i] >= 0.9:
 							path_constraints_s.append(pi)
-					cycles[0].append(cycle)
-					cycle_weights[0].append(sol_w[i])
-					path_constraints_satisfied[0].append(path_constraints_s)
-					path_constraints_satisfied_set |= set(path_constraints_s)
+					if sol_w[i] > 0.0:
+						cycles[0].append(cycle)
+						cycle_weights[0].append(sol_w[i])
+						path_constraints_satisfied[0].append(path_constraints_s)
+						path_constraints_satisfied_set |= set(path_constraints_s)
 				for seqi in range(lseg):
 					total_weights_included += (sol_x[seqi * k + i] * sol_w[i] * g.sequence_edges[seqi][-2])
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + \
@@ -1635,7 +1637,7 @@ def eulerian_cycle_t(g, edges_next_cycle, path_constraints_next_cycle, path_cons
 			path_metric[2] < unsatisfied_path_metric[2]):
 			unsatisfied_path_metric[0] = path_metric[0]
 			unsatisfied_path_metric[1] = path_metric[1]
-			unsatisfied_path_metric[1] = path_metric[1]
+			unsatisfied_path_metric[2] = path_metric[2]
 			best_cycle = eulerian_cycle_
 	if len(unsatisfied_path_metric[0]) == 0:
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tCycle satisfies all subpath constraints.")
@@ -1813,7 +1815,7 @@ def eulerian_path_t(g, edges_next_path, path_constraints_next_path, path_constra
 			path_metric[2] < unsatisfied_path_metric[2]):
 			unsatisfied_path_metric[0] = path_metric[0]
 			unsatisfied_path_metric[1] = path_metric[1]
-			unsatisfied_path_metric[1] = path_metric[1]
+			unsatisfied_path_metric[2] = path_metric[2]
 			best_path = eulerian_path_
 	if len(unsatisfied_path_metric[0]) == 0:
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tPath satisfies all subpath constraints.")
