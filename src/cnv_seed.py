@@ -1,5 +1,11 @@
-import argparse
 import os
+
+import global_names
+
+GAIN = 6.0
+CNSIZE_MIN = 99999
+CNSIZE_MAX = 5000001  # Not parameterized
+CNGAP_MAX = 300001
 
 def interval_overlap(int1, int2):
 	"""
@@ -8,36 +14,11 @@ def interval_overlap(int1, int2):
 	return (int1[0] == int2[0] and int(int1[1]) <= int(int2[2]) and int(int2[1]) <= int(int1[2]))
 
 
-if __name__ == '__main__':
+def run_seeding(args):
 
-	GAIN = 6.0
-	CNSIZE_MIN = 99999
-	CNSIZE_MAX = 5000001 # Not parameterized
-	CNGAP_MAX = 300001
 	blocked_intervals = []
 	chr_arms = dict()
-	chr_sizes = {'chr1': 248956422, 'chr2': 242193529, 'chr3': 198295559, 'chr4': 190214555,
-			'chr5': 181538259, 'chr6': 170805979, 'chr7': 159345973, 'chr8': 145138636,
-			'chr9': 138394717, 'chr10': 133797422, 'chr11': 135086622, 'chr12': 133275309,
-			'chr13': 114364328, 'chr14': 107043718, 'chr15': 101991189, 'chr16': 90338345,
-			'chr17': 83257441, 'chr18': 80373285, 'chr19': 58617616, 'chr20': 64444167,
-			'chr21': 46709983, 'chr22': 50818468, 'chrX': 156040895, 'chrY': 57227415, 'chrM': 16569}
 
-	parser = argparse.ArgumentParser(description="Filter and merge amplified intervals.")
-	parser.add_argument('--cn_seg', help="Input copy number segment file from Cnvkit", type=str, required=True)
-	parser.add_argument('--out', 
-		help="OPTIONAL: Prefix filename for output bed file. Default: <INPUT_CNS_BASENAME>_CNV_SEEDS.bed",
-		type=str, default='')
-	parser.add_argument('--gain',
-		help="OPTIONAL: CN gain threshold for interval to be considered as a seed. Default: 6",
-		type=float, default=GAIN)
-	parser.add_argument('--min_seed_size',
-		help="OPTIONAL: Minimum size (in bp) for interval to be considered as a seed. Default: 100000",
-		type=int, default=CNSIZE_MIN)
-	parser.add_argument('--max_seg_gap',
-		help="OPTIONAL: Maximum gap size (in bp) to merge two proximal intervals. Default: 300000",
-		type=int, default=CNGAP_MAX)
-	args = parser.parse_args()
 	if args.gain:
 		GAIN = args.gain
 	if args.min_seed_size:
@@ -55,7 +36,7 @@ if __name__ == '__main__':
 					chr_arms[s[0]] = [[int(s[1])], [[], []], [int(s[1])]]
 				if 'q' in s[3]:
 					chr_arms[s[0]][0].append(int(s[2]))
-					chr_arms[s[0]][2].append(chr_sizes[s[0]] - int(s[2]))
+					chr_arms[s[0]][2].append(global_names.chr_sizes[s[0]] - int(s[2]))
 
 	cnv_seeds = []
 	cur_seed = []

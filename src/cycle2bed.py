@@ -1,16 +1,12 @@
+#!/usr/bin/env python3
+
 import argparse
 
 
-if __name__ == '__main__':
-	parser = argparse.ArgumentParser(description = "Convert cycle files in AA format to bed format.")
-	parser.add_argument("--cycle_fn", help = "Input AA-formatted cycle file.", required = True)
-	parser.add_argument("--output_fn", help = "Output file name.", required = True)
-	parser.add_argument("--num_cycles", help = "If specified, only convert the first NUM_CYCLES cycles.", type = int)
-	args = parser.parse_args()
-
+def convert_cycles_to_bed(cycle_fn, output_fn, num_cycles=None):
 	all_segs = dict()
 	cycles = dict()
-	with open(args.cycle_fn) as fp:
+	with open(cycle_fn) as fp:
 		for line in fp:
 			t = line.strip().split()
 			if t[0] == "Segment":
@@ -50,15 +46,25 @@ if __name__ == '__main__':
 					cycle[0][2] = cycle[-1][2]
 					del cycle[-1]
 				cycles[int(cycle_id)] = [iscyclic, cycle_weight, cycle]
-	
-	with open(args.output_fn, 'w') as fp:
+
+	print("Creating bed-converted cycles file: " + output_fn)
+	with open(output_fn, 'w') as fp:
 		fp.write("#chr\tstart\tend\torientation\tcycle_id\tiscyclic\tweight\n")
-		num_cycles = len(cycles)
-		if args.num_cycles:
-			num_cycles = min(num_cycles, args.num_cycles)
+		full_num_cycles = len(cycles)
+		if num_cycles:
+			num_cycles = min(full_num_cycles, num_cycles)
 		for i in range(1, num_cycles + 1):
 			for seg in cycles[i][2]:
 				fp.write("%s\t%d\t%d\t%s\t%d\t%s\t%f\n" %(seg[0], seg[1], seg[2], seg[3], i, cycles[i][0], cycles[i][1]))
+
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser(description = "Convert cycle files in AA format to bed format.")
+	parser.add_argument("--cycle_fn", help = "Input AA-formatted cycle file.", required = True)
+	parser.add_argument("--output_fn", help = "Output file name.", required = True)
+	parser.add_argument("--num_cycles", help = "If specified, only convert the first NUM_CYCLES cycles.", type = int)
+	args = parser.parse_args()
+	convert_cycles_to_bed(args.cycle_fn, args.output_fn, args.num_cycles)
 
 
 	

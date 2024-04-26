@@ -1,7 +1,7 @@
 import os
-import pysam
-import argparse
+import sys
 
+import pysam
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.mlab as mlab
@@ -12,8 +12,10 @@ rcParams['pdf.fonttype'] = 42
 mpl.rc('xtick', labelsize = 25) 
 mpl.rc('ytick', labelsize = 25)
 
-import cigar_parsing
 from breakpoint_utilities import *
+import cigar_parsing
+import cycle2bed
+import global_names
 
 
 def fetch(lr_bamfh):
@@ -47,21 +49,25 @@ def fetch(lr_bamfh):
 	return read_length, chimeric_alignments
 
 
-if __name__ == '__main__':
-	parser = argparse.ArgumentParser(description = "HSR detection pipeline.")
-	parser.add_argument("--lr_bam", help = "Sorted indexed long read bam file.", required = True)
-	parser.add_argument("--cycle", help = "Cycle file in *.bed format.", required = True)
-	parser.add_argument("--cn_segments", help = "Cnvkit *.cns file.", required = True)
-	parser.add_argument("--out_prefix", help = "Prefix of output file name.", required = True)
-	parser.add_argument("--normal_cov", help = "Estimated diploid coverage.", required = True)
-	parser.add_argument("--bp_match_cutoff", help = "Breakpoint matching cutoff.", type = int, default = 100)
-	parser.add_argument("--bp_match_cutoff_clustering", 
-				help = "Crude breakpoint matching cutoff for clustering.", type = int, default = 2000)
-	args = parser.parse_args()
-	
+def locate_hsrs(args):
+	chr_sizes = global_names.chr_sizes
 	ecdna_intervals = []
 	ecdna_intervals_ext = []
-	with open(args.cycle, 'r') as fp:
+
+	if args.cycles.endswith("_cycles.txt"):
+		# convert it to a bed
+		init_char = "" if args.output_prefix.endswith("/") else "_"
+		conv_cycle_fn = args.output_prefix + init_char + "converted_"
+		conv_cycle_fn += "cycles.bed"
+		cycle2bed.convert_cycles_to_bed(args.cycles, conv_cycle_fn)
+		cycle_fn = conv_cycle_fn
+
+	elif not args.cycles.endswith(".bed"):
+		sys.stderr.write(args.cycles + "\n")
+		sys.stderr.write("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
+		sys.exit(1)
+
+	with open(args.cycles, 'r') as fp:
 		for line in fp:
 			s = line.strip().split()
 			ecdna_intervals.append([s[0], int(s[1]), int(s[2])])
@@ -150,13 +156,6 @@ if __name__ == '__main__':
 						bp_stats.append(bp_stats_)
 	print ("Found %d breakpoints connecting ecDNA and chromosomes." %len(bp_refined))
 	lr_bamfh.close()
-
-	chr_sizes = {'chr1': 248956422, 'chr2': 242193529, 'chr3': 198295559, 'chr4': 190214555,
-			'chr5': 181538259, 'chr6': 170805979, 'chr7': 159345973, 'chr8': 145138636,
-			'chr9': 138394717, 'chr10': 133797422, 'chr11': 135086622, 'chr12': 133275309,
-			'chr13': 114364328, 'chr14': 107043718, 'chr15': 101991189, 'chr16': 90338345,
-			'chr17': 83257441, 'chr18': 80373285, 'chr19': 58617616, 'chr20': 64444167,
-			'chr21': 46709983, 'chr22': 50818468, 'chrX': 156040895}
 	sum_sizes = sum(chr_sizes.values())
 	agg_size = 0
 	xtick_pos = []
