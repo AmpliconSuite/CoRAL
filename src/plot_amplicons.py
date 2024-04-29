@@ -136,7 +136,7 @@ class graph_vis:
         if cycle_fn.endswith("_cycles.txt"):
             # convert it to a bed
             init_char = "" if output_prefix.endswith("/") else "_"
-            conv_cycle_fn =  output_prefix + init_char + "converted_"
+            conv_cycle_fn = output_prefix + init_char + "converted_"
             if num_cycles:
                 conv_cycle_fn += str(num_cycles) + "_"
             conv_cycle_fn += "cycles.bed"
@@ -334,7 +334,7 @@ class graph_vis:
 
         # Draw discordant edges
         colorcode = {"+-": "red", "++": "magenta", "-+": (139/256.0, 69/256.0, 19/256.0), "--": "teal", "interchromosomal": "blue"}
-        avg_bp_rc = sum([bp[7] for bp in self.discordant_edges]) * 1.0 / len(self.discordant_edges)
+        avg_bp_rc = sum([bp[7] for bp in self.discordant_edges]) * 1.0 / max(len(self.discordant_edges), 1)
         for bp in self.discordant_edges:
             chr1 = bp[0]
             pos1 = bp[1]

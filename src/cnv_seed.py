@@ -1,4 +1,5 @@
 import os
+import sys
 
 import global_names
 
@@ -44,7 +45,13 @@ def run_seeding(args):
 		for line in fp:
 			s = line.strip().split()
 			if s[0] != "chromosome":
-				cn = 2*(2**float(s[4]))
+				if args.cn_seg.endswith(".cns"):
+					cn = 2*(2**float(s[4]))
+				elif args.cn_seg.endswith(".bed"):
+					cn = float(s[3])
+				else:
+					sys.stderr.write(args.cn_seg + "\n")
+					sys.stderr.write("Invalid cn_seg file format!\n")
 				# Require absolute CN >= max(GAIN, cn_cutoff_chrarm)
 				if cn >= GAIN and (int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]): 
 					# assume input CN segments sorted by chr and pos
@@ -119,5 +126,7 @@ def run_seeding(args):
 							lastseg = list(cns)
 				if sum_seed_len >= CNSIZE_MIN:
 					fp.write("%s\t%d\t%d\n" %(lastseg[0], lastseg[1], lastseg[2] - 1))
+
+	print("Created " + OUTPUT_FN)
 
 

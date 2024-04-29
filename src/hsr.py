@@ -54,6 +54,7 @@ def locate_hsrs(args):
 	ecdna_intervals = []
 	ecdna_intervals_ext = []
 
+	cycle_fn = args.cycles
 	if args.cycles.endswith("_cycles.txt"):
 		# convert it to a bed
 		init_char = "" if args.output_prefix.endswith("/") else "_"
@@ -67,26 +68,40 @@ def locate_hsrs(args):
 		sys.stderr.write("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
 		sys.exit(1)
 
-	with open(args.cycles, 'r') as fp:
+	with open(cycle_fn, 'r') as fp:
 		for line in fp:
+			if line.startswith("#"):
+				continue
+
 			s = line.strip().split()
 			ecdna_intervals.append([s[0], int(s[1]), int(s[2])])
 			ecdna_intervals_ext.append([s[0], int(s[1]) - args.bp_match_cutoff, int(s[2]) + args.bp_match_cutoff])
-	print ("ecDNA intervals:", ecdna_intervals)
+	print("ecDNA intervals:")
+	for ival in ecdna_intervals:
+		print(ival)
 
 	cns_dict = dict()
-	with open(args.cn_segments, 'r') as fp:
-		i = 0
+	with open(args.cn_seg, 'r') as fp:
 		for line in fp:
 			s = line.strip().split()
-			if i > 0:
-				if s[0] not in cns_dict:
-					cns_dict[s[0]] = dict()
-				try:
-					cns_dict[s[0]].append([int(s[1]), int(s[2]), 2 * (2 ** float(s[4]))])
-				except:
-					cns_dict[s[0]] = [[int(s[1]), int(s[2]), 2 * (2 ** float(s[4]))]]
-			i += 1
+			if line.startswith('chromosome'):
+				continue
+
+			if s[0] not in cns_dict:
+				cns_dict[s[0]] = dict()
+
+			if args.cn_seg.endswith(".cns"):
+				cn = 2 * (2 ** float(s[4]))
+			elif args.cn_seg.endswith(".bed"):
+				cn = float(s[3])
+			else:
+				sys.stderr.write(args.cn_seg + "\n")
+				sys.stderr.write("Invalid cn_seg file format!\n")
+
+			try:
+				cns_dict[s[0]].append([int(s[1]), int(s[2]), cn])
+			except:
+				cns_dict[s[0]] = [[int(s[1]), int(s[2]), cn]]
 
 
 	lr_bamfh = pysam.AlignmentFile(args.lr_bam, 'rb')
@@ -196,11 +211,13 @@ def locate_hsrs(args):
 	plt.xlim([0, 100])
 	plt.ylim([1, 500])
 	plt.yscale('log')
-	plt.xticks(xtick_pos, list(range(1, 23)) + ['X'])
-	plt.title(args.out_prefix + " integration loci", fontsize = 25)
+	plt.xticks(xtick_pos, list(range(1, 23)) + ['X', 'Y'])
+	plt.title(args.output_prefix + " integration loci", fontsize = 25)
 	plt.ylabel('Long read support', fontsize = 25)
 	plt.tight_layout()
-	plt.savefig("integration_sites_" + args.out_prefix + ".png")
+	out_img_name = "integration_sites_" + args.output_prefix
+	plt.savefig(out_img_name + '.png')
+	print('\n Created ' + out_img_name + '.png')
 
 
 

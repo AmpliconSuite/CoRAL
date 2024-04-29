@@ -1,21 +1,73 @@
 #  CoRAL - Complete Reconstruction of Amplifications with Long reads
 ## Reference
+This tool utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. A pre-print is available here: 
 https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
 
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
 
-CoRAL requires python>=3.7, and the following packages.
-* pysam(>=0.1.7) https://pysam.readthedocs.io/en/stable/ for reading mapped sequences in ```*.BAM``` format
-* cvxopt https://cvxopt.org/ for estimating CN in breakpoint graph.
-* Gurobi (>=9.1, for Python) https://www.gurobi.com/documentation/current/refman/py_python_api_overview.html for solving the quadratic (constrained) program to extract cycles/paths from the breakpoint graph.
-* CNVkit https://cnvkit.readthedocs.io/ for producing the copy number segments, as well as seed amplification intervals, in amplified interval search.
+CoRAL requires python>=3.7, and may be installed with the fewest issues if python < 3.12.
+
+1. Clone source
+
+    ```
+    git clone https://github.com/AmpliconSuite/CoRAL
+    cd CoRAL
+    ```
+
+2. Install packages
+   - **Option 1.** Install with `poetry` dependency manager. 
+    
+      ```bash
+      pip install poetry
+      poetry install
+     ```
+
+   - **Option 2.**  Install With `pip`.
+
+    `pip install -r requirements.txt`
+   
+     Can set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
+
+
+3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
+   - Place the .lic file you download in `$HOME`. This path is usually `/home/username/gurobi.lic`.
+
+
+
+4. Finish installing CNVkit dependencies (recommended)
+   ```bash
+   Rscript -e 'if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")'
+   Rscript -e 'BiocManager::install("DNAcopy")'
+   ```
+
+[//]: # (* pysam&#40;>=0.1.7&#41; https://pysam.readthedocs.io/en/stable/ for reading mapped sequences in ```*.BAM``` format)
+
+[//]: # (* cvxopt https://cvxopt.org/ for estimating CN in breakpoint graph.)
+
+[//]: # (* Gurobi &#40;>=9.1, for Python&#41; https://www.gurobi.com/documentation/current/refman/py_python_api_overview.html for solving the quadratic &#40;constrained&#41; program to extract cycles/paths from the breakpoint graph.)
+
+[//]: # (* CNVkit https://cnvkit.readthedocs.io/ for producing the copy number segments, as well as seed amplification intervals, in amplified interval search.)
+
+## Getting copy number calls
+Before running CoRAL, you will need genome-wide copy number (CN) calls generated from your long-read data. 
+
+- If you have these already, simply ensure that they are in a .bed format like so:
+
+   `chrom  start   end   CN`
+
+
+- If you don't have these then you can run CNVkit (installed as a dependency), by doing
+
+   `./scripts/call_cnvs.sh <input.bam> ./reference/hg38full_ref_5k.cnn <output_dir>`
+
+   This will create a file called `[input].cns`, which you can feed to CoRAL for it's `--cn_seg` argument.
 
 ## Command line arguments to run CoRAL
 
 CoRAL and its various run-modes can by used in the following manner
 
-`CoRAL.py [mode] [mode arguments]`
+`/path/to/CoRAL/src/CoRAL.py [mode] [mode arguments]`
 
 The modes are as follows:
 1. `seed`: Identify and filter copy number gain regions where amplifications exist
@@ -25,13 +77,13 @@ The modes are as follows:
 5. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to a .bed format. The AA format is also used by CoRAL.
 
 ## 1. ```CoRAL.py seed```
-As the seed amplification intervals are required by the main script ```infer_breakpoint_graph.py```, it is suggested the user first run ```cnv_seed.py``` to generate seed amplification intervals.
+As the seed amplification intervals are required by the main script ```reconstruct``` mode, it is suggested the user first run ```seed``` mode to generate seed amplification intervals.
 
 Usage: 
 ```CoRAL.py seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
-* ```--cn_seg <FILE>```, The CNV segmentation (```*.cns```) file given by CNVkit, which is also required by ```infer_breakpoint_graph.py```.
+* ```--cn_segs <FILE>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **Optional arguments:**
 * ```--out <STRING>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file. Note that if these file is desired to be written to a different directory, then a path/directory should also be included. If not specified (by default), output the ```*_CNV_SEEDS.bed``` file to the current directory with the same prefix as the input ```*.cns``` file.
@@ -46,9 +98,9 @@ Usage:
 
 **2.1 Required arguments:**
 * ```--lr_bam <FILE>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
-* ```--seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```cnv_seed.py```](#running-```cnv_seed.py```), or provided manually.
+* ```--cnv_seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
 * ```--output_prefix <STRING>``` - Prefix of the output ```graph.txt``` and ```cycles.txt``` files. Note that if these files are desired to be written to a different directory, then paths should also be included. 
-* ```--cnseg <FILE>``` - CNV segmentation (```*.cns```) file given by CNVkit.
+* ```--cn_segs <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **2.2 Optional arguments:**
 * ```--min_bp_support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction.
@@ -57,7 +109,7 @@ Usage:
 * ```--cycle_decomp_time_limit <INT>``` - Maximum running time (in seconds) reserved for solving the quadratic program with Gurobi (integer program solver). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
 * ```--cycle_decomp_threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
 * ```--postprocess_greedy_sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
-*	```--log_fn <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```infer_breakpoint_graph.py``` run(s). 
+*	```--log_fn <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
 
 **2.3 Expected output:**
 
@@ -116,6 +168,7 @@ If `--plot_graph` is given, `--graph` is required. If `--plot_cycles` is given `
 | Argument                | Descripion                                                            |
 |-------------------------|-----------------------------------------------------------------------|
 | `--ref <choice>`        | Reference genome choice. Must be one of  `[hg19, hg38, GRCh38, mm10]` |
+| `--bam <file>` | Bam file the run was based on                                         |
 | `--graph <file>`        | AA-formatted `_graph.txt` file                                        |
 | `--cycles <file>`       | AA-formatted `_cycles.txt` file                                       |
 | `--output_prefix <str>` | Prefix name for output files                                          |
@@ -144,11 +197,11 @@ Usage:
 
 **4.1 Required arguments:**
 
-| Argument              | Descripion                                        |
-|-----------------------|---------------------------------------------------|
-| `--lr_bam <file>`     | Coordinate-sorted and indexed long read .bam file |
-| `--cycles <file>`     | AA-formatted `_cycles.txt` file                   |
-| `--cn_segments <file>` | AA-formatted `CNVkit *.cns file.` file            |
+| Argument           | Descripion                                        |
+|--------------------|---------------------------------------------------|
+| `--lr_bam <file>`  | Coordinate-sorted and indexed long read .bam file |
+| `--cycles <file>`  | AA-formatted `_cycles.txt` file                   |
+| `--cn_segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
 | `--normal_cov <float>` | Estimated coverage of diploid genome regions      |
 
 **4.2 Optional arguments:**

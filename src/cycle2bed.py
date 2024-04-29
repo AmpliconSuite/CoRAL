@@ -53,6 +53,9 @@ def convert_cycles_to_bed(cycle_fn, output_fn, num_cycles=None):
 		full_num_cycles = len(cycles)
 		if num_cycles:
 			num_cycles = min(full_num_cycles, num_cycles)
+		else:
+			num_cycles = full_num_cycles
+
 		for i in range(1, num_cycles + 1):
 			for seg in cycles[i][2]:
 				fp.write("%s\t%d\t%d\t%s\t%d\t%s\t%f\n" %(seg[0], seg[1], seg[2], seg[3], i, cycles[i][0], cycles[i][1]))

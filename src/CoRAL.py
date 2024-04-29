@@ -4,31 +4,42 @@ import argparse
 from cnv_seed import *
 # importing of most modules is done after run mode is selected to minimize chances of colliding function or variable names, existing now and in the future.
 
+def print_args(args_dict):
+    for key, value in vars(args_dict).items():
+        print(f"{key}: {value}")
+
+    print()
+
 def seed_mode(args):
-    print("Performing seeding mode with options:", args)
+    print("Performing seeding mode with options:")
+    print_args(args)
     run_seeding(args)
 
 
 def reconstruct_mode(args):
-    print("Performing reconstruction with options:", args)
+    print("Performing reconstruction with options:")
+    print_args(args)
     import infer_breakpoint_graph
     infer_breakpoint_graph.reconstruct(args)
 
 
 def hsr_mode(args):
-    print("Performing HSR mode with options:", args)
+    print("Performing HSR mode with options:")
+    print_args(args)
     import hsr
     hsr.locate_hsrs(args)
 
 
 def plot_mode(args):
-    print("Performing plot mode with options:", args)
+    print("Performing plot mode with options:")
+    print_args(args)
     import plot_amplicons
     plot_amplicons.plot_amplicons(args)
 
 
 def cycle2bed_mode(args):
-    print("Performing cycle to bed mode with options:", args)
+    print("Performing cycle to bed mode with options:")
+    print_args(args)
     import cycle2bed
     cycle2bed.convert_cycles_to_bed(args.cycle_fn, args.output_fn, args.num_cycles)
 
@@ -40,7 +51,7 @@ if __name__ == '__main__':
 
     # SEEDING MODE ARGS
     seed_parser = subparsers.add_parser("seed", help="Filter and merge amplified intervals.")
-    seed_parser.add_argument('--cn_seg', help="Input copy number segment file from Cnvkit", type=str,
+    seed_parser.add_argument('--cn_seg', help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).", type=str,
                              required=True)
     seed_parser.add_argument('--out',
                         help="OPTIONAL: Prefix filename for output bed file. Default: <INPUT_CNS_BASENAME>_CNV_SEEDS.bed",
@@ -58,9 +69,9 @@ if __name__ == '__main__':
     # RECONSTRUCTION MODE ARGUMENTS
     reconstruct_parser = subparsers.add_parser("reconstruct", help="Reconstruct focal amplifications")
     reconstruct_parser.add_argument("--lr_bam", help="Sorted indexed (long read) bam file.", required=True)
-    reconstruct_parser.add_argument("--seed", help="File including seed intervals.", required=True)
+    reconstruct_parser.add_argument("--cnv_seed", help="Bed file of CNV seed intervals.", required=True)
     reconstruct_parser.add_argument("--output_prefix", help="Prefix of output files.", required=True)
-    reconstruct_parser.add_argument("--cnseg", help="Long read CNV segmentation file.", required=True)
+    reconstruct_parser.add_argument("--cn_seg", help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).", required=True)
     reconstruct_parser.add_argument("--output_bp", help="If specified, only output the list of breakpoints.",
                                     action='store_true')
     reconstruct_parser.add_argument("--output_all_path_constraints",
@@ -70,9 +81,10 @@ if __name__ == '__main__':
                         type=float, default=1.0)
     reconstruct_parser.add_argument("--cycle_decomp_alpha",
                         help="Parameter used to balance CN weight and path constraints in greedy cycle extraction.",
-                        type=float)
+                        type=float, default=0.01)
     reconstruct_parser.add_argument("--cycle_decomp_time_limit",
-                        help="Maximum running time (in seconds) reserved for integer program solvers.", type=int)
+                        help="Maximum running time (in seconds) reserved for integer program solvers.",
+                        type=int, default=7200)
     reconstruct_parser.add_argument("--cycle_decomp_threads", help="Number of threads reserved for integer program solvers.",
                         type=int)
     reconstruct_parser.add_argument("--postprocess_greedy_sol",
@@ -83,8 +95,8 @@ if __name__ == '__main__':
     hsr_parser = subparsers.add_parser("hsr", help="Detect possible integration points of ecDNA HSR amplifications.")
     hsr_parser.add_argument("--lr_bam", help="Sorted indexed long read bam file.", required=True)
     hsr_parser.add_argument("--cycles", help="Cycle file in *.bed format.", required=True)
-    hsr_parser.add_argument("--cn_segments", help="Cnvkit *.cns file.", required=True)
-    hsr_parser.add_argument("--out_prefix", help="Prefix of output file name.", required=True)
+    hsr_parser.add_argument("--cn_seg", help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).", required=True)
+    hsr_parser.add_argument("--output_prefix", help="Prefix of output file name.", required=True)
     hsr_parser.add_argument("--normal_cov", help="Estimated diploid coverage.", required=True)
     hsr_parser.add_argument("--bp_match_cutoff", help="Breakpoint matching cutoff.", type=int, default=100)
     hsr_parser.add_argument("--bp_match_cutoff_clustering",

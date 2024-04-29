@@ -1,7 +1,8 @@
+#!/usr/bin/env bash
 ## Basic script employing cnvkit.py to call CNVs from alignments.
 
 ## USAGE
-## bash call_cnvs.sh $BAM $REFERENCE_CNN $OUTPUT_DIR
+## call_cnvs.sh $BAM $REFERENCE_CNN $OUTPUT_DIR
 
 BAM=$1
 REFERENCE_CNN=$2

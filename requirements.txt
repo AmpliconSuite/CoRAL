@@ -1,0 +1,9 @@
+cnvkit
+cvxopt
+gurobipy
+intervaltree
+matplotlib
+numpy
+pandas
+pysam
+

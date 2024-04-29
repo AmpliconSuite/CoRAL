@@ -86,10 +86,18 @@ class bam_to_breakpoint_nanopore():
 						self.cns_tree[s[0]] = intervaltree.IntervalTree()
 						self.cns_intervals_by_chr[s[0]] = []
 						idx = 0
-					self.cns_intervals_by_chr[s[0]].append([s[0], int(s[1]), int(s[2]) - 1, 2 * (2 ** float(s[4]))])
 					self.cns_tree[s[0]][int(s[1]): int(s[2])] = idx
 					idx += 1
-					self.log2_cn.append(float(s[4]))
+					if cns.endswith(".cns"):
+						self.cns_intervals_by_chr[s[0]].append([s[0], int(s[1]), int(s[2]) - 1, 2 * (2 ** float(s[4]))])
+						self.log2_cn.append(float(s[4]))
+					elif cns.endswith(".bed"):
+						self.cns_intervals_by_chr[s[0]].append([s[0], int(s[1]), int(s[2]) - 1, float(s[3])])
+						self.log2_cn.append(np.log2(float(s[3])/2.0))
+					else:
+						sys.stderr.write(cns + "\n")
+						sys.stderr.write("Invalid cn_seg file format!\n")
+
 		
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total num LR copy number segments: %d." %(len(self.log2_cn)))
 		log2_cn_order = np.argsort(self.log2_cn)
@@ -1607,10 +1615,10 @@ def reconstruct(args):
 			commandstring += "{} ".format(arg)
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + commandstring)
 
-	b2bn = bam_to_breakpoint_nanopore(args.lr_bam, args.seed)
+	b2bn = bam_to_breakpoint_nanopore(args.lr_bam, args.cnv_seed)
 	b2bn.min_bp_cov_factor = args.min_bp_support
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Opened LR bam files.")
-	b2bn.read_cns(args.cnseg)
+	b2bn.read_cns(args.cn_seg)
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed parsing CN segment files.")
 	b2bn.fetch()
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed fetching reads containing breakpoints.")
@@ -1682,3 +1690,4 @@ def reconstruct(args):
 
 	b2bn.closebam()
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Total runtime.")
+	print("\nCompleted reconstruction.")
