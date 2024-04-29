@@ -6,7 +6,7 @@ https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
 
-CoRAL requires python>=3.7, and may be installed with the fewest issues if python < 3.12.
+CoRAL requires python>=3.7, and dependencies may be resolved best if python < 3.12.
 
 1. Clone source
 
@@ -16,22 +16,23 @@ CoRAL requires python>=3.7, and may be installed with the fewest issues if pytho
     ```
 
 2. Install packages
-   - **Option 1.** Install with `poetry` dependency manager. 
+
+   - **Option 1.**  Install With `pip`.
+
+     `pip install -r requirements.txt`
+   
+      Set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
+
+   - **Option 2.** Install with `poetry`. 
     
       ```bash
       pip install poetry
       poetry install
      ```
 
-   - **Option 2.**  Install With `pip`.
-
-    `pip install -r requirements.txt`
-   
-     Can set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
-
 
 3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
-   - Place the .lic file you download in `$HOME`. This path is usually `/home/username/gurobi.lic`.
+   - Place the `gurobi.lic` file you download into `$HOME/`. This path is usually `/home/username/gurobi.lic`.
 
 
 
@@ -57,11 +58,11 @@ Before running CoRAL, you will need genome-wide copy number (CN) calls generated
    `chrom  start   end   CN`
 
 
-- If you don't have these then you can run CNVkit (installed as a dependency), by doing
+- If you don't have these then you can run CNVkit (installed as a dependency) to generate them, by doing
 
    `./scripts/call_cnvs.sh <input.bam> ./reference/hg38full_ref_5k.cnn <output_dir>`
 
-   This will create a file called `[input].cns`, which you can feed to CoRAL for it's `--cn_seg` argument.
+   This will create a file called `[input].cns`, which you can feed to CoRAL for it's `--cn_segs` argument.
 
 ## Command line arguments to run CoRAL
 
