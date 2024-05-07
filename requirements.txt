@@ -1,0 +1,4 @@
+pysam>=0.1.7
+cvxop
+Gurobi>=9.1
+CNVkit
