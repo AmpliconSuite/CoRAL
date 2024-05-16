@@ -18,6 +18,7 @@ import pysam
 
 import global_names
 from breakpoint_utilities import *
+import cycle2bed
 
 rcParams['pdf.fonttype'] = 42
 
@@ -130,7 +131,23 @@ class graph_vis:
                     self.discordant_edges.append([chr1, pos1, o1, chr2, pos2, o2, float(s[2]), int(s[3])])
 
 
-    def parse_cycle_file(self, cycle_fn):
+    def parse_cycle_file(self, cycle_fn, output_prefix, num_cycles):
+        # check if it ends with .bed, if not convert it
+        if cycle_fn.endswith("_cycles.txt"):
+            # convert it to a bed
+            init_char = "" if output_prefix.endswith("/") else "_"
+            conv_cycle_fn = output_prefix + init_char + "converted_"
+            if num_cycles:
+                conv_cycle_fn += str(num_cycles) + "_"
+            conv_cycle_fn += "cycles.bed"
+            cycle2bed.convert_cycles_to_bed(cycle_fn, conv_cycle_fn, num_cycles)
+            cycle_fn = conv_cycle_fn
+
+        elif not cycle_fn.endswith(".bed"):
+            sys.stderr.write(cycle_fn + "\n")
+            sys.stderr.write("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
+            sys.exit(1)
+
         with open(cycle_fn, 'r') as fp:
             for line in fp:
                 s = line.strip().split("\t")
@@ -144,13 +161,6 @@ class graph_vis:
                         self.cycle_flags[s[4]] = [False, float(s[6])]
                 else:
                     self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
-
-    def sort_chrom_names(self, chromlist):
-        def sort_key(x):
-            val = x[3:]
-            return int(val) if val.isnumeric() else ord(val)
-
-        return sorted(chromlist, key=sort_key)
 
 
     def graph_amplified_intervals(self):
@@ -280,7 +290,7 @@ class graph_vis:
         zoom_factor = 1.0
         if self.plot_bounds:
             zoom_factor = float(self.plot_bounds[2] - self.plot_bounds[1])/total_len_amp
-        sorted_chrs = self.sort_chrom_names(self.intervals_from_graph.keys())
+        sorted_chrs = sort_chrom_names(self.intervals_from_graph.keys())
         amplified_intervals_start = dict()
         ymax = 0
         x = margin_between_intervals
@@ -324,7 +334,7 @@ class graph_vis:
 
         # Draw discordant edges
         colorcode = {"+-": "red", "++": "magenta", "-+": (139/256.0, 69/256.0, 19/256.0), "--": "teal", "interchromosomal": "blue"}
-        avg_bp_rc = sum([bp[7] for bp in self.discordant_edges]) * 1.0 / len(self.discordant_edges)
+        avg_bp_rc = sum([bp[7] for bp in self.discordant_edges]) * 1.0 / max(len(self.discordant_edges), 1)
         for bp in self.discordant_edges:
             chr1 = bp[0]
             pos1 = bp[1]
@@ -604,7 +614,7 @@ class graph_vis:
         for chrom in self.intervals_from_cycle.keys():
             total_len_amp += sum([int_[1] - int_[0] + 1 for int_ in self.intervals_from_cycle[chrom]])
         # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: global_names.chr_idx[chr])
-        sorted_chrs = self.sort_chrom_names(self.intervals_from_cycle.keys())
+        sorted_chrs = sort_chrom_names(self.intervals_from_cycle.keys())
         amplified_intervals_start = dict()
         x = margin_between_intervals
         for chrom in sorted_chrs:
@@ -894,26 +904,7 @@ class graph_vis:
         plt.savefig(output_fn + '.pdf')
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description = "Long read only amplicon reconstruction pipeline.")
-    parser.add_argument("--ref", help = "Name of reference genome used", choices=["hg19", "hg38", "mm10"], required=True)
-    parser.add_argument("--bam", help = "Sorted & indexed bam file.")
-    parser.add_argument("--graph", help = "AmpliconSuite-formatted *.graph file.")
-    parser.add_argument("--cycle", help = "AmpliconSuite-formatted cycles file, in *.bed format.")
-    parser.add_argument("--output_prefix", "-o", help = "Prefix of output files.", required = True)
-    parser.add_argument("--plot_graph", help = "Visualize breakpoint graph.",  action = 'store_true')
-    parser.add_argument("--plot_cycles", help = "Visualize (selected) cycles.",  action = 'store_true')
-    parser.add_argument("--only_cyclic_paths", help = "Only plot cyclic paths from cycles file",  action = 'store_true')
-    parser.add_argument("--num_cycles", help = "Only plot the first NUM_CYCLES cycles.",  type = int)
-    parser.add_argument("--max_coverage", help = "Limit the maximum visualized coverage in the graph", type = float, default = float('inf'))
-    parser.add_argument("--min_mapq", help = "Minimum mapping quality to count read in coverage plotting", type = float, default = 0)
-    parser.add_argument("--gene_subset_list", help = "List of genes to visualize (will show all by default)", nargs='+', default=[])
-    parser.add_argument("--hide_genes", help="Do not show gene track", action='store_true', default=False)
-    parser.add_argument("--gene_fontsize", help="Change size of gene font", type=float, default=12)
-    parser.add_argument("--bushman_genes", help="Reduce gene set to the Bushman cancer-related gene set", action='store_true', default=False)
-    parser.add_argument("--region", help="(Graph plotting) Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'.")
-    args = parser.parse_args()
-
+def plot_amplicons(args):
     if args.plot_graph:
         if not args.graph:
             print ("Please specify the breakpoint graph file to plot.")
@@ -922,10 +913,12 @@ if __name__ == '__main__':
             print("Please specify the bam file to plot.")
             sys.exit(1)
 
-    if args.plot_cycles and not args.cycle:
+    if args.plot_cycles and not args.cycles:
         print ("Please specify the cycle file, in *.bed format, to plot.")
         sys.exit(1)
 
+    if args.ref == 'GRCh38':
+        args.ref = 'hg38'
 
     g = graph_vis()
     g.parse_genes(args.ref, set(args.gene_subset_list), args.bushman_genes)
@@ -944,7 +937,7 @@ if __name__ == '__main__':
                      hide_genes=args.hide_genes, gene_font_size=args.gene_fontsize)
 
     if args.plot_cycles:
-        g.parse_cycle_file(args.cycle)
+        g.parse_cycle_file(args.cycles, args.output_prefix, args.num_cycles)
         cycle_ids_ = None
         cycle_only_ = False
         if args.num_cycles:

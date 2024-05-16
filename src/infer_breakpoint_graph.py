@@ -1,8 +1,6 @@
 import time
-start_time = time.time()
 import logging
 import pysam
-import argparse
 import sys
 import os
 import numpy as np
@@ -14,7 +12,6 @@ from breakpoint_graph import *
 from path_constraints import *
 from cycle_decomposition import *
 import global_names
-global_names.TSTART = start_time
 
 
 edge_type_to_index = {'s': 0, 'c': 1, 'd': 2}
@@ -68,9 +65,9 @@ class bam_to_breakpoint_nanopore():
 			for line in fp:
 				s = line.strip().split()
 				self.amplicon_intervals.append([s[0], int(s[1]), int(s[2]), -1])
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Parsed %d seed amplicon intervals." %(len(self.amplicon_intervals)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Parsed %d seed amplicon intervals." %(len(self.amplicon_intervals)))
 		for ai in self.amplicon_intervals:
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Seed interval %s" %(ai[:3]))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Seed interval %s" %(ai[:3]))
 
 
 	def read_cns(self, cns):
@@ -89,12 +86,20 @@ class bam_to_breakpoint_nanopore():
 						self.cns_tree[s[0]] = intervaltree.IntervalTree()
 						self.cns_intervals_by_chr[s[0]] = []
 						idx = 0
-					self.cns_intervals_by_chr[s[0]].append([s[0], int(s[1]), int(s[2]) - 1, 2 * (2 ** float(s[4]))])
 					self.cns_tree[s[0]][int(s[1]): int(s[2])] = idx
 					idx += 1
-					self.log2_cn.append(float(s[4]))
+					if cns.endswith(".cns"):
+						self.cns_intervals_by_chr[s[0]].append([s[0], int(s[1]), int(s[2]) - 1, 2 * (2 ** float(s[4]))])
+						self.log2_cn.append(float(s[4]))
+					elif cns.endswith(".bed"):
+						self.cns_intervals_by_chr[s[0]].append([s[0], int(s[1]), int(s[2]) - 1, float(s[3])])
+						self.log2_cn.append(np.log2(float(s[3])/2.0))
+					else:
+						sys.stderr.write(cns + "\n")
+						sys.stderr.write("Invalid cn_seg file format!\n")
+
 		
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total num LR copy number segments: %d." %(len(self.log2_cn)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total num LR copy number segments: %d." %(len(self.log2_cn)))
 		log2_cn_order = np.argsort(self.log2_cn)
 		cns_intervals_median = []
 		log2_cn_median = []
@@ -116,17 +121,17 @@ class bam_to_breakpoint_nanopore():
 			total_int_len += (self.cns_intervals[log2_cn_order[ip + i]][2] - self.cns_intervals[log2_cn_order[ip + i]][1] + 1)
 			total_int_len += (self.cns_intervals[log2_cn_order[im - i]][2] - self.cns_intervals[log2_cn_order[im - i]][1] + 1)
 			i += 1
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Use %d LR copy number segments." %(len(cns_intervals_median)))
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total length of LR copy number segments: %d." %(total_int_len))
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Average LR copy number: %f." %(np.average(log2_cn_median)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Use %d LR copy number segments." %(len(cns_intervals_median)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total length of LR copy number segments: %d." %(total_int_len))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Average LR copy number: %f." %(np.average(log2_cn_median)))
 		nnc = 0
 		for i in range(len(cns_intervals_median)):
 			nnc += sum([sum(nc) for nc in self.lr_bamfh.count_coverage(cns_intervals_median[i][0], cns_intervals_median[i][1], \
 						cns_intervals_median[i][2] + 1, quality_threshold = 0, read_callback = 'nofilter')])
 		self.normal_cov = nnc * 1.0 / total_int_len
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "LR normal cov = %f." %(self.normal_cov))
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "LR normal cov = %f." %(self.normal_cov))
 		self.min_cluster_cutoff = max(self.min_cluster_cutoff, self.min_bp_cov_factor * self.normal_cov)
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset min_cluster_cutoff to %f." %(self.min_cluster_cutoff))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset min_cluster_cutoff to %f." %(self.min_cluster_cutoff))
 
 
 	def fetch(self):
@@ -144,20 +149,20 @@ class bam_to_breakpoint_nanopore():
 						self.chimeric_alignments[rn] = [sa]
 			except:
 				pass
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Fetched %d chimeric reads." %(len(self.chimeric_alignments)))
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Fetched %d chimeric reads." %(len(self.chimeric_alignments)))
 		reads_wo_primary_alignment = []
 		for r in self.chimeric_alignments.keys():
 			if r not in self.read_length:
-				logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "Found chimeric read without primary alignment.")
-				logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tRead name: %s; Read length: N/A." %r)
-				logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAll CIGAR strings: %s." %(self.chimeric_alignments[r]))
+				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Found chimeric read without primary alignment.")
+				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tRead name: %s; Read length: N/A." %r)
+				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAll CIGAR strings: %s." %(self.chimeric_alignments[r]))
 				reads_wo_primary_alignment.append(r)
 				continue
 			rl = self.read_length[r]
 			self.chimeric_alignments[r] = cigar_parsing.alignment_from_satags(self.chimeric_alignments[r], rl)
 		for r in reads_wo_primary_alignment:
 			del self.chimeric_alignments[r]
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Computed alignment intervals on all chimeric reads.")
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Computed alignment intervals on all chimeric reads.")
 
 
 	def pos2cni(self, chr, pos):
@@ -198,7 +203,7 @@ class bam_to_breakpoint_nanopore():
 
 	def find_amplicon_intervals(self):
 		# Reset seed intervals
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Updating seed amplicon intervals according to CN segments.")
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Updating seed amplicon intervals according to CN segments.")
 		for ai in range(len(self.amplicon_intervals)):
 			chr = self.amplicon_intervals[ai][0]
 			lcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][1]))[0].data
@@ -209,49 +214,49 @@ class bam_to_breakpoint_nanopore():
 			self.amplicon_intervals[ai][2] = self.cns_intervals_by_chr[chr][rcni][2]
 			if len(list(self.pos2cni(chr, self.cns_intervals_by_chr[chr][rcni][2] + self.interval_delta))) > 0:
 				self.amplicon_intervals[ai][2] = self.cns_intervals_by_chr[chr][rcni][2] + self.interval_delta
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tUpdated amplicon interval %s" %self.amplicon_intervals[ai])
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tUpdated amplicon interval %s" %self.amplicon_intervals[ai])
  
 		ccid = 0
 		for ai in range(len(self.amplicon_intervals)):
 			if self.amplicon_intervals[ai][3] == -1:
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Begin processing amplicon interval %d" %ai)
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAmplicon interval %s" %self.amplicon_intervals[ai])
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Begin processing amplicon interval %d" %ai)
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAmplicon interval %s" %self.amplicon_intervals[ai])
 				self.find_interval_i(ai, ccid)
 				ccid += 1
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Identified %d amplicon intervals in total." %len(self.amplicon_intervals))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Identified %d amplicon intervals in total." %len(self.amplicon_intervals))
 		sorted_ai_indices = sorted(range(len(self.amplicon_intervals)), key = lambda i: (global_names.chr_idx[self.amplicon_intervals[i][0]], self.amplicon_intervals[i][1]))
 		amplicon_intervals_sorted = [self.amplicon_intervals[i] for i in sorted_ai_indices]
 		for ai in range(len(amplicon_intervals_sorted)):
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAmplicon interval %s" %amplicon_intervals_sorted[ai])
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAmplicon interval %s" %amplicon_intervals_sorted[ai])
 		
 		# Merge amplicon intervals
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Begin merging adjacent intervals.")
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Begin merging adjacent intervals.")
 		lastai = 0
 		intervals_to_merge = []
 		for ai in range(len(amplicon_intervals_sorted) - 1):
 			if not (interval_adjacent(amplicon_intervals_sorted[ai + 1], amplicon_intervals_sorted[ai]) or \
 				interval_overlap(amplicon_intervals_sorted[ai], amplicon_intervals_sorted[ai + 1])):
 				if ai > lastai: 
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Merging intervals from %d to %d." %(lastai, ai))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Merging intervals from %d to %d." %(lastai, ai))
 					intervals_to_merge.append([lastai, ai])
 				lastai = ai + 1
 		if len(amplicon_intervals_sorted) > 0 and lastai < len(amplicon_intervals_sorted) - 1:
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Merging intervals from %d to %d." %(lastai, len(amplicon_intervals_sorted) - 1))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Merging intervals from %d to %d." %(lastai, len(amplicon_intervals_sorted) - 1))
 			intervals_to_merge.append([lastai, len(amplicon_intervals_sorted) - 1])
 		for int_range in intervals_to_merge[::-1]:
 			# Reset interval 
 			amplicon_intervals_sorted[int_range[0]][2] = amplicon_intervals_sorted[int_range[1]][2]
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset amplicon interval %d to %s." %(int_range[0], amplicon_intervals_sorted[int_range[0]]))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset amplicon interval %d to %s." %(int_range[0], amplicon_intervals_sorted[int_range[0]]))
 			# Modify ccid 
 			for ai in range(int_range[0] + 1, int_range[1] + 1):
 				if amplicon_intervals_sorted[ai][3] != amplicon_intervals_sorted[int_range[0]][3]:
 					ccid = amplicon_intervals_sorted[ai][3]
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset amplicon intervals with ccid %d." %ccid)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset amplicon intervals with ccid %d." %ccid)
 					for ai_ in range(len(amplicon_intervals_sorted)):
 						if amplicon_intervals_sorted[ai_][3] == ccid:
 							amplicon_intervals_sorted[ai_][3] = amplicon_intervals_sorted[int_range[0]][3]
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset ccid of amplicon interval %d to %d." %(ai_, amplicon_intervals_sorted[int_range[0]][3]))
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Updated amplicon interval: %s" %amplicon_intervals_sorted[ai_])
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset ccid of amplicon interval %d to %d." %(ai_, amplicon_intervals_sorted[int_range[0]][3]))
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Updated amplicon interval: %s" %amplicon_intervals_sorted[ai_])
 			# Modify interval connections
 			connection_map = dict()
 			for connection in self.amplicon_interval_connections.keys():
@@ -268,7 +273,7 @@ class bam_to_breakpoint_nanopore():
 						connection_map[connection] = (connection_map[connection][1], connection_map[connection][0])
 			for connection in connection_map.keys():
 				if connection != connection_map[connection]:
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset connection between amplicon intervals %s to %s." %(connection, connection_map[connection]))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset connection between amplicon intervals %s to %s." %(connection, connection_map[connection]))
 					if connection_map[connection] not in self.amplicon_interval_connections:
 						self.amplicon_interval_connections[connection_map[connection]] = self.amplicon_interval_connections[connection]
 					else:
@@ -279,7 +284,7 @@ class bam_to_breakpoint_nanopore():
 			# Delete intervals
 			for ai in range(int_range[0] + 1, int_range[1] + 1)[::-1]:
 				ai_unsorted = sorted_ai_indices[ai]
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Delete amplicon intervals %d - %s." %(ai_unsorted, self.amplicon_intervals[ai_unsorted]))
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Delete amplicon intervals %d - %s." %(ai_unsorted, self.amplicon_intervals[ai_unsorted]))
 				del amplicon_intervals_sorted[ai]
 				del sorted_ai_indices[ai]
 		
@@ -304,9 +309,9 @@ class bam_to_breakpoint_nanopore():
 						elif ai2 == ai_ and ai_explored[ai1] == 0:
 							L.append(ai1)
 		
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "There are %d amplicon intervals after merging." %len(self.amplicon_intervals))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "There are %d amplicon intervals after merging." %len(self.amplicon_intervals))
 		for ai in range(len(self.amplicon_intervals)):
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAmplicon interval %s after merging." %self.amplicon_intervals[ai])
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAmplicon interval %s after merging." %self.amplicon_intervals[ai])
 
 	
 	def addbp(self, bp_, bpr_, bp_stats_, ccid):
@@ -332,18 +337,18 @@ class bam_to_breakpoint_nanopore():
 			by a breakpoint edge
 		Assign I a connected component id ccid if not already assigned
 		"""
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tStart BFS on amplicon interval %d." %ai)
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tStart BFS on amplicon interval %d." %ai)
 		L = [ai] # BFS queue
 		while len(L) > 0:
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tBFS queue: %s" %L)
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tBFS queue: %s" %L)
 			ai_ = L.pop(0)
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tNext amplicon interval %d: %s." %(ai_, self.amplicon_intervals[ai_]))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tNext amplicon interval %d: %s." %(ai_, self.amplicon_intervals[ai_]))
 			chr = self.amplicon_intervals[ai_][0]
 			s = self.amplicon_intervals[ai_][1]
 			e = self.amplicon_intervals[ai_][2]
 			if self.amplicon_intervals[ai_][3] == -1:
 				self.amplicon_intervals[ai_][3] = ccid
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tReset connected component ID to %d" %ccid)
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tReset connected component ID to %d" %ccid)
 
 			# Identify all amplification intervals connected to interval indexed by ai_ with a breakpoint edge
 			si = list(self.pos2cni(chr, s))[0].data
@@ -383,7 +388,7 @@ class bam_to_breakpoint_nanopore():
 			new_intervals_refined = []
 			new_intervals_connections = []
 			for chr_ in d1_segs.keys():
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFound new intervals on chr %s" %chr_)
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFound new intervals on chr %s" %chr_)
 				new_intervals = [] # Initial list of new amplicon intervals
 				sorted_bins_chr_ = sorted(d1_segs[chr_].keys())
 				nir = set([])
@@ -405,7 +410,7 @@ class bam_to_breakpoint_nanopore():
 				for nint_ in new_intervals:
 					ns = self.cns_intervals_by_chr[nint_[0]][nint_[1]][1]
 					ne = self.cns_intervals_by_chr[nint_[0]][nint_[2]][2]
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tRefining new interval %s." %[chr_, ns, ne])
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tRefining new interval %s." %[chr_, ns, ne])
 					new_bp_list = []
 					for r in nint_[-1]:
 						r_int = self.chimeric_alignments[r][0]
@@ -435,31 +440,31 @@ class bam_to_breakpoint_nanopore():
 								interval_overlap(rr_int[ri - 1], self.amplicon_intervals[ai_]):
 								new_bp_list.append(interval2bp(rr_int[ri - 1], rr_int[ri + 1], (r, ri - 1, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri - 1][1])) + [q_[ri - 1], q_[ri + 1]])
 
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFound %d reads connecting the two intervals." %len(new_bp_list))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFound %d reads connecting the two intervals." %len(new_bp_list))
 					new_bp_clusters = cluster_bp_list(new_bp_list, self.min_cluster_cutoff, self.max_breakpoint_distance_cutoff)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tThese reads formed %d clusters." %(len(new_bp_clusters)))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tThese reads formed %d clusters." %(len(new_bp_clusters)))
 					new_bp_refined = []
 					for c in new_bp_clusters:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\tNew cluster of size %d." %(len(c)))
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\tNew cluster of size %d." %(len(c)))
 						if len(c) >= self.min_cluster_cutoff:
 							num_subcluster = 0
 							bp_cluster_r = c
 							while len(bp_cluster_r) >= self.min_cluster_cutoff:
 								bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(bp_cluster_r, self.min_bp_match_cutoff_)
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tSubcluster %d" %(num_subcluster))
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t\tbp = %s" %(bp))
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t\tNum long read support = %d" %(len(set(bpr))))
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t\tbp_stats = %s" %(bp_stats_))
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tSubcluster %d" %(num_subcluster))
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\t\tbp = %s" %(bp))
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\t\tNum long read support = %d" %(len(set(bpr))))
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\t\tbp_stats = %s" %(bp_stats_))
 								if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or \
 									(len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)):
 									bpi = self.addbp(bp, set(bpr), bp_stats_, ccid)
 									if bpi not in new_bp_refined:
 										new_bp_refined.append(bpi)
-									logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\tKeeped the cluster.")
+									logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\tKeeped the cluster.")
 								else:
-									logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\tDiscarded the cluster.")
+									logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\tDiscarded the cluster.")
 						else:
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\tDiscarded the cluster.")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\tDiscarded the cluster.")
 					
 					nint_segs = []
 					nint_segs_ = []
@@ -472,10 +477,10 @@ class bam_to_breakpoint_nanopore():
 								elif interval_overlap([bp[3], bp[4], bp[4]], self.amplicon_intervals[ai_]) and interval_overlap([bp[0], bp[1], bp[1]], [nint_[0], ns, ne]):
 									nint_segs.append([list(self.pos2cni(bp[0], bp[1]))[0].data, bp[1], bpi])
 								else:
-									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tExact breakpoint outside amplicon interval.")
-									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tBreakpoint %s." %bp)
-									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tCurrent interval %s." %self.amplicon_intervals[ai_])
-									logging.warning("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tNew interval %s." %[nint_[0], ns, ne])
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tExact breakpoint outside amplicon interval.")
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tBreakpoint %s." %bp)
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tCurrent interval %s." %self.amplicon_intervals[ai_])
+									logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tNew interval %s." %[nint_[0], ns, ne])
 									o1 = interval_overlap([bp[0], bp[1], bp[1]], [nint_[0], ns, ne])
 									o2 = interval_overlap([bp[3], bp[4], bp[4]], [nint_[0], ns, ne])
 									if o1 and o2:
@@ -529,10 +534,10 @@ class bam_to_breakpoint_nanopore():
 								for i_ in range(lasti, i + 1):
 									new_intervals_connections[-1].append(nint_segs[i_][2])
 								lasti = i + 1
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tList of breakpoints connected to the new interval:")
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tList of breakpoints connected to the new interval:")
 								for bpi in new_intervals_connections[-1]:
-									logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t%s" %self.new_bp_list[bpi][:6])
+									logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\t%s" %self.new_bp_list[bpi][:6])
 						if len(nint_segs) > 0:
 							amp_flag_l = (self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][3] >= self.cn_gain)
 							amp_flag_r = (self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][3] >= self.cn_gain)
@@ -558,10 +563,10 @@ class bam_to_breakpoint_nanopore():
 							new_intervals_connections.append([])
 							for i_ in range(lasti, len(nint_segs)):
 								new_intervals_connections[-1].append(nint_segs[i_][2])
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tList of breakpoints connected to the new interval:")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tList of breakpoints connected to the new interval:")
 							for bpi in new_intervals_connections[-1]:
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\t\t%s" %self.new_bp_list[bpi][:6])
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\t\t%s" %self.new_bp_list[bpi][:6])
 						lasti = 0
 						for i in range(0, len(nint_segs_) - 1):
 							# two intervals in nint_segs_ might be on different chrs
@@ -597,8 +602,8 @@ class bam_to_breakpoint_nanopore():
 								new_intervals_refined.append([nint_segs_[lasti][0], l, r, -1])
 								new_intervals_connections.append([])
 								lasti = i + 1
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
-								logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tSkip breakpoints connected to the new interval.")
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
+								logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tSkip breakpoints connected to the new interval.")
 						if len(nint_segs_) > 0:
 							amp_flag_l = (self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain)
 							amp_flag_r = (self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][3] >= self.cn_gain)
@@ -622,11 +627,11 @@ class bam_to_breakpoint_nanopore():
 								r = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[-1][1]][2]
 							new_intervals_refined.append([nint_segs_[lasti][0], l, r, -1])
 							new_intervals_connections.append([])
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tSkip breakpoints connected to the new interval:")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFixed new interval: %s." %new_intervals_refined[-1])
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tSkip breakpoints connected to the new interval:")
 
 			# BFS
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tProcessing new intervals.")
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tProcessing new intervals.")
 			for ni in range(len(new_intervals_refined)):
 				ei, intl = interval_exclusive(new_intervals_refined[ni], self.amplicon_intervals)
 				if len(intl) == 0:
@@ -634,7 +639,7 @@ class bam_to_breakpoint_nanopore():
 					for ei_ in ei:
 						ei_str += "%s " %self.amplicon_intervals[ei_]
 					ei_str = ei_str.rstrip()	
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tNew interval %s overlaps with existing interval %s." 
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tNew interval %s overlaps with existing interval %s."
 									%(new_intervals_refined[ni], ei_str))
 					for bpi in new_intervals_connections[ni]:
 						bp = self.new_bp_list[bpi][:6]
@@ -653,9 +658,9 @@ class bam_to_breakpoint_nanopore():
 					for int_ in intl:
 						nai = len(self.amplicon_intervals)
 						self.amplicon_intervals.append(int_)
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tAdded new interval %s to the amplicon interval list." 
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tAdded new interval %s to the amplicon interval list."
 								%int_)
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t\tNew interval index: %d." %nai) 
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tNew interval index: %d." %nai)
 						self.amplicon_interval_connections[(ai_, nai)] = set([])
 						if len(ei) == 0:
 							for bpi in new_intervals_connections[ni]:
@@ -737,21 +742,21 @@ class bam_to_breakpoint_nanopore():
 						grr = int(rr_int[i - 1][2]) - int(rr_int[i + 1][1])
 						if abs(gr - grr) > max(100, abs(gr * 0.2)):
 							new_bp_list_.append(interval2bp(rr_int[i - 1], rr_int[i + 1], (r, i - 1, i + 1), int(r_int[i + 1][0]) - int(r_int[i - 1][1])) + [q_[i - 1], q_[i + 1]])
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Found %d reads with new breakpoints." %(len(new_bp_list_)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Found %d reads with new breakpoints." %(len(new_bp_list_)))
 	
 		new_bp_clusters = cluster_bp_list(new_bp_list_, self.min_cluster_cutoff, self.max_breakpoint_distance_cutoff)
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "These reads formed %d clusters." %(len(new_bp_clusters)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "These reads formed %d clusters." %(len(new_bp_clusters)))
 		for c in new_bp_clusters:
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "New cluster of size %d." %(len(c)))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "New cluster of size %d." %(len(c)))
 			if len(c) >= self.min_cluster_cutoff:
 				num_subcluster = 0
 				bp_cluster_r = c
 				while len(bp_cluster_r) >= self.min_cluster_cutoff:
 					bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(bp_cluster_r, self.min_bp_match_cutoff_)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tSubcluster %d" %(num_subcluster))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp = %s" %(bp))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum long read support = %d" %(len(set(bpr))))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp_stats = %s" %(bp_stats_))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tSubcluster %d" %(num_subcluster))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tbp = %s" %(bp))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum long read support = %d" %(len(set(bpr))))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tbp_stats = %s" %(bp_stats_))
 					if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)):
 						io1 = interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals)
 						io2 = interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals)
@@ -763,10 +768,10 @@ class bam_to_breakpoint_nanopore():
 							except:
 								self.amplicon_interval_connections[(min(io1, io2), max(io1, io2))] = set([bpi])
 					else:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the subcluster %d." %(num_subcluster))
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the subcluster %d." %(num_subcluster))
 					num_subcluster += 1
 			else:
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the cluster.")
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the cluster.")
 
 
 	def find_smalldel_breakpoints(self):
@@ -789,7 +794,7 @@ class bam_to_breakpoint_nanopore():
 							self.large_indel_alignments[rn].append([ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq])
 						except:
 							self.large_indel_alignments[rn] = [[ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq]]
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Fetched %d reads with large indels in CIGAR." %(len(self.large_indel_alignments)))
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Fetched %d reads with large indels in CIGAR." %(len(self.large_indel_alignments)))
 		
 		for r in self.large_indel_alignments.keys():
 			for rr_gap_i in range(len(self.large_indel_alignments[r])):
@@ -799,21 +804,21 @@ class bam_to_breakpoint_nanopore():
 					rr_gap_[2] = rr_gap[1]
 					rr_gap_[1] = rr_gap[2]
 				new_bp_list_.append([rr_gap_[0], rr_gap_[1], '-', rr_gap_[0], rr_gap_[2], '+', (r, rr_gap_i, rr_gap_i), 0, 0, -1, -1])
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Found %d reads with new small del breakpoints." %(len(new_bp_list_)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Found %d reads with new small del breakpoints." %(len(new_bp_list_)))
 
 		new_bp_clusters = cluster_bp_list(new_bp_list_, self.min_cluster_cutoff, self.max_breakpoint_distance_cutoff)
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "These reads formed %d clusters." %(len(new_bp_clusters)))
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "These reads formed %d clusters." %(len(new_bp_clusters)))
 		for c in new_bp_clusters:
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "New cluster of size %d." %(len(c)))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "New cluster of size %d." %(len(c)))
 			if len(c) >= self.min_cluster_cutoff:
 				num_subcluster = 0
 				bp_cluster_r = c
 				while len(bp_cluster_r) >= self.min_cluster_cutoff:
 					bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(bp_cluster_r, self.min_bp_match_cutoff_)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tSubcluster %d" %(num_subcluster))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp = %s" %(bp))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum long read support = %d" %(len(set(bpr))))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp_stats = %s" %(bp_stats_))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tSubcluster %d" %(num_subcluster))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tbp = %s" %(bp))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum long read support = %d" %(len(set(bpr))))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tbp_stats = %s" %(bp_stats_))
 					if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)):
 						io1 = interval_overlap_l([bp[0], bp[1], bp[1]], self.amplicon_intervals)
 						io2 = interval_overlap_l([bp[3], bp[4], bp[4]], self.amplicon_intervals)
@@ -825,10 +830,10 @@ class bam_to_breakpoint_nanopore():
 							except:
 								self.amplicon_interval_connections[(min(io1, io2), max(io1, io2))] = set([bpi])
 					else:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the subcluster %d." %(num_subcluster))
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the subcluster %d." %(num_subcluster))
 					num_subcluster += 1
 			else:
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the cluster.")
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the cluster.")
 
 	
 	def find_cn_breakpoints(self, b = 300, n = 50):
@@ -942,7 +947,7 @@ class bam_to_breakpoint_nanopore():
 							split_int[ai] = [(srce[4] - 1, srce[4], len(self.new_bp_list) + srci, 4, '-')]
 
 		# Construct graphs with sequence and concordant edges
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + \
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + \
 				"Will split the following %d amplicon intervals into sequence edges and build breakpoint graphs." %(len(split_int)))
 		amplicon_id = 1
 		for sseg in self.amplicon_intervals:
@@ -953,23 +958,23 @@ class bam_to_breakpoint_nanopore():
 			# Initialize breakpoint graph objects
 			self.lr_graph.append(BreakpointGraph())
 		for ai in split_int.keys():
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Will split the amplicon interval at index %d." %(ai))
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tSplit interval at %s." %(split_int[ai]))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Will split the amplicon interval at index %d." %(ai))
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tSplit interval at %s." %(split_int[ai]))
 		for ai in split_int.keys():
 			split_int[ai].sort(key = lambda item: item[0])
 			# Trim amplified intervals if possible
 			"""
 			if self.amplicon_intervals[ai][2] - self.amplicon_intervals[ai][1] > self.max_seq_len:
 				if split_int[ai][0][0] - self.amplicon_intervals[ai][1] > self.interval_delta:
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + \
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + \
 							"Modified the start coordinate of interval at index %d." %(ai))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t%s:%d->%d." %(self.amplicon_intervals[ai][0],
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t%s:%d->%d." %(self.amplicon_intervals[ai][0],
 							self.amplicon_intervals[ai][1], split_int[ai][0][0] - self.interval_delta))
 					self.amplicon_intervals[ai][1] = split_int[ai][0][0] - self.interval_delta
 				if self.amplicon_intervals[ai][2] - split_int[ai][-1][1] > self.interval_delta:
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + \
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + \
 							"Modified the end coordinate of interval at index %d." %(ai))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\t%s:%d->%d." %(self.amplicon_intervals[ai][0],
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t%s:%d->%d." %(self.amplicon_intervals[ai][0],
 							self.amplicon_intervals[ai][2], split_int[ai][-1][1] + self.interval_delta))
 					self.amplicon_intervals[ai][2] = split_int[ai][-1][1] + self.interval_delta
 			"""
@@ -1008,10 +1013,10 @@ class bam_to_breakpoint_nanopore():
 			self.lr_graph[amplicon_idx].amplicon_intervals.append([sseg[0], sseg[1], sseg[2]])
 			self.lr_graph[amplicon_idx].add_endnode((sseg[0], sseg[1], '-'))
 			self.lr_graph[amplicon_idx].add_endnode((sseg[0], sseg[2], '+'))
-		logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "The following nodes correspond to interval ends.")
+		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "The following nodes correspond to interval ends.")
 		for amplicon_idx in range(len(self.lr_graph)):
 			for node in self.lr_graph[amplicon_idx].endnodes.keys():
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAmplicon %d, node %s." 
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAmplicon %d, node %s."
 						%(amplicon_idx + 1, str(node)))
 		
 		# Construct graphs with discordant and source edges
@@ -1023,7 +1028,7 @@ class bam_to_breakpoint_nanopore():
 			assert self.amplicon_intervals[io1][3] == self.amplicon_intervals[io2][3]
 			amplicon_idx = self.ccid2id[self.amplicon_intervals[io1][3]] - 1
 			if self.amplicon_intervals[io1][3] != bp_ccid:
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset the ccid for breakpoint %s at index %d from %d to %d." \
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset the ccid for breakpoint %s at index %d from %d to %d." \
 						%(bp[:6], bpi, bp_ccid, self.amplicon_intervals[io1][3]))
 				self.new_bp_ccids[bpi] = self.amplicon_intervals[io1][3]
 			self.lr_graph[amplicon_idx].add_discordant_edge(bp[0], bp[1], bp[2], bp[3], bp[4], bp[5], lr_count = len(bp[-1]), reads = bp[-1])
@@ -1035,13 +1040,13 @@ class bam_to_breakpoint_nanopore():
 
 		# Print summary statistics for each amplicon 
 		for amplicon_idx in range(len(self.lr_graph)):
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"Num sequence edges in amplicon %d = %d." %(amplicon_idx + 1, len(self.lr_graph[amplicon_idx].sequence_edges)))
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"Num concordant edges in amplicon %d = %d." %(amplicon_idx + 1, len(self.lr_graph[amplicon_idx].concordant_edges)))
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"Num discordant edges in amplicon %d = %d." %(amplicon_idx + 1, len(self.lr_graph[amplicon_idx].discordant_edges)))
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"Num source edges in amplicon %d = %d." %(amplicon_idx + 1, len(self.lr_graph[amplicon_idx].source_edges)))
 
 
@@ -1053,7 +1058,7 @@ class bam_to_breakpoint_nanopore():
 			for seqi in range(len(self.lr_graph[amplicon_idx].sequence_edges)):
 				seg = self.lr_graph[amplicon_idx].sequence_edges[seqi]
 				if seg[5] == -1:
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Finding LR cov for sequence edge %s." %(seg[:3]))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Finding LR cov for sequence edge %s." %(seg[:3]))
 					"""
 					For long read, use the total number of nucleotides
 					"""
@@ -1061,14 +1066,14 @@ class bam_to_breakpoint_nanopore():
 					self.lr_graph[amplicon_idx].sequence_edges[seqi][5] = len(rl_list) 
 					self.lr_graph[amplicon_idx].sequence_edges[seqi][6] = sum([sum(nc) \
 						for nc in self.lr_bamfh.count_coverage(seg[0], seg[1], seg[2] + 1, quality_threshold = 0, read_callback = 'nofilter')])
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "LR cov assigned for sequence edge %s." %(seg[:3]))
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "LR cov assigned for sequence edge %s." %(seg[:3]))
 		"""
 		Extract the long read coverage from bam file, if missing, for each concordant edge 
 		"""
 		for amplicon_idx in range(len(self.lr_graph)):
 			for eci in range(len(self.lr_graph[amplicon_idx].concordant_edges)):
 				ec = self.lr_graph[amplicon_idx].concordant_edges[eci]
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Finding cov for concordant edge %s." %(ec[:6]))
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Finding cov for concordant edge %s." %(ec[:6]))
 				rls = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[0], start = ec[1], stop = ec[1] + 1)])
 				rrs = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[3], start = ec[4], stop = ec[4] + 1)])
 				rls1 = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[0], start = ec[1] - self.min_bp_match_cutoff_ - 1, stop = ec[1] - self.min_bp_match_cutoff_)])
@@ -1080,7 +1085,7 @@ class bam_to_breakpoint_nanopore():
 					rbps |= self.lr_graph[amplicon_idx].discordant_edges[bpi][10]
 				self.lr_graph[amplicon_idx].concordant_edges[eci][9] = rls | rrs
 				self.lr_graph[amplicon_idx].concordant_edges[eci][8] = len((rls & rrs & rls1 & rrs1) - rbps)
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "LR cov assigned for concordant edge %s." %(ec[:6]))
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "LR cov assigned for concordant edge %s." %(ec[:6]))
 
 
 	def compute_path_constraints(self):
@@ -1106,7 +1111,7 @@ class bam_to_breakpoint_nanopore():
 							bp_reads[r_[0]][0].append([r_[1], r_[2], di])
 						else:
 							bp_reads[r_[0]] = [[[r_[1], r_[2], di]], []]
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"There are %d reads in total covering at least one breakpoint in amplicon %d." %(len(bp_reads), amplicon_idx + 1))
 
 			for rn in bp_reads.keys():
@@ -1118,12 +1123,12 @@ class bam_to_breakpoint_nanopore():
 					ai1 = bp_reads_rn[0][0]
 					ai2 = bp_reads_rn[0][1]
 					bpi = bp_reads_rn[0][2]
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Read %s covers a single breakpoint." %rn)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (%d, %d, %d)" \
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Read %s covers a single breakpoint." %rn)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (%d, %d, %d)" \
 							%(rints, self.chimeric_alignments[rn][2], ai1, ai2, bpi))
 					path = chimeric_alignment_to_path_i(self.lr_graph[amplicon_idx], rints, ai1, ai2, bpi)
 					paths.append(path)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)	
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tResulting subpath = %s" %path)
 				elif len(bp_reads_rn) > 1 and len(bp_reads_rn_sdel) == 0:
 					bp_reads_rn = sorted(bp_reads_rn, key = lambda item: min(item[0], item[1]))
 					bp_reads_rn_split = [[0]]
@@ -1134,8 +1139,8 @@ class bam_to_breakpoint_nanopore():
 						else:
 							bp_reads_rn_split.append([i])
 						last_ai = max(bp_reads_rn[i][0], bp_reads_rn[i][1])
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Read %s covers multiple breakpoints." %rn)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %bp_reads_rn_split)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Read %s covers multiple breakpoints." %rn)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tBlocks of local alignments: %s" %bp_reads_rn_split)
 					qints = self.chimeric_alignments[rn][0]
 					skip = 0
 					for qi in range(len(qints) - 1):
@@ -1143,60 +1148,60 @@ class bam_to_breakpoint_nanopore():
 							skip = 1
 							break
 					if skip == 1:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to overlapping local alignments.")
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s." \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the read due to overlapping local alignments.")
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s." \
 								%(self.chimeric_alignments[rn][1], self.chimeric_alignments[rn][2]))
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on the read = %s." %qints)
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on the read = %s." %qints)
 						continue
 					for ai_block in bp_reads_rn_split:
 						rints = [aint[:4] for aint in self.chimeric_alignments[rn][1]]
 						ai_list = [bp_reads_rn[bi][:2] for bi in ai_block]
 						bp_list = [bp_reads_rn[bi][2] for bi in ai_block]
 						if len(set(bp_list)) < len(bp_list):
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the block due to repeated breakpoints.")
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %ai_block)
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the block due to repeated breakpoints.")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tBlocks of local alignments: %s" %ai_block)
 							continue
 						path = chimeric_alignment_to_path(self.lr_graph[amplicon_idx], rints, ai_list, bp_list)
 						paths.append(path)
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bps = %s" \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s; bps = %s" \
 							%(rints, self.chimeric_alignments[rn][2], bp_reads_rn))
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tResulting subpath = %s" %path)
 				elif len(bp_reads_rn) == 0 and len(bp_reads_rn_sdel) == 1:
 					rints = self.large_indel_alignments[rn][0]
 					rq = rints[-1]
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Read %s covers a single small del breakpoint." %rn)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Read %s covers a single small del breakpoint." %rn)
 					if rints[3] < rints[4]:
 						if rints[2] < rints[1]:
 							rints = [[rints[0], rints[3], rints[2], '+'], [rints[0], rints[1], rints[4], '+']]
 						else:
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to inconsistent alignment information.")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the read due to inconsistent alignment information.")
 							continue
 					else:
 						if rints[2] > rints[1]:
 							rints = [[rints[0], rints[3], rints[2], '-'], [rints[0], rints[1], rints[4], '-']]
 						else:
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to inconsistent alignment information.")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the read due to inconsistent alignment information.")
 							continue
 					bpi = bp_reads_rn_sdel[0][2]
 					path = []
 					if rints[0][3] == '+':
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (1, 0, %d)" \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (1, 0, %d)" \
 								%(rints, rq, bpi))
 						path = chimeric_alignment_to_path_i(self.lr_graph[amplicon_idx], rints, 1, 0, bpi)
 						paths.append(path)
 					else:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (0, 1, %d)" \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s; bp = (0, 1, %d)" \
 								%(rints, rq, bpi))
 						path = chimeric_alignment_to_path_i(self.lr_graph[amplicon_idx], rints, 0, 1, bpi)
 						paths.append(path)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tResulting subpath = %s" %path)
 				elif len(bp_reads_rn) == 0 and len(bp_reads_rn_sdel) > 1:
 					rints = self.large_indel_alignments[rn]
 					rq = rints[0][-1]
 					rints_ = set([(rint[0], min(rint[3], rint[4]), max(rint[3], rint[4])) for rint in rints])
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Read %s covers multiple small del breakpoints." %rn)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Read %s covers multiple small del breakpoints." %rn)
 					if len(rints_) > 1 or len(rints) <= 1:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to inconsistent alignment information.")
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the read due to inconsistent alignment information.")
 						continue
 					rints_ = [[rint[0], min(rint[3], rint[4]), max(rint[3], rint[4]), '+'] for rint in rints]
 					rints = sorted(rints, key = lambda item: min(item[1], item[2]))
@@ -1214,28 +1219,28 @@ class bam_to_breakpoint_nanopore():
 						else:
 							bp_reads_rn_sdel_split.append([i])
 						last_ai = bp_reads_rn_sdel[i][0]
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %bp_reads_rn_sdel_split)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tBlocks of local alignments: %s" %bp_reads_rn_sdel_split)
 					for ai_block in bp_reads_rn_sdel_split:
 						ai_list = [[bp_reads_rn_sdel[bi][0], bp_reads_rn_sdel[bi][0] + 1] for bi in ai_block]
 						bp_list = [bp_reads_rn_sdel[bi][2] for bi in ai_block]
 						if len(set(bp_list)) < len(bp_list):
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the block due to repeated breakpoints.")
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %ai_block)
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the block due to repeated breakpoints.")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tBlocks of local alignments: %s" %ai_block)
 							continue
 						path = chimeric_alignment_to_path(self.lr_graph[amplicon_idx], rints_, ai_list, bp_list)
 						paths.append(path)
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s; bps = %s" \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s; bps = %s" \
 							%(rints_, rq, bp_reads_rn_sdel))
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tResulting subpath = %s" %path)
 				else:
 					rints = [aint[:4] for aint in self.chimeric_alignments[rn][1]]
 					rints_ = self.large_indel_alignments[rn]
 					rint_split = []
 					skip = 0
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "Read %s covers breakpoints and small del breakpoints." %rn)
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s" \
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Read %s covers breakpoints and small del breakpoints." %rn)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s" \
 						%(rints, self.chimeric_alignments[rn][2]))
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tSmall del alignment intervals on reference = %s" %rints_)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tSmall del alignment intervals on reference = %s" %rints_)
 					for rint_ in rints_:
 						fount_split_rint = 0
 						for ri in range(len(rints)):
@@ -1248,7 +1253,7 @@ class bam_to_breakpoint_nanopore():
 							skip = 1
 							break
 					if skip == 1:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to inconsistent alignment information.")
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the read due to inconsistent alignment information.")
 						continue
 					for rsi in range(len(rint_split)):
 						ri = rint_split[rsi]
@@ -1278,7 +1283,7 @@ class bam_to_breakpoint_nanopore():
 						else:
 							bp_reads_rn_split.append([i])
 						last_ai = max(bp_reads_rn[i][0], bp_reads_rn[i][1])
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %bp_reads_rn_split)
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tBlocks of local alignments: %s" %bp_reads_rn_split)
 					qints = self.chimeric_alignments[rn][0]
 					skip = 0
 					for qi in range(len(qints) - 1):
@@ -1286,23 +1291,23 @@ class bam_to_breakpoint_nanopore():
 							skip = 1
 							break
 					if skip == 1:
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the read due to overlapping local alignments.")
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq = %s." \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the read due to overlapping local alignments.")
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq = %s." \
 								%(self.chimeric_alignments[rn][1], self.chimeric_alignments[rn][2]))
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on the read = %s." %qints)
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on the read = %s." %qints)
 						continue
 					for ai_block in bp_reads_rn_split:
 						ai_list = [bp_reads_rn[bi][:2] for bi in ai_block]
 						bp_list = [bp_reads_rn[bi][2] for bi in ai_block]
 						if len(set(bp_list)) < len(bp_list):
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tDiscarded the block due to repeated breakpoints.")
-							logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tBlocks of local alignments: %s" %ai_block)
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tDiscarded the block due to repeated breakpoints.")
+							logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tBlocks of local alignments: %s" %ai_block)
 							continue
 						path = chimeric_alignment_to_path(self.lr_graph[amplicon_idx], rints, ai_list, bp_list)
 						paths.append(path)
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tAlignment intervals on reference = %s; mapq (unsplit) = %s; bps = %s" \
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAlignment intervals on reference = %s; mapq (unsplit) = %s; bps = %s" \
 							%(rints, self.chimeric_alignments[rn][2], bp_reads_rn))
-						logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tResulting subpath = %s" %path)
+						logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tResulting subpath = %s" %path)
 				for pi in range(len(paths)):
 					path = paths[pi]
 					if len(path) > 5 and valid_path(self.lr_graph[amplicon_idx], path):
@@ -1316,7 +1321,7 @@ class bam_to_breakpoint_nanopore():
 							self.path_constraints[amplicon_idx][0].append(path)
 							self.path_constraints[amplicon_idx][1].append(1)
 							self.path_constraints[amplicon_idx][2].append(amplicon_idx)
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"There are %d distinct subpaths due to reads involving breakpoints in amplicon %d." %(len(self.path_constraints[amplicon_idx][0]), amplicon_idx + 1))
 			
 			# Extract reads in concordant_edges_reads
@@ -1325,7 +1330,7 @@ class bam_to_breakpoint_nanopore():
 				for rn in self.lr_graph[amplicon_idx].concordant_edges[ci][9]:
 					if rn not in self.large_indel_alignments and rn not in self.chimeric_alignments:
 						concordant_reads[rn] = amplicon_idx
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"There are %d concordant reads within amplicon intervals in amplicon %d." %(len(concordant_reads), amplicon_idx + 1))
 			for aint in self.amplicon_intervals:
 				if amplicon_idx != self.ccid2id[aint[3]] - 1:
@@ -1346,7 +1351,7 @@ class bam_to_breakpoint_nanopore():
 								self.path_constraints[amplicon_idx][0].append(path)
 								self.path_constraints[amplicon_idx][1].append(1)
 								self.path_constraints[amplicon_idx][2].append(concordant_reads[rn])		
-			logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "There are %d distinct subpaths in total in amplicon %d." 
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "There are %d distinct subpaths in total in amplicon %d."
 					%(len(self.path_constraints[amplicon_idx][0]), amplicon_idx + 1))
 
 
@@ -1364,18 +1369,18 @@ class bam_to_breakpoint_nanopore():
 			total_weights = 0.0
 			for sseg in self.lr_graph[amplicon_idx].sequence_edges:
 				total_weights += sseg[7] * sseg[-1]
-			logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Begin cycle decomposition for amplicon %d." %(amplicon_idx + 1))
-			logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total CN weights = %f." %total_weights)
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Begin cycle decomposition for amplicon %d." %(amplicon_idx + 1))
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total CN weights = %f." %total_weights)
 
 			self.longest_path_constraints[amplicon_idx] = longest_path_dict(self.path_constraints[amplicon_idx])
-			logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 					"Total num maximal subpath constraints = %d." %len(self.longest_path_constraints[amplicon_idx][0]))
 			for pathi in self.longest_path_constraints[amplicon_idx][1]:
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + 
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
 						"\tSubpath constraints %d = %s" %(pathi, self.path_constraints[amplicon_idx][0][pathi]))
 
 			k = max(10, ld // 2) # Initial num cycles/paths
-			logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total num initial cycles / paths = %d." %k)
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total num initial cycles / paths = %d." %k)
 			nnodes = len(self.lr_graph[amplicon_idx].nodes) # Does not include s and t
 			node_order = dict()
 			ni_ = 0
@@ -1385,25 +1390,25 @@ class bam_to_breakpoint_nanopore():
 			nedges = lseg + lc + ld + 2 * lsrc + 2 * len(self.lr_graph[amplicon_idx].endnodes)
 			if nedges < k:
 				k = nedges
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Reset num cycles/paths to %d." %k)
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset num cycles/paths to %d." %k)
 			sol_flag = 0
 			while k <= nedges:
 				if nedges > 100 or (3 * k + 3 * k * nedges + 2 * k * nnodes + k * len(self.longest_path_constraints[amplicon_idx][0])) >= 10000:
 					total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
 						alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed greedy cycle decomposition.")
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed greedy cycle decomposition.")
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
 					if postprocess == 1:
 						status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
 							self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
 							path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed postprocessing of the greedy solution.")
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
 						self.cycles[amplicon_idx] = cycles_post
 						self.cycle_weights[amplicon_idx] = cycle_weights_post
 						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
@@ -1418,36 +1423,36 @@ class bam_to_breakpoint_nanopore():
 						self.lr_graph[amplicon_idx], k, total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
 						p_total_weight, 0.9, num_threads, time_limit, model_prefix)
 					if status_ == GRB.INFEASIBLE:
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition is infeasible.")
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Doubling k from %d to %d." %(k, k * 2))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Cycle decomposition is infeasible.")
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Doubling k from %d to %d." %(k, k * 2))
 						k *= 2
 					else:
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed cycle decomposition with k = %d." %k)
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_[0]), len(cycles_[1])))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_, total_weights))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_, len(self.longest_path_constraints[amplicon_idx][0])))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed cycle decomposition with k = %d." %k)
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_[0]), len(cycles_[1])))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_, total_weights))
+						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_, len(self.longest_path_constraints[amplicon_idx][0])))
 						self.cycles[amplicon_idx] = cycles_
 						self.cycle_weights[amplicon_idx] = cycle_weights_
 						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_
 						sol_flag = 1
 						break
 			if sol_flag == 0:
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Cycle decomposition is infeasible, switch to greedy cycle decomposition.")
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Cycle decomposition is infeasible, switch to greedy cycle decomposition.")
 				total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
 					self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
 					alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed greedy cycle decomposition.")
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
-				logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed greedy cycle decomposition.")
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
 				if postprocess == 1:
 					status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
 						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
 						path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed postprocessing of the greedy solution.")
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed postprocessing of the greedy solution.")
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
 					self.cycles[amplicon_idx] = cycles_post
 					self.cycle_weights[amplicon_idx] = cycle_weights_post
 					self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
@@ -1462,7 +1467,7 @@ class bam_to_breakpoint_nanopore():
 		Write the result from cycle decomposition into *.cycles files
 		"""
 		for amplicon_idx in range(len(self.lr_graph)):
-			logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Output cycles for amplicon %d." %(amplicon_idx + 1))
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Output cycles for amplicon %d." %(amplicon_idx + 1))
 			fp = open(cycle_file_prefix + "_amplicon" + str(amplicon_idx + 1) + "_cycles.txt", 'w')
 			interval_num = 1
 			ai_amplicon = [ai for ai in self.amplicon_intervals if self.ccid2id[ai[3]] == amplicon_idx + 1]
@@ -1531,7 +1536,7 @@ class bam_to_breakpoint_nanopore():
 			for cycle_i in cycle_indices: 
 				cycle_edge_list = []
 				if cycle_i[0] == 0: # cycles
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTraversing next cycle, CN = %f." %self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTraversing next cycle, CN = %f." %self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
 					path_constraints_satisfied_cycle = []
 					path_constraints_support_cycle = []
 					for pathi in self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
@@ -1558,7 +1563,7 @@ class bam_to_breakpoint_nanopore():
 					else:
 						fp.write("\n")
 				else: # paths
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tTraversing next path, CN = %f." %self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
+					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTraversing next path, CN = %f." %self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
 					path_constraints_satisfied_path = []
 					path_constraints_support_path = []
 					for pathi in self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
@@ -1593,29 +1598,14 @@ class bam_to_breakpoint_nanopore():
 		self.lr_bamfh.close()
 
 
-
-if __name__ == '__main__':
+def reconstruct(args):
+	start_time = time.time()
 	global_names.TSTART = start_time
-	parser = argparse.ArgumentParser(description = "Long read only amplicon reconstruction pipeline.")
-	parser.add_argument("--lr_bam", help = "Sorted indexed (long read) bam file.", required = True)
-	parser.add_argument("--seed", help = "File including seed intervals.", required = True)
-	parser.add_argument("--output_prefix", help = "Prefix of output files.", required = True)
-	parser.add_argument("--cnseg", help = "Long read CNV segmentation file.", required = True)
-	parser.add_argument("--output_bp", help = "If specified, only output the list of breakpoints.", action = 'store_true')
-	parser.add_argument("--output_all_path_constraints", help = "If specified, output all path constraints in *.cycles file.", action = 'store_true')
-	parser.add_argument("--min_bp_support", help = "Ignore breakpoints with less than (min_bp_support * normal coverage) long read support.", type = float, default = 1.0)
-	parser.add_argument("--cycle_decomp_alpha", help = "Parameter used to balance CN weight and path constraints in greedy cycle extraction.", type = float)
-	parser.add_argument("--cycle_decomp_time_limit", help = "Maximum running time (in seconds) reserved for integer program solvers.", type = int)
-	parser.add_argument("--cycle_decomp_threads", help = "Number of threads reserved for integer program solvers.", type = int)
-	parser.add_argument("--postprocess_greedy_sol", help = "Postprocess the cycles/paths returned in greedy cycle extraction.", action = 'store_true')
-	parser.add_argument("--log_fn", help = "Name of log file.")
-	args = parser.parse_args()
-
 	log_fn = "infer_breakpoint_graph.log"
 	if args.log_fn:
 		log_fn = args.log_fn
-	logging.basicConfig(filename = log_fn, filemode = 'w', level = logging.DEBUG, 
-			format = '[%(name)s:%(levelname)s]\t%(message)s')
+	logging.basicConfig(filename=log_fn, filemode='w', level=logging.DEBUG,
+						format='[%(name)s:%(levelname)s]\t%(message)s')
 	logging.info("Python version " + sys.version + "\n")
 	commandstring = 'Commandline: '
 	for arg in sys.argv:
@@ -1623,53 +1613,58 @@ if __name__ == '__main__':
 			commandstring += '"{}" '.format(arg)
 		else:
 			commandstring += "{} ".format(arg)
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + commandstring)
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + commandstring)
 
-	b2bn = bam_to_breakpoint_nanopore(args.lr_bam, args.seed)
+	b2bn = bam_to_breakpoint_nanopore(args.lr_bam, args.cnv_seed)
 	b2bn.min_bp_cov_factor = args.min_bp_support
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Opened LR bam files.")
-	b2bn.read_cns(args.cnseg)
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed parsing CN segment files.")
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Opened LR bam files.")
+	b2bn.read_cns(args.cn_seg)
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed parsing CN segment files.")
 	b2bn.fetch()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed fetching reads containing breakpoints.")
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed fetching reads containing breakpoints.")
 	b2bn.hash_alignment_to_seg()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed hashing chimeric reads to CN segments.")
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed hashing chimeric reads to CN segments.")
 	b2bn.find_amplicon_intervals()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding amplicon intervals.")
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed finding amplicon intervals.")
 	b2bn.find_smalldel_breakpoints()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding small del breakpoints.")
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed finding small del breakpoints.")
 	b2bn.find_breakpoints()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding all discordant breakpoints.")
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed finding all discordant breakpoints.")
 	if args.output_bp:
 		b2bn.build_graph()
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Breakpoint graph built for all amplicons.")
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Breakpoint graph built for all amplicons.")
 		for gi in range(len(b2bn.lr_graph)):
 			bp_stats_i = []
 			for de in b2bn.lr_graph[gi].discordant_edges:
 				for bpi in range(len(b2bn.new_bp_list)):
 					bp_ = b2bn.new_bp_list[bpi]
 					if de[0] == bp_[0] and de[1] == bp_[1] and de[2] == bp_[2] and \
-						de[3] == bp_[3] and de[4] == bp_[4] and de[5] == bp_[5]:
+							de[3] == bp_[3] and de[4] == bp_[4] and de[5] == bp_[5]:
 						bp_stats_i.append(b2bn.new_bp_stats[bpi])
 						break
-			output_breakpoint_info_lr(b2bn.lr_graph[gi], args.output_prefix + "_amplicon" + str(gi + 1) + "_breakpoints.txt", bp_stats_i)
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + 
-				"Wrote breakpoint information, for all amplicons, to %s." %(args.output_prefix + '_amplicon*_breakpoints.txt'))
+			output_breakpoint_info_lr(b2bn.lr_graph[gi],
+									  args.output_prefix + "_amplicon" + str(gi + 1) + "_breakpoints.txt", bp_stats_i)
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) +
+					 "Wrote breakpoint information, for all amplicons, to %s." % (
+							 args.output_prefix + '_amplicon*_breakpoints.txt'))
 	else:
-		#b2bn.find_cn_breakpoints()
-		#logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed finding breakpoints corresponding to CN changes.")
+		# b2bn.find_cn_breakpoints()
+		# logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed finding breakpoints corresponding to CN changes.")
 		b2bn.build_graph()
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Breakpoint graph built for all amplicons.")
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Breakpoint graph built for all amplicons.")
 		b2bn.assign_cov()
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Fetched read coverage for all sequence and concordant edges.")
+		logging.info("#TIME " + '%.4f\t' % (
+				time.time() - global_names.TSTART) + "Fetched read coverage for all sequence and concordant edges.")
 		for gi in range(len(b2bn.lr_graph)):
 			b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Computed CN for all edges.")
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Computed CN for all edges.")
 		for gi in range(len(b2bn.lr_graph)):
 			output_breakpoint_graph_lr(b2bn.lr_graph[gi], args.output_prefix + "_amplicon" + str(gi + 1) + "_graph.txt")
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote breakpoint graph for all complicons to %s." %(args.output_prefix + '_amplicon*_graph.txt'))
+		logging.info(
+			"#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Wrote breakpoint graph for all complicons to %s." % (
+					args.output_prefix + '_amplicon*_graph.txt'))
 		b2bn.compute_path_constraints()
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Computed all subpath constraints.")
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Computed all subpath constraints.")
 		alpha_ = 0.01
 		postprocess_ = 0
 		nthreads = -1
@@ -1682,15 +1677,17 @@ if __name__ == '__main__':
 			nthreads = args.cycle_decomp_threads
 		if args.cycle_decomp_time_limit:
 			time_limit_ = args.cycle_decomp_time_limit
-		b2bn.cycle_decomposition(alpha = alpha_, num_threads = nthreads, postprocess = postprocess_, time_limit = time_limit_, model_prefix = args.output_prefix)
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Completed cycle decomposition for all amplicons.")
+		b2bn.cycle_decomposition(alpha=alpha_, num_threads=nthreads, postprocess=postprocess_, time_limit=time_limit_,
+								 model_prefix=args.output_prefix)
+		logging.info(
+			"#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed cycle decomposition for all amplicons.")
 		if args.output_all_path_constraints:
-			b2bn.output_cycles(args.output_prefix, output_all_paths = True)
+			b2bn.output_cycles(args.output_prefix, output_all_paths=True)
 		else:
 			b2bn.output_cycles(args.output_prefix)
-		logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Wrote cycles for all complicons to %s." %(args.output_prefix + '_amplicon*_cycles.txt'))
-		
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Wrote cycles for all complicons to %s." % (
+				args.output_prefix + '_amplicon*_cycles.txt'))
+
 	b2bn.closebam()
-	logging.info("#TIME " + '%.4f\t' %(time.time() - start_time) + "Total runtime.")
-
-
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Total runtime.")
+	print("\nCompleted reconstruction.")

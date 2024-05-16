@@ -1,43 +1,118 @@
 #  CoRAL - Complete Reconstruction of Amplifications with Long reads
 ## Reference
+This tool utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. A pre-print is available here: 
 https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
 
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
 
-CoRAL requires python>=3.7, and the following packages.
-* pysam(>=0.1.7) https://pysam.readthedocs.io/en/stable/ for reading mapped sequences in ```*.BAM``` format
-* cvxopt https://cvxopt.org/ for estimating CN in breakpoint graph.
-* Gurobi (>=9.1, for Python) https://www.gurobi.com/documentation/current/refman/py_python_api_overview.html for solving the quadratic (constrained) program to extract cycles/paths from the breakpoint graph.
-* CNVkit https://cnvkit.readthedocs.io/ for producing the copy number segments, as well as seed amplification intervals, in amplified interval search.
+CoRAL requires python>=3.7, and dependencies may be resolved best if python < 3.12.
+
+1. Clone source
+
+    ```
+    git clone https://github.com/AmpliconSuite/CoRAL
+    cd CoRAL
+    ```
+
+2. Install packages
+
+   - **Option 1.**  Install With `pip`.
+
+     `pip install -r requirements.txt`
+   
+      Set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
+
+   - **Option 2.** Install with `poetry`. 
+    
+      ```bash
+      pip install poetry
+      poetry install
+     ```
+
+
+3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
+   - Place the `gurobi.lic` file you download into `$HOME/`. This path is usually `/home/username/gurobi.lic`.
+
+
+
+4. Finish installing CNVkit dependencies (recommended)
+   ```bash
+   Rscript -e 'if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")'
+   Rscript -e 'BiocManager::install("DNAcopy")'
+   ```
+
+[//]: # (* pysam&#40;>=0.1.7&#41; https://pysam.readthedocs.io/en/stable/ for reading mapped sequences in ```*.BAM``` format)
+
+[//]: # (* cvxopt https://cvxopt.org/ for estimating CN in breakpoint graph.)
+
+[//]: # (* Gurobi &#40;>=9.1, for Python&#41; https://www.gurobi.com/documentation/current/refman/py_python_api_overview.html for solving the quadratic &#40;constrained&#41; program to extract cycles/paths from the breakpoint graph.)
+
+[//]: # (* CNVkit https://cnvkit.readthedocs.io/ for producing the copy number segments, as well as seed amplification intervals, in amplified interval search.)
+
+## Getting copy number calls
+Before running CoRAL, you will need genome-wide copy number (CN) calls generated from your long-read data. 
+
+- If you have these already, simply ensure that they are in a .bed format like so:
+
+   `chrom  start   end   CN`
+
+
+- If you don't have these then you can run CNVkit (installed as a dependency) to generate them, by doing
+
+   `./scripts/call_cnvs.sh <input.bam> ./reference/hg38full_ref_5k.cnn <output_dir>`
+
+   This will create a file called `[input].cns`, which you can feed to CoRAL for it's `--cn_segs` argument.
 
 ## Command line arguments to run CoRAL
-CoRAL includes a main script ```infer_breakpoint_graph.py```, which implements its main functionality of constructing breakpoint graphs and extracting cycles(/paths) from the breakpoint graph. In addition, it also includes the following 4 separate modules:
-* ```cnv_seed.py``` - for seed amplification interval identification from CNV calls;
-* ```plot_amplicons.py``` - for outputing stylistic visualizations of the breakpoint graphs and cycles;
-* ```cycle2bed.py``` - for converting the cycles output in [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) format to ```*.bed``` format;
-* ```hsr.py``` - for identifying potential integration sites on reference genome in ecDNA/HSR positive samples.
 
-### 1. Running ```infer_breakpoint_graph.py```
+CoRAL and its various run-modes can by used in the following manner
+
+`/path/to/CoRAL/src/CoRAL.py [mode] [mode arguments]`
+
+The modes are as follows:
+1. `seed`: Identify and filter copy number gain regions where amplifications exist
+2. `reconstruct`: Perform breakpoint graph construct and cycle decomposition on the amplified seeds.
+3. `plot`: Create plots of decomposed cycles and/or breakpoint graph sashimi plot.
+4. `hsr`: Identify candidate locations of chromosomal homogenously staining region (HSR) integration points for ecDNA.
+5. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to a .bed format. The AA format is also used by CoRAL.
+
+## 1. ```CoRAL.py seed```
+As the seed amplification intervals are required by the main script ```reconstruct``` mode, it is suggested the user first run ```seed``` mode to generate seed amplification intervals.
+
 Usage: 
-```python3 infer_breakpoint_graph.py <Required arguments> <Optional arguments>```
+```CoRAL.py seed <Required arguments> <Optional arguments>```
 
-**1.1 Required arguments:**
+**Required arguments:**
+* ```--cn_segs <FILE>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+
+**Optional arguments:**
+* ```--out <STRING>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file. Note that if these file is desired to be written to a different directory, then a path/directory should also be included. If not specified (by default), output the ```*_CNV_SEEDS.bed``` file to the current directory with the same prefix as the input ```*.cns``` file.
+* ```--gain <FLOAT>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
+* ```--min_seed_size <INT>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
+* ```--max_seg_gap <INT>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min_seed_size```, and their aggregate size will be compared with the value. Default is 300000. 
+
+
+## 2. ```CoRAL.py reconstruct```
+Usage: 
+```CoRAL.py reconstruct <Required arguments> <Optional arguments>```
+
+**2.1 Required arguments:**
 * ```--lr_bam <FILE>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
-* ```--seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```cnv_seed.py```](#running-```cnv_seed.py```), or provided manually.
+* ```--cnv_seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
 * ```--output_prefix <STRING>``` - Prefix of the output ```graph.txt``` and ```cycles.txt``` files. Note that if these files are desired to be written to a different directory, then paths should also be included. 
-* ```--cnseg <FILE>``` - CNV segmentation (```*.cns```) file given by CNVkit.
+* ```--cn_segs <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
-**1.2 Optional arguments:**
+**2.2 Optional arguments:**
 * ```--min_bp_support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction.
 * ```--output_all_path_constraints``` - If specified, output all path constraints given by long reads in ```*.cycles``` file (see "Expected output" below).
 * ```--cycle_decomp_alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
 * ```--cycle_decomp_time_limit <INT>``` - Maximum running time (in seconds) reserved for solving the quadratic program with Gurobi (integer program solver). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
 * ```--cycle_decomp_threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
 * ```--postprocess_greedy_sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
-*	```--log_fn <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```infer_breakpoint_graph.py``` run(s). 
+*	```--log_fn <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
 
-**1.3 Expected output:**
+**2.3 Expected output:**
 
 CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the path specified with ```--output_prefix```, all with the prefix given by ```--output_prefix```.
 
@@ -82,32 +157,73 @@ Cycle=2;Copy_count=2.8436550275157644;Segments=0+,2+,3+,4+,5+,6+,0-;Path_constra
 ```
 Note that if ```--output_all_path_constraints``` is specified, then all path constraints given by long reads will be written to in ```*.cycles``` file.
 * Other outputs include the ```output_prefix_amplicon*_model.lp``` file(s) and ```output_prefix_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrainted) program in a human readable format, and the standard output produced by Gurobi.
-### 2. Running ```cnv_seed.py```
-As the seed amplification intervals are required by the main script ```infer_breakpoint_graph.py```, it is suggested the user first run ```cnv_seed.py``` to generate seed amplification intervals.
 
+
+## 3. ```CoRAL.py plot```
 Usage: 
-```python3 cnv_seed.py <Required arguments> <Optional arguments>```
+```CoRAL.py plot <Required arguments> <Optional arguments>```
 
-**Required arguments:**
-* ```--cn_seg <FILE>```, The CNV segmentation (```*.cns```) file given by CNVkit, which is also required by ```infer_breakpoint_graph.py```.
+**3.1 Required arguments:**
+If `--plot_graph` is given, `--graph` is required. If `--plot_cycles` is given `--cycles` is required.
 
-**Optional arguments:**
-* ```--out <STRING>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file. Note that if these file is desired to be written to a different directory, then a path/directory should also be included. If not specified (by default), output the ```*_CNV_SEEDS.bed``` file to the current directory with the same prefix as the input ```*.cns``` file.
-* ```--gain <FLOAT>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
-* ```--min_seed_size <INT>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
-* ```--max_seg_gap <INT>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min_seed_size```, and their aggregate size will be compared with the value. Default is 300000. 
+| Argument                | Descripion                                                            |
+|-------------------------|-----------------------------------------------------------------------|
+| `--ref <choice>`        | Reference genome choice. Must be one of  `[hg19, hg38, GRCh38, mm10]` |
+| `--bam <file>` | Bam file the run was based on                                         |
+| `--graph <file>`        | AA-formatted `_graph.txt` file                                        |
+| `--cycles <file>`       | AA-formatted `_cycles.txt` file                                       |
+| `--output_prefix <str>` | Prefix name for output files                                          |
 
-### 3. Running ```cycle2bed.py```
+
+**3.2 Optional arguments:**
+
+| Argument                                   | Default                          | Description                                                                                                                               |
+|--------------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `--plot_graph`                             |                                  | Plot the AA graph file CN, SVs and coverage as a sashimi plot                                                                             |
+| `--plot_cycles`                            |                                  | Plot the AA cycles file genome decompositions                                                                                             |
+| `--only_cyclic_paths`                      |                                  | Only visualize the cyclic paths in the cycles file                                                                                        |
+| `--num_cycles <int>`                       | `[all]`                          | Only plot the first `[arg]` cycles from the cycles file                                                                                   |
+| `--max_coverage <float>`                   | `[1.25x max coverage in region]` | Do not extend coverage plot in graph sashimi plot above `[arg]` value                                                                     |
+| `--min_mapq <int>`                         | 15                               | Do not use alignment in coverage plot with MAPQ value below `[arg]`                                                                       |
+| `--gene_subset_list <str> <str> <str> ...` | `[all]`                          | Only indicate positions of the gene names in this list                                                                                    |
+| `--hide_genes`                             |                                  | Do not plot positions of genes                                                                                                            |
+| `--gene_fontsize <float>`                  | 12                               | Adjust fontsize of gene names                                                                                                             
+| `--bushman_genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
+| `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
+
+
+## 4. ```CoRAL.py hsr```
+Usage: 
+```CoRAL.py hsr <Required arguments> <Optional arguments>```
+
+**4.1 Required arguments:**
+
+| Argument           | Descripion                                        |
+|--------------------|---------------------------------------------------|
+| `--lr_bam <file>`  | Coordinate-sorted and indexed long read .bam file |
+| `--cycles <file>`  | AA-formatted `_cycles.txt` file                   |
+| `--cn_segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
+| `--normal_cov <float>` | Estimated coverage of diploid genome regions      |
+
+**4.2 Optional arguments:**
+
+| Argument                     | Default | Description                                                        |
+|------------------------------|---------|--------------------------------------------------------------------|
+| --bp_match_cutoff <int>      | 100     | Breakpoint matching cutoff distance (bp)                           |
+| --bp_match_cutoff_clustering | 2000    | Crude breakpoint matching cutoff distance (bp) for clustering | 
+
+
+## 5. ```CoRAL.py cycle2bed```
 CoRAL provides an option to convert its cycles output in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
 
 Usage: 
-```python3 cycle2bed.py <Required arguments> <Optional arguments>```
+```CoRAL.py cycle2bed <Required arguments> <Optional arguments>```
 
-**Required arguments:**
+**5.1 Required arguments:**
 * ```--cycle_fn <FILE>``` - Input cycles file in AmpliconArchitect format.
 * ```--output_fn <FILE>```  - Output cycles file in ```*.bed``` format.
 
-**Optional arguments:** 
+**5.2 Optional arguments:** 
 * ```--num_cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
 
 Here is an example output of ```cycle2bed.py``` given by the above cycles file from GBM39.

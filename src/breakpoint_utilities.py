@@ -118,7 +118,7 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
 	"""
 	Call exact breakpoint from a breakpoint cluster
 	"""
-	#logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp_cluster = %s" %(bp_cluster))
+	#logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tbp_cluster = %s" %(bp_cluster))
 	bp = bp_cluster[0][:-2]
 	bp[1] = 0 if bp[2] == '+' else 1000000000
 	bp[4] = 0 if bp[5] == '+' else 1000000000
@@ -173,7 +173,7 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
 				bp[4] = int(math.ceil(np.median(bp4_list)))
 			else:
 				bp[4] = int(math.floor(np.median(bp4_list)))
-	#logging.debug("#TIME " + '%.4f\t' %(time.time() - start_time) + "\tbp = %s" %(bp))
+	#logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tbp = %s" %(bp))
 	bp_cluster_r = []
 	for bp_ in bp_cluster:
 		if bp_match(bp_, bp, bp_[7] * 1.2, [bp_distance_cutoff, bp_distance_cutoff]):
@@ -233,3 +233,10 @@ def bp_match(bp1, bp2, rgap, bp_distance_cutoff):
 			((consume_rgap[1] == 1 and rgap_ >= 0) or (abs(int(bp1[4]) - int(bp2[4])) < bp_distance_cutoff[1])))
 	return False
 
+
+def sort_chrom_names(chromlist):
+	def sort_key(x):
+		val = x[3:]
+		return int(val) if val.isnumeric() else ord(val)
+
+	return sorted(chromlist, key=sort_key)

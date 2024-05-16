@@ -2,7 +2,9 @@
 
 # This is a shim to hopefully allow Github to detect the package, build is done with poetry
 
-import setuptools
+from setuptools import setup, find_packages
 
 if __name__ == "__main__":
-    setuptools.setup(name="long_read_aa")
+    setup(name="CoRAL",
+         version="1.0.0"
+    )
