@@ -351,8 +351,11 @@ class bam_to_breakpoint_nanopore():
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tReset connected component ID to %d" %ccid)
 
 			# Identify all amplification intervals connected to interval indexed by ai_ with a breakpoint edge
-			si = list(self.pos2cni(chr, s))[0].data
-			ei = list(self.pos2cni(chr, e))[0].data
+			try:
+				si = list(self.pos2cni(chr, s))[0].data
+				ei = list(self.pos2cni(chr, e))[0].data
+			except:
+				continue
 			
 			d1_segs = dict() # All CN segments which share a chimeric alignment to the given interval 
 			for i in range(si, ei + 1):
