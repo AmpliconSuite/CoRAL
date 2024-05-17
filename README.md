@@ -1,6 +1,6 @@
 #  CoRAL - Complete Reconstruction of Amplifications with Long reads
 ## Reference
-This tool utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. A pre-print is available here: 
+CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. A pre-print is available here: 
 https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
 
 ## Installation
