@@ -217,7 +217,7 @@ def locate_hsrs(args):
 	plt.tight_layout()
 	out_img_name = "integration_sites_" + args.output_prefix
 	plt.savefig(out_img_name + '.png')
-	print('\n Created ' + out_img_name + '.png')
+	print('\nCreated ' + out_img_name + '.png')
 
 
 
