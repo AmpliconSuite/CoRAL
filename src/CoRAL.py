@@ -94,7 +94,7 @@ if __name__ == '__main__':
     # HSR MODE ARGS
     hsr_parser = subparsers.add_parser("hsr", help="Detect possible integration points of ecDNA HSR amplifications.")
     hsr_parser.add_argument("--lr_bam", help="Sorted indexed long read bam file.", required=True)
-    hsr_parser.add_argument("--cycles", help="Cycle file in *.bed format.", required=True)
+    hsr_parser.add_argument("--cycles", help="AmpliconSuite-formatted cycles file", required=True)
     hsr_parser.add_argument("--cn_seg", help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).", required=True)
     hsr_parser.add_argument("--output_prefix", help="Prefix of output file name.", required=True)
     hsr_parser.add_argument("--normal_cov", help="Estimated diploid coverage.", required=True)
@@ -108,7 +108,7 @@ if __name__ == '__main__':
                              choices=["hg19", "hg38", 'GRCh38', "mm10"], required=True)
     plot_parser.add_argument("--bam", help="Sorted & indexed bam file.")
     plot_parser.add_argument("--graph", help="AmpliconSuite-formatted *.graph file.")
-    plot_parser.add_argument("--cycles", help="AmpliconSuite-formatted cycles file, in *.bed format.")
+    plot_parser.add_argument("--cycles", help="AmpliconSuite-formatted cycles file.")
     plot_parser.add_argument("--output_prefix", "-o", help="Prefix of output files.", required=True)
     plot_parser.add_argument("--plot_graph", help="Visualize breakpoint graph.", action='store_true')
     plot_parser.add_argument("--plot_cycles", help="Visualize (selected) cycles.", action='store_true')
