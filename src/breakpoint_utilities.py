@@ -236,7 +236,10 @@ def bp_match(bp1, bp2, rgap, bp_distance_cutoff):
 
 def sort_chrom_names(chromlist):
 	def sort_key(x):
-		val = x[3:]
+		if x.startswith("chr"):
+			val = x[3:]
+		else:
+			val = x
 		return int(val) if val.isnumeric() else ord(val)
 
 	return sorted(chromlist, key=sort_key)

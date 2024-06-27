@@ -227,7 +227,7 @@ class graph_vis:
 
             # merge
                 for chrom, ival_list in cycle_ivald.items():
-                    merged = self.merge_intervals(ival_list)
+                    merged = self.merge_intervals(ival_list, padding=10000)
                     self.intervals_from_cycle[chrom] = merged
 
         for chr in self.intervals_from_cycle.keys():
