@@ -105,7 +105,7 @@ if __name__ == '__main__':
     # PLOT MODE ARGS
     plot_parser = subparsers.add_parser("plot", help="Generate plots of amplicon cycles and/or graph from AA-formatted output files")
     plot_parser.add_argument("--ref", help="Name of reference genome used",
-                             choices=["hg19", "hg38", 'GRCh38', "mm10"], required=True)
+                             choices=["hg19", "hg38", 'GRCh38', "mm10", "GRCh37"], required=True)
     plot_parser.add_argument("--bam", help="Sorted & indexed bam file.")
     plot_parser.add_argument("--graph", help="AmpliconSuite-formatted *.graph file.")
     plot_parser.add_argument("--cycles", help="AmpliconSuite-formatted cycles file.")
