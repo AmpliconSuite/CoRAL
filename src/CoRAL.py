@@ -41,7 +41,10 @@ def cycle2bed_mode(args):
     print("Performing cycle to bed mode with options:")
     print_args(args)
     import cycle2bed
-    cycle2bed.convert_cycles_to_bed(args.cycle_fn, args.output_fn, args.num_cycles)
+    if args.rotate_to_min:
+        cycle2bed.convert_cycles_to_bed(args.cycle_fn, args.output_fn, True, args.num_cycles)
+    else:
+        cycle2bed.convert_cycles_to_bed(args.cycle_fn, args.output_fn, False, args.num_cycles)
 
 
 if __name__ == '__main__':
@@ -135,6 +138,8 @@ if __name__ == '__main__':
     c2b_parser.add_argument("--output_fn", help="Output file name.", required=True)
     c2b_parser.add_argument("--num_cycles", help="If specified, only convert the first NUM_CYCLES cycles.",
                             type=int)
+    c2b_parser.add_argument("--rotate_to_min", help = "Output cycles starting from the canonically smallest segment with positive strand.",
+                            action = "store_true")
 
 
     args = parser.parse_args()

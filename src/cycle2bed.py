@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+from global_names import *
 
 
-def convert_cycles_to_bed(cycle_fn, output_fn, num_cycles=None):
+def convert_cycles_to_bed(cycle_fn, output_fn, rotate_to_min = False, num_cycles = None):
 	all_segs = dict()
 	cycles = dict()
 	with open(cycle_fn) as fp:
@@ -45,6 +46,21 @@ def convert_cycles_to_bed(cycle_fn, output_fn, num_cycles=None):
 				if cycle[-1][-1] == '-' and cycle[0][-1] == '+' and cycle[-1][0] == cycle[0][0] and cycle[-1][1] - 1 == cycle[0][2]:
 					cycle[0][2] = cycle[-1][2]
 					del cycle[-1]
+				if rotate_to_min and len(cycle) > 1:
+					if iscyclic:
+						argmin_idx = cycle.index(min(cycle, key = lambda seg: (chr_idx[seg[0]], seg[1])))
+						if cycle[argmin_idx][-1] == '+':
+							cycle = cycle[argmin_idx: ] + cycle[:argmin_idx]
+						else:
+							cycle = cycle[:argmin_idx + 1][::-1] + cycle[argmin_idx + 1:][::-1]
+							for idx in range(len(cycle)):
+								cycle[idx][-1] = neg_plus_minus(cycle[idx][-1])
+					else:
+						if chr_idx[cycle[-1][0]] < chr_idx[cycle[0][0]] or (chr_idx[cycle[-1][0]] == chr_idx[cycle[0][0]] and cycle[-1][1] < cycle[-1][1]):
+							cycle = cycle[::-1]
+							if cycle[0][-1] == '-':
+								for idx in range(len(cycle)):
+									cycle[idx][-1] = neg_plus_minus(cycle[idx][-1])
 				cycles[int(cycle_id)] = [iscyclic, cycle_weight, cycle]
 
 	print("Creating bed-converted cycles file: " + output_fn)
@@ -66,8 +82,12 @@ if __name__ == '__main__':
 	parser.add_argument("--cycle_fn", help = "Input AA-formatted cycle file.", required = True)
 	parser.add_argument("--output_fn", help = "Output file name.", required = True)
 	parser.add_argument("--num_cycles", help = "If specified, only convert the first NUM_CYCLES cycles.", type = int)
+	parser.add_argument("--rotate_to_min", help = "Output cycles starting from the canonically smallest segment with positive strand.", action = "store_true")
 	args = parser.parse_args()
-	convert_cycles_to_bed(args.cycle_fn, args.output_fn, args.num_cycles)
+	if args.rotate_to_min:
+		convert_cycles_to_bed(args.cycle_fn, args.output_fn, True, args.num_cycles)
+	else:
+		convert_cycles_to_bed(args.cycle_fn, args.output_fn, False, args.num_cycles)
 
 
 	
