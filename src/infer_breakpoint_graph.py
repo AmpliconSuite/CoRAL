@@ -789,7 +789,7 @@ class bam_to_breakpoint_nanopore():
 				rn = read.query_name
 				rq = read.mapping_quality
 				if rq < 20:
-					continue # Fixed on 04/09/23 - Also introduced quality control on small del breakpoints
+					continue
 				blocks = read.get_blocks()
 				for bi in range(len(blocks) - 1):
 					if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_del_len:
@@ -1083,9 +1083,11 @@ class bam_to_breakpoint_nanopore():
 				rrs1 = set([read.query_name for read in self.lr_bamfh.fetch(contig = ec[3], start = ec[4] + self.min_bp_match_cutoff_, stop = ec[4] + self.min_bp_match_cutoff_ + 1)]) 
 				rbps = set([])
 				for bpi in self.lr_graph[amplicon_idx].nodes[(ec[0], ec[1], ec[2])][2]:
-					rbps |= self.lr_graph[amplicon_idx].discordant_edges[bpi][10]
+					for r in self.lr_graph[amplicon_idx].discordant_edges[bpi][10]:
+						rbps.add(r[0]) 
 				for bpi in self.lr_graph[amplicon_idx].nodes[(ec[3], ec[4], ec[5])][2]:
-					rbps |= self.lr_graph[amplicon_idx].discordant_edges[bpi][10]
+					for r in self.lr_graph[amplicon_idx].discordant_edges[bpi][10]:
+						rbps.add(r[0])
 				self.lr_graph[amplicon_idx].concordant_edges[eci][9] = rls | rrs
 				self.lr_graph[amplicon_idx].concordant_edges[eci][8] = len((rls & rrs & rls1 & rrs1) - rbps)
 				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "LR cov assigned for concordant edge %s." %(ec[:6]))
