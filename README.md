@@ -104,8 +104,9 @@ Usage:
 * ```--cn_segs <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **2.2 Optional arguments:**
-* ```--min_bp_support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction.
-* ```--output_all_path_constraints``` - If specified, output all path constraints given by long reads in ```*.cycles``` file (see "Expected output" below).
+* ```--min_bp_support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
+* ```--skip_cycle_decomp``` - If specified, will stop by only outputting the breakpoint graph files ```*_graph.txt``` (see [**Expected output**](#2.3-Expected-output) below) for all amplicons and not extract cycles from the graph and output ```*_cycles.txt```.
+* ```--output_all_path_constraints``` - If specified, output all path constraints given by long reads in ```*_cycles.txt``` file (see "Expected output" below).
 * ```--cycle_decomp_alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
 * ```--cycle_decomp_time_limit <INT>``` - Maximum running time (in seconds) reserved for solving the quadratic program with Gurobi (integer program solver). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
 * ```--cycle_decomp_threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
