@@ -130,10 +130,10 @@ BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads
 concordant	chr7:54763281+->chr7:54763282-	4.150534	26
 concordant	chr7:55127266+->chr7:55127267-	2.843655	36
 concordant	chr7:55155020+->chr7:55155021-	2.843655	32
-concordant	chr7:55609190+->chr7:55609191-	2.868261	90
-concordant	chr7:55610094+->chr7:55610095-	2.868261	93
+concordant	chr7:55609190+->chr7:55609191-	2.697741	38
+concordant	chr7:55610094+->chr7:55610095-	2.697741	41
 concordant	chr7:56049369+->chr7:56049370-	4.150534	45
-discordant	chr7:55610095-->chr7:55609190+	86.472091	869
+discordant	chr7:55610095-->chr7:55609190+	86.642611	869
 discordant	chr7:56049369+->chr7:54763282-	85.189818	981
 discordant	chr7:55155021-->chr7:55127266+	86.496697	978
 ```

@@ -7,6 +7,7 @@ import gurobipy as gp
 from gurobipy import GRB
 
 from breakpoint_graph import *
+from path_constraints import *
 import global_names
 
 
@@ -1491,6 +1492,113 @@ def maximize_weights_greedy(amplicon_id, g, total_weights, node_order, pc_list, 
 	return total_weights - remaining_weights, len(pc_list) - num_unsatisfied_pc, cycles, cycle_weights, path_constraints_satisfied
 
 
+def cycle_decomposition(bb, alpha = 0.01, p_total_weight = 0.9, resolution = 0.1, num_threads = -1, postprocess = 0,
+			time_limit = 7200, model_prefix = ""):
+	"""
+	Caller for cycle decomposition functions
+	"""
+	for amplicon_idx in range(len(bb.lr_graph)):
+		lseg = len(bb.lr_graph[amplicon_idx].sequence_edges)
+		lc = len(bb.lr_graph[amplicon_idx].concordant_edges)
+		ld = len(bb.lr_graph[amplicon_idx].discordant_edges)
+		lsrc = len(bb.lr_graph[amplicon_idx].source_edges)
+			
+		total_weights = 0.0
+		for sseg in bb.lr_graph[amplicon_idx].sequence_edges:
+			total_weights += sseg[7] * sseg[-1]
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Begin cycle decomposition for amplicon %d." %(amplicon_idx + 1))
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total CN weights = %f." %total_weights)
+
+		bb.longest_path_constraints[amplicon_idx] = longest_path_dict(bb.path_constraints[amplicon_idx])
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
+				"Total num maximal subpath constraints = %d." %len(bb.longest_path_constraints[amplicon_idx][0]))
+		for pathi in bb.longest_path_constraints[amplicon_idx][1]:
+			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
+					"\tSubpath constraints %d = %s" %(pathi, bb.path_constraints[amplicon_idx][0][pathi]))
+
+		k = max(10, ld // 2) # Initial num cycles/paths
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total num initial cycles / paths = %d." %k)
+		nnodes = len(bb.lr_graph[amplicon_idx].nodes) # Does not include s and t
+		node_order = dict()
+		ni_ = 0
+		for node in bb.lr_graph[amplicon_idx].nodes.keys():
+			node_order[node] = ni_
+			ni_ += 1
+		nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bb.lr_graph[amplicon_idx].endnodes)
+		if nedges < k:
+			k = nedges
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset num cycles/paths to %d." %k)
+		sol_flag = 0
+		while k <= nedges:
+			if nedges > 100 or (3 * k + 3 * k * nedges + 2 * k * nnodes + k * len(bb.longest_path_constraints[amplicon_idx][0])) >= 10000:
+				total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
+					bb.lr_graph[amplicon_idx], total_weights, node_order, bb.longest_path_constraints[amplicon_idx][0], \
+					alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed greedy cycle decomposition.")
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(bb.longest_path_constraints[amplicon_idx][0])))
+				if postprocess == 1:
+					status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
+						bb.lr_graph[amplicon_idx], total_weights, node_order, bb.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
+						path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed postprocessing of the greedy solution.")
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(bb.longest_path_constraints[amplicon_idx][0])))
+					bb.cycles[amplicon_idx] = cycles_post
+					bb.cycle_weights[amplicon_idx] = cycle_weights_post
+					bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
+				else:
+					bb.cycles[amplicon_idx] = cycles_init
+					bb.cycle_weights[amplicon_idx] = cycle_weights_init
+					bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init
+				sol_flag = 1
+				break 
+			else:
+				status_, total_cycle_weights_, total_path_satisfied_, cycles_, cycle_weights_, path_constraints_satisfied_ =  minimize_cycles(amplicon_idx + 1, \
+					bb.lr_graph[amplicon_idx], k, total_weights, node_order, bb.longest_path_constraints[amplicon_idx][0], \
+					p_total_weight, 0.9, num_threads, time_limit, model_prefix)
+				if status_ == GRB.INFEASIBLE:
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Cycle decomposition is infeasible.")
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Doubling k from %d to %d." %(k, k * 2))
+					k *= 2
+				else:
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed cycle decomposition with k = %d." %k)
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_[0]), len(cycles_[1])))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_, total_weights))
+					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_, len(bb.longest_path_constraints[amplicon_idx][0])))
+					bb.cycles[amplicon_idx] = cycles_
+					bb.cycle_weights[amplicon_idx] = cycle_weights_
+					bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_
+					sol_flag = 1
+					break
+		if sol_flag == 0:
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Cycle decomposition is infeasible, switch to greedy cycle decomposition.")
+			total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
+				bb.lr_graph[amplicon_idx], total_weights, node_order, bb.longest_path_constraints[amplicon_idx][0], \
+				alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed greedy cycle decomposition.")
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
+			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(bb.longest_path_constraints[amplicon_idx][0])))
+			if postprocess == 1:
+				status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
+					bb.lr_graph[amplicon_idx], total_weights, node_order, bb.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
+					path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed postprocessing of the greedy solution.")
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
+				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(bb.longest_path_constraints[amplicon_idx][0])))
+				bb.cycles[amplicon_idx] = cycles_post
+				bb.cycle_weights[amplicon_idx] = cycle_weights_post
+				bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
+			else:
+				bb.cycles[amplicon_idx] = cycles_init
+				bb.cycle_weights[amplicon_idx] = cycle_weights_init
+				bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init
+
+
 def eulerian_cycle_t(g, edges_next_cycle, path_constraints_next_cycle, path_constraints_support):
 	"""
 	Return an eulerian traversal of a cycle, represented by a dict of edges
@@ -1825,4 +1933,158 @@ def eulerian_path_t(g, edges_next_path, path_constraints_next_path, path_constra
 			logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t%s" %path_constraints_next_path[pathi])
 	return best_path
 
+
+def output_cycles(bb, cycle_file_prefix, output_all_paths = False):
+	"""
+	Write the result from cycle decomposition into *.cycles files
+	"""
+	for amplicon_idx in range(len(bb.lr_graph)):
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Output cycles for amplicon %d." %(amplicon_idx + 1))
+		fp = open(cycle_file_prefix + "_amplicon" + str(amplicon_idx + 1) + "_cycles.txt", 'w')
+		interval_num = 1
+		ai_amplicon = [ai for ai in bb.amplicon_intervals if bb.ccid2id[ai[3]] == amplicon_idx + 1]
+		ai_amplicon = sorted(ai_amplicon, key = lambda ai: (global_names.chr_idx[ai[0]], ai[1]))
+		for ai in ai_amplicon:
+			fp.write("Interval\t%d\t%s\t%d\t%d\n" %(interval_num, ai[0], ai[1], ai[2]))
+			interval_num += 1
+		fp.write("List of cycle segments\n")
+		for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
+			sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
+			fp.write("Segment\t%d\t%s\t%d\t%d\n" %(seqi + 1, sseg[0], sseg[1], sseg[2]))
+		if output_all_paths:
+			fp.write("List of all subpath constraints\n")
+			for pathi in range(len(bb.path_constraints[amplicon_idx][0])):
+				fp.write("Path constraint\t%d\t" %(pathi + 1))
+				path_ = bb.path_constraints[amplicon_idx][0][pathi]
+				if path_[0][1] > path_[-1][1]:
+					path_ = path_[::-1]
+				for i in range(len(path_)):
+					if i % 4 == 0:
+						if i < len(path_) - 1:
+							if path_[i + 1][2] == '+':
+								fp.write("%d+," %(path_[i][1] + 1))
+							else:
+								fp.write("%d-," %(path_[i][1] + 1))
+						else:
+							if path_[i - 1][2] == '+':
+								fp.write("%d-\t" %(path_[i][1] + 1))
+							else:
+								fp.write("%d+\t" %(path_[i][1] + 1))
+				fp.write("Support=%d\n" %(bb.path_constraints[amplicon_idx][1][pathi]))
+		else:
+			fp.write("List of longest subpath constraints\n")
+			path_constraint_indices_ = []
+			for paths in (bb.path_constraints_satisfied[amplicon_idx][0] + bb.path_constraints_satisfied[amplicon_idx][1]):
+				for pathi in paths:
+					if pathi not in path_constraint_indices_:
+						path_constraint_indices_.append(pathi)
+			for constraint_i in range(len(bb.longest_path_constraints[amplicon_idx][1])):
+				fp.write("Path constraint\t%d\t" %(constraint_i + 1))
+				pathi = bb.longest_path_constraints[amplicon_idx][1][constraint_i]
+				path_ = bb.path_constraints[amplicon_idx][0][pathi]
+				if path_[0][1] > path_[-1][1]:
+					path_ = path_[::-1]
+				for i in range(len(path_)):
+					if i % 4 == 0:
+						if i < len(path_) - 1:
+							if path_[i + 1][2] == '+':
+								fp.write("%d+," %(path_[i][1] + 1))
+							else:
+								fp.write("%d-," %(path_[i][1] + 1))
+						else:
+							if path_[i - 1][2] == '+':
+								fp.write("%d-\t" %(path_[i][1] + 1))
+							else:
+								fp.write("%d+\t" %(path_[i][1] + 1))
+				fp.write("Support=%d\t" %(bb.longest_path_constraints[amplicon_idx][2][constraint_i]))
+				if constraint_i in path_constraint_indices_:
+					fp.write("Satisfied\n")
+				else:
+					fp.write("Unsatisfied\n")
+
+		# sort cycles according to weights
+		cycle_indices = sorted([(0, i) for i in range(len(bb.cycle_weights[amplicon_idx][0]))] + [(1, i) for i in range(len(bb.cycle_weights[amplicon_idx][1]))], 
+					key = lambda item: bb.cycle_weights[amplicon_idx][item[0]][item[1]], reverse = True)
+		for cycle_i in cycle_indices: 
+			cycle_edge_list = []
+			if cycle_i[0] == 0: # cycles
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTraversing next cycle, CN = %f." %bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
+				path_constraints_satisfied_cycle = []
+				path_constraints_support_cycle = []
+				for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
+					pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
+					path_constraints_satisfied_cycle.append(bb.path_constraints[amplicon_idx][0][pathi_])
+					path_constraints_support_cycle.append(bb.longest_path_constraints[amplicon_idx][2][pathi])
+				cycle_seg_list = eulerian_cycle_t(bb.lr_graph[amplicon_idx], bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]], \
+								path_constraints_satisfied_cycle, path_constraints_support_cycle)
+				assert cycle_seg_list[0] == cycle_seg_list[-1]
+				fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
+				fp.write("Copy_count=%s;" %str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]))
+				fp.write("Segments=")
+				for segi in range(len(cycle_seg_list) - 2):
+					fp.write("%d%s," %(int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
+				fp.write("%d%s" %(int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
+				if not output_all_paths:
+					fp.write(";Path_constraints_satisfied=")
+					for pathi in range(len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
+						fp.write("%d," %(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
+					if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+						fp.write("%d\n" %(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
+					else:
+						fp.write("\n")
+				else:
+					fp.write("\n")
+			else: # paths
+				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTraversing next path, CN = %f." %bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
+				path_constraints_satisfied_path = []
+				path_constraints_support_path = []
+				for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
+					pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
+					path_constraints_satisfied_path.append(bb.path_constraints[amplicon_idx][0][pathi_])
+					path_constraints_support_path.append(bb.longest_path_constraints[amplicon_idx][2][pathi])
+				cycle_seg_list = eulerian_path_t(bb.lr_graph[amplicon_idx], bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]], \
+								path_constraints_satisfied_path, path_constraints_support_path)
+				fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
+				fp.write("Copy_count=%s;" %str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]))
+				fp.write("Segments=0+,")
+				for segi in range(len(cycle_seg_list) - 1):
+					fp.write("%d%s," %(int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
+				fp.write("%d%s,0-" %(int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
+				if not output_all_paths:
+					fp.write(";Path_constraints_satisfied=")
+					for pathi in range(len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
+						fp.write("%d," %(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
+					if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+						fp.write("%d\n" %(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
+					else:
+						fp.write("\n")
+				else:
+					fp.write("\n")
+		fp.close()
+
+
+def reconstruct_cycles(args, bb):
+	bb.compute_path_constraints()
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Computed all subpath constraints.")
+	alpha_ = 0.01
+	postprocess_ = 0
+	nthreads = -1
+	time_limit_ = 7200
+	if args.cycle_decomp_alpha:
+		alpha_ = args.cycle_decomp_alpha
+	if args.postprocess_greedy_sol:
+		postprocess_ = 1
+	if args.cycle_decomp_threads:
+		nthreads = args.cycle_decomp_threads
+	if args.cycle_decomp_time_limit:
+		time_limit_ = args.cycle_decomp_time_limit
+	cycle_decomposition(bb, alpha = alpha_, num_threads = nthreads, postprocess = postprocess_, time_limit = time_limit_,
+				model_prefix = args.output_prefix)
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed cycle decomposition for all amplicons.")
+	if args.output_all_path_constraints:
+		output_cycles(bb, args.output_prefix, output_all_paths = True)
+	else:
+		output_cycles(bb, args.output_prefix)
+	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Wrote cycles for all complicons to %s." \
+			% (args.output_prefix + '_amplicon*_cycles.txt'))
 

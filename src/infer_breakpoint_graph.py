@@ -1,4 +1,5 @@
 import time
+import math
 import logging
 import pysam
 import sys
@@ -10,7 +11,6 @@ import cigar_parsing
 from breakpoint_utilities import *
 from breakpoint_graph import *
 from path_constraints import *
-from cycle_decomposition import *
 import global_names
 
 
@@ -36,6 +36,8 @@ class bam_to_breakpoint_nanopore():
 	chimeric_alignments = dict() # Map read name -> chimeric alignments (two or more records for one read)
 	chimeric_alignments_seg = dict()
 	large_indel_alignments = dict() # Map read name -> alignments with one record per read but large indels showing in CIGAR string
+	nm_stats = [0.0, 0.0, 0] # For edit distance filter of breakpoints
+	nm_filter = False
 	
 	amplicon_intervals = [] # AA amplicon intervals
 	amplicon_interval_connections = dict()
@@ -148,7 +150,14 @@ class bam_to_breakpoint_nanopore():
 					except:
 						self.chimeric_alignments[rn] = [sa]
 			except:
+				if read.mapping_quality == 60:
+					e = read.get_cigar_stats()[0][-1] / read.query_length
+					self.nm_stats[0] += e
+					self.nm_stats[1] += e * e
+					self.nm_stats[2] += 1
 				pass
+		self.nm_stats[0] /= self.nm_stats[2]
+		self.nm_stats[1] = math.sqrt(self.nm_stats[1] / self.nm_stats[2] - self.nm_stats[0] ** 2)
 		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Fetched %d chimeric reads." %(len(self.chimeric_alignments)))
 		reads_wo_primary_alignment = []
 		for r in self.chimeric_alignments.keys():
@@ -415,34 +424,14 @@ class bam_to_breakpoint_nanopore():
 					ne = self.cns_intervals_by_chr[nint_[0]][nint_[2]][2]
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tRefining new interval %s." %[chr_, ns, ne])
 					new_bp_list = []
-					for r in nint_[-1]:
-						r_int = self.chimeric_alignments[r][0]
-						rr_int = self.chimeric_alignments[r][1]
-						q_ = self.chimeric_alignments[r][2]
-						bassigned = [0 for i in range(len(rr_int) - 1)]
-
-						# Breakpoint from local alignment i and i + 1
-						for ri in range(len(rr_int) - 1):
-							if int(r_int[ri + 1][0]) - int(r_int[ri][1]) + self.min_bp_match_cutoff_ >= 0 and interval_overlap(rr_int[ri], [nint_[0], ns, ne]) and \
-								interval_overlap(rr_int[ri + 1], self.amplicon_intervals[ai_]) and q_[ri] >= 20 and q_[ri + 1] >= 20:
-								new_bp_list.append(interval2bp(rr_int[ri], rr_int[ri + 1], (r, ri, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri][1])) + [q_[ri], q_[ri + 1]])
-								bassigned[ri] = 1
-							elif int(r_int[ri + 1][0]) - int(r_int[ri][1]) + self.min_bp_match_cutoff_ >= 0 and interval_overlap(rr_int[ri + 1], [nint_[0], ns, ne]) and \
-								interval_overlap(rr_int[ri], self.amplicon_intervals[ai_]) and q_[ri] >= 20 and q_[ri + 1] >= 20:
-								new_bp_list.append(interval2bp(rr_int[ri], rr_int[ri + 1], (r, ri, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri][1])) + [q_[ri], q_[ri + 1]])
-								bassigned[ri] = 1
-
-						# Breakpoint from local alignment i - 1 and i + 1
-						for ri in range(1, len(rr_int) - 1):
-							if bassigned[ri - 1] == 0 and bassigned[ri] == 0 and q_[ri] < 10 and q_[ri - 1] >= 20 and q_[ri + 1] >= 20 and \
-								interval_overlap(rr_int[ri - 1], [nint_[0], ns, ne]) and \
-								interval_overlap(rr_int[ri + 1], self.amplicon_intervals[ai_]):
-								new_bp_list.append(interval2bp(rr_int[ri - 1], rr_int[ri + 1], (r, ri - 1, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri - 1][1])) + [q_[ri - 1], q_[ri + 1]])
-							elif bassigned[ri - 1] == 0 and bassigned[ri] == 0 and q_[ri] < 10 and q_[ri - 1] >= 20 and q_[ri + 1] >= 20 and \
-								interval_overlap(rr_int[ri + 1], [nint_[0], ns, ne]) and \
-								interval_overlap(rr_int[ri - 1], self.amplicon_intervals[ai_]):
-								new_bp_list.append(interval2bp(rr_int[ri - 1], rr_int[ri + 1], (r, ri - 1, ri + 1), int(r_int[ri + 1][0]) - int(r_int[ri - 1][1])) + [q_[ri - 1], q_[ri + 1]])
-
+					if self.nm_filter:
+						for r in nint_[-1]:
+							new_bp_list += alignment2bp_nm(r, self.chimeric_alignments[r], self.min_bp_match_cutoff_,
+											20, self.nm_stats[0] + 3 * self.nm_stats[1], [nint_[0], ns, ne], self.amplicon_intervals[ai_])
+					else:
+						for r in nint_[-1]:
+							new_bp_list += alignment2bp(r, self.chimeric_alignments[r], self.min_bp_match_cutoff_,
+											20, [nint_[0], ns, ne], self.amplicon_intervals[ai_])
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tFound %d reads connecting the two intervals." %len(new_bp_list))
 					new_bp_clusters = cluster_bp_list(new_bp_list, self.min_cluster_cutoff, self.max_breakpoint_distance_cutoff)
 					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\t\tThese reads formed %d clusters." %(len(new_bp_clusters)))
@@ -687,64 +676,16 @@ class bam_to_breakpoint_nanopore():
 	def find_breakpoints(self):
 		"""
 		Search for breakpoints from chimeric alignments within identified amplified intervals
-		For each chimeric alignment, first try to match the resulting breakpoint to the list of AA breakpoints
-		Cluster the unmatched breakpoints
+		Then cluster the breakpoints from chimeric alignments
 		"""
 		new_bp_list_ = []
-		for r in self.chimeric_alignments.keys():
-			r_int = self.chimeric_alignments[r][0]
-			rr_int = self.chimeric_alignments[r][1]
-			q_ = self.chimeric_alignments[r][2]
-			bassigned = [0 for i in range(len(rr_int) - 1)]
-			"""
-			Breakpoint from local alignment i and i + 1
-			"""
-			for i in range(len(rr_int) - 1):
-				"""
-				Add unmatched breakpoint to new_bp_list
-				"""
-				io1 = interval_overlap_l(rr_int[i], self.amplicon_intervals)
-				io2 = interval_overlap_l(rr_int[i + 1], self.amplicon_intervals)
-				if int(r_int[i + 1][0]) - int(r_int[i][1]) + self.min_bp_match_cutoff_ >= 0 and io1 >= 0 and io2 >= 0 and io1 == io2:
-					if rr_int[i + 1][3] != rr_int[i][3]:
-						if q_[i] >= 20 and q_[i + 1] >= 20:
-							new_bp_list_.append(interval2bp(rr_int[i], rr_int[i + 1], (r, i, i + 1), int(r_int[i + 1][0]) - int(r_int[i][1])) + [q_[i], q_[i + 1]])
-							bassigned[i] = 1
-					elif rr_int[i + 1][3] == '+':
-						gr =  int(r_int[i + 1][0]) - int(r_int[i][1])
-						grr = int(rr_int[i + 1][1]) - int(rr_int[i][2])
-						if abs(gr - grr) > max(100, abs(gr * 0.2)) and q_[i] >= 20 and q_[i + 1] >= 20:
-							new_bp_list_.append(interval2bp(rr_int[i], rr_int[i + 1], (r, i, i + 1), int(r_int[i + 1][0]) - int(r_int[i][1])) + [q_[i], q_[i + 1]])
-							bassigned[i] = 1
-					elif rr_int[i + 1][3] == '-':
-						gr =  int(r_int[i + 1][0]) - int(r_int[i][1])
-						grr = int(rr_int[i][2]) - int(rr_int[i + 1][1])
-						if abs(gr - grr) > max(100, abs(gr * 0.2)) and q_[i] >= 20 and q_[i + 1] >= 20:
-							new_bp_list_.append(interval2bp(rr_int[i], rr_int[i + 1], (r, i, i + 1), int(r_int[i + 1][0]) - int(r_int[i][1])) + [q_[i], q_[i + 1]])
-							bassigned[i] = 1
-			"""
-			Breakpoint from local alignment i - 1 and i + 1
-			"""		
-			for i in range(1, len(rr_int) - 1):
-				"""
-				Add unmatched breakpoint to new_bp_list
-				"""
-				io1 = interval_overlap_l(rr_int[i - 1], self.amplicon_intervals)
-				io2 = interval_overlap_l(rr_int[i + 1], self.amplicon_intervals)
-				if bassigned[i - 1] == 0 and bassigned[i] == 0 and q_[i] < 10 and q_[i - 1] >= 20 and q_[i + 1] >= 20 and \
-					io1 >= 0 and io2 >= 0 and io1 == io2:
-					if rr_int[i + 1][3] != rr_int[i - 1][3]:
-						new_bp_list_.append(interval2bp(rr_int[i - 1], rr_int[i + 1], (r, i - 1, i + 1), int(r_int[i + 1][0]) - int(r_int[i - 1][1])) + [q_[i - 1], q_[i + 1]])
-					elif rr_int[i + 1][3] == '+':
-						gr =  int(r_int[i + 1][0]) - int(r_int[i - 1][1])
-						grr = int(rr_int[i + 1][1]) - int(rr_int[i - 1][2])
-						if abs(gr - grr) > max(100, abs(gr * 0.2)):
-							new_bp_list_.append(interval2bp(rr_int[i - 1], rr_int[i + 1], (r, i - 1, i + 1), int(r_int[i + 1][0]) - int(r_int[i - 1][1])) + [q_[i - 1], q_[i + 1]])
-					elif rr_int[i + 1][3] == '-':
-						gr =  int(r_int[i + 1][0]) - int(r_int[i - 1][1])
-						grr = int(rr_int[i - 1][2]) - int(rr_int[i + 1][1])
-						if abs(gr - grr) > max(100, abs(gr * 0.2)):
-							new_bp_list_.append(interval2bp(rr_int[i - 1], rr_int[i + 1], (r, i - 1, i + 1), int(r_int[i + 1][0]) - int(r_int[i - 1][1])) + [q_[i - 1], q_[i + 1]])
+		if self.nm_filter:
+			for r in self.chimeric_alignments.keys():
+				new_bp_list_ += alignment2bp_nm_l(r, self.chimeric_alignments[r], self.min_bp_match_cutoff_, 20, self.nm_stats[0] + 3 * self.nm_stats[1], 
+								100, self.amplicon_intervals)
+		else:
+			for r in self.chimeric_alignments.keys():
+				new_bp_list_ += alignment2bp_l(r, self.chimeric_alignments[r], self.min_bp_match_cutoff_, 20, 100, self.amplicon_intervals)
 		logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Found %d reads with new breakpoints." %(len(new_bp_list_)))
 	
 		new_bp_clusters = cluster_bp_list(new_bp_list_, self.min_cluster_cutoff, self.max_breakpoint_distance_cutoff)
@@ -784,19 +725,41 @@ class bam_to_breakpoint_nanopore():
 		Cluster the unmatched breakpoints
 		"""
 		new_bp_list_ = []
-		for ai in self.amplicon_intervals:
-			for read in self.lr_bamfh.fetch(ai[0], ai[1], ai[2] + 1):
-				rn = read.query_name
-				rq = read.mapping_quality
-				if rq < 20:
-					continue
-				blocks = read.get_blocks()
-				for bi in range(len(blocks) - 1):
-					if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_del_len:
-						try:
-							self.large_indel_alignments[rn].append([ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq])
-						except:
-							self.large_indel_alignments[rn] = [[ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq]]
+		if self.nm_filter:
+			for ai in self.amplicon_intervals:
+				for read in self.lr_bamfh.fetch(ai[0], ai[1], ai[2] + 1):
+					rn = read.query_name
+					rq = read.mapping_quality
+					rnm = read.get_cigar_stats()[0][-1]
+					if rq < 20:
+						continue
+					blocks = read.get_blocks()
+					agg_del = 0
+					for bi in range(len(blocks) - 1):
+						if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_del_len:
+							agg_del += abs(blocks[bi + 1][0] - blocks[bi][1])
+					rnm = (rnm - agg_del) / read.query_length
+					if rnm < self.nm_stats[0] + 3 * self.nm_stats[1]:
+						for bi in range(len(blocks) - 1):
+							if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_del_len:
+								try:
+									self.large_indel_alignments[rn].append([ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq])
+								except:
+									self.large_indel_alignments[rn] = [[ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq]]
+		else:
+			for ai in self.amplicon_intervals:
+				for read in self.lr_bamfh.fetch(ai[0], ai[1], ai[2] + 1):
+					rn = read.query_name
+					rq = read.mapping_quality
+					if rq < 20:
+						continue
+					blocks = read.get_blocks()
+					for bi in range(len(blocks) - 1):
+						if abs(blocks[bi + 1][0] - blocks[bi][1]) > self.min_del_len:
+							try:
+								self.large_indel_alignments[rn].append([ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq])
+							except:
+								self.large_indel_alignments[rn] = [[ai[0], blocks[bi + 1][0], blocks[bi][1], blocks[0][0], blocks[-1][1], rq]]
 		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Fetched %d reads with large indels in CIGAR." %(len(self.large_indel_alignments)))
 		
 		for r in self.large_indel_alignments.keys():
@@ -1360,242 +1323,6 @@ class bam_to_breakpoint_nanopore():
 					%(len(self.path_constraints[amplicon_idx][0]), amplicon_idx + 1))
 
 
-	def cycle_decomposition(self, alpha = 0.01, p_total_weight = 0.9, resolution = 0.1, num_threads = -1, postprocess = 0, \
-				time_limit = 7200, model_prefix = ""):
-		"""
-		Caller for cycle decomposition functions
-		"""
-		for amplicon_idx in range(len(self.lr_graph)):
-			lseg = len(self.lr_graph[amplicon_idx].sequence_edges)
-			lc = len(self.lr_graph[amplicon_idx].concordant_edges)
-			ld = len(self.lr_graph[amplicon_idx].discordant_edges)
-			lsrc = len(self.lr_graph[amplicon_idx].source_edges)
-			
-			total_weights = 0.0
-			for sseg in self.lr_graph[amplicon_idx].sequence_edges:
-				total_weights += sseg[7] * sseg[-1]
-			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Begin cycle decomposition for amplicon %d." %(amplicon_idx + 1))
-			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total CN weights = %f." %total_weights)
-
-			self.longest_path_constraints[amplicon_idx] = longest_path_dict(self.path_constraints[amplicon_idx])
-			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
-					"Total num maximal subpath constraints = %d." %len(self.longest_path_constraints[amplicon_idx][0]))
-			for pathi in self.longest_path_constraints[amplicon_idx][1]:
-				logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) +
-						"\tSubpath constraints %d = %s" %(pathi, self.path_constraints[amplicon_idx][0][pathi]))
-
-			k = max(10, ld // 2) # Initial num cycles/paths
-			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Total num initial cycles / paths = %d." %k)
-			nnodes = len(self.lr_graph[amplicon_idx].nodes) # Does not include s and t
-			node_order = dict()
-			ni_ = 0
-			for node in self.lr_graph[amplicon_idx].nodes.keys():
-				node_order[node] = ni_
-				ni_ += 1
-			nedges = lseg + lc + ld + 2 * lsrc + 2 * len(self.lr_graph[amplicon_idx].endnodes)
-			if nedges < k:
-				k = nedges
-				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Reset num cycles/paths to %d." %k)
-			sol_flag = 0
-			while k <= nedges:
-				if nedges > 100 or (3 * k + 3 * k * nedges + 2 * k * nnodes + k * len(self.longest_path_constraints[amplicon_idx][0])) >= 10000:
-					total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
-						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-						alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed greedy cycle decomposition.")
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
-					if postprocess == 1:
-						status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
-							self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
-							path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed postprocessing of the greedy solution.")
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
-						self.cycles[amplicon_idx] = cycles_post
-						self.cycle_weights[amplicon_idx] = cycle_weights_post
-						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
-					else:
-						self.cycles[amplicon_idx] = cycles_init
-						self.cycle_weights[amplicon_idx] = cycle_weights_init
-						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init
-					sol_flag = 1
-					break 
-				else:
-					status_, total_cycle_weights_, total_path_satisfied_, cycles_, cycle_weights_, path_constraints_satisfied_ =  minimize_cycles(amplicon_idx + 1, \
-						self.lr_graph[amplicon_idx], k, total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-						p_total_weight, 0.9, num_threads, time_limit, model_prefix)
-					if status_ == GRB.INFEASIBLE:
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Cycle decomposition is infeasible.")
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Doubling k from %d to %d." %(k, k * 2))
-						k *= 2
-					else:
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed cycle decomposition with k = %d." %k)
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_[0]), len(cycles_[1])))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_, total_weights))
-						logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_, len(self.longest_path_constraints[amplicon_idx][0])))
-						self.cycles[amplicon_idx] = cycles_
-						self.cycle_weights[amplicon_idx] = cycle_weights_
-						self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_
-						sol_flag = 1
-						break
-			if sol_flag == 0:
-				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Cycle decomposition is infeasible, switch to greedy cycle decomposition.")
-				total_cycle_weights_init, total_path_satisfied_init, cycles_init, cycle_weights_init, path_constraints_satisfied_init = maximize_weights_greedy(amplicon_idx + 1, \
-					self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], \
-					alpha, p_total_weight, resolution, 0.005, 0.9, num_threads, postprocess, time_limit, model_prefix)
-				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed greedy cycle decomposition.")
-				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_init[0]), len(cycles_init[1])))
-				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_init, total_weights))
-				logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_init, len(self.longest_path_constraints[amplicon_idx][0])))
-				if postprocess == 1:
-					status_post, total_cycle_weights_post, total_path_satisfied_post, cycles_post, cycle_weights_post, path_constraints_satisfied_post = minimize_cycles_post(amplicon_idx + 1, \
-						self.lr_graph[amplicon_idx], total_weights, node_order, self.longest_path_constraints[amplicon_idx][0], [cycles_init, cycle_weights_init, \
-						path_constraints_satisfied_init], min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight), resolution, num_threads, time_limit, model_prefix)
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed postprocessing of the greedy solution.")
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tNum cycles = %d; num paths = %d." %(len(cycles_post[0]), len(cycles_post[1])))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal length weighted CN = %f/%f." %(total_cycle_weights_post, total_weights))
-					logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTotal num subpath constraints satisfied = %d/%d." %(total_path_satisfied_post, len(self.longest_path_constraints[amplicon_idx][0])))
-					self.cycles[amplicon_idx] = cycles_post
-					self.cycle_weights[amplicon_idx] = cycle_weights_post
-					self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_post
-				else:
-					self.cycles[amplicon_idx] = cycles_init
-					self.cycle_weights[amplicon_idx] = cycle_weights_init
-					self.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init			
-
-
-	def output_cycles(self, cycle_file_prefix, output_all_paths = False):
-		"""
-		Write the result from cycle decomposition into *.cycles files
-		"""
-		for amplicon_idx in range(len(self.lr_graph)):
-			logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Output cycles for amplicon %d." %(amplicon_idx + 1))
-			fp = open(cycle_file_prefix + "_amplicon" + str(amplicon_idx + 1) + "_cycles.txt", 'w')
-			interval_num = 1
-			ai_amplicon = [ai for ai in self.amplicon_intervals if self.ccid2id[ai[3]] == amplicon_idx + 1]
-			ai_amplicon = sorted(ai_amplicon, key = lambda ai: (global_names.chr_idx[ai[0]], ai[1]))
-			for ai in ai_amplicon:
-				fp.write("Interval\t%d\t%s\t%d\t%d\n" %(interval_num, ai[0], ai[1], ai[2]))
-				interval_num += 1
-			fp.write("List of cycle segments\n")
-			for seqi in range(len(self.lr_graph[amplicon_idx].sequence_edges)):
-				sseg = self.lr_graph[amplicon_idx].sequence_edges[seqi]
-				fp.write("Segment\t%d\t%s\t%d\t%d\n" %(seqi + 1, sseg[0], sseg[1], sseg[2]))
-			if output_all_paths:
-				fp.write("List of all subpath constraints\n")
-				for pathi in range(len(self.path_constraints[amplicon_idx][0])):
-					fp.write("Path constraint\t%d\t" %(pathi + 1))
-					path_ = self.path_constraints[amplicon_idx][0][pathi]
-					if path_[0][1] > path_[-1][1]:
-						path_ = path_[::-1]
-					for i in range(len(path_)):
-						if i % 4 == 0:
-							if i < len(path_) - 1:
-								if path_[i + 1][2] == '+':
-									fp.write("%d+," %(path_[i][1] + 1))
-								else:
-									fp.write("%d-," %(path_[i][1] + 1))
-							else:
-								if path_[i - 1][2] == '+':
-									fp.write("%d-\t" %(path_[i][1] + 1))
-								else:
-									fp.write("%d+\t" %(path_[i][1] + 1))
-					fp.write("Support=%d\n" %(self.path_constraints[amplicon_idx][1][pathi]))
-			else:
-				fp.write("List of longest subpath constraints\n")
-				path_constraint_indices_ = []
-				for paths in (self.path_constraints_satisfied[amplicon_idx][0] + self.path_constraints_satisfied[amplicon_idx][1]):
-					for pathi in paths:
-						if pathi not in path_constraint_indices_:
-							path_constraint_indices_.append(pathi)
-				for constraint_i in range(len(self.longest_path_constraints[amplicon_idx][1])):
-					fp.write("Path constraint\t%d\t" %(constraint_i + 1))
-					pathi = self.longest_path_constraints[amplicon_idx][1][constraint_i]
-					path_ = self.path_constraints[amplicon_idx][0][pathi]
-					if path_[0][1] > path_[-1][1]:
-						path_ = path_[::-1]
-					for i in range(len(path_)):
-						if i % 4 == 0:
-							if i < len(path_) - 1:
-								if path_[i + 1][2] == '+':
-									fp.write("%d+," %(path_[i][1] + 1))
-								else:
-									fp.write("%d-," %(path_[i][1] + 1))
-							else:
-								if path_[i - 1][2] == '+':
-									fp.write("%d-\t" %(path_[i][1] + 1))
-								else:
-									fp.write("%d+\t" %(path_[i][1] + 1))
-					fp.write("Support=%d\t" %(self.longest_path_constraints[amplicon_idx][2][constraint_i]))
-					if constraint_i in path_constraint_indices_:
-						fp.write("Satisfied\n")
-					else:
-						fp.write("Unsatisfied\n")
-
-			# sort cycles according to weights
-			cycle_indices = sorted([(0, i) for i in range(len(self.cycle_weights[amplicon_idx][0]))] + [(1, i) for i in range(len(self.cycle_weights[amplicon_idx][1]))], 
-						key = lambda item: self.cycle_weights[amplicon_idx][item[0]][item[1]], reverse = True)
-			for cycle_i in cycle_indices: 
-				cycle_edge_list = []
-				if cycle_i[0] == 0: # cycles
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTraversing next cycle, CN = %f." %self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
-					path_constraints_satisfied_cycle = []
-					path_constraints_support_cycle = []
-					for pathi in self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
-						pathi_ = self.longest_path_constraints[amplicon_idx][1][pathi]
-						path_constraints_satisfied_cycle.append(self.path_constraints[amplicon_idx][0][pathi_])
-						path_constraints_support_cycle.append(self.longest_path_constraints[amplicon_idx][2][pathi])
-					cycle_seg_list = eulerian_cycle_t(self.lr_graph[amplicon_idx], self.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]], \
-									path_constraints_satisfied_cycle, path_constraints_support_cycle)
-					assert cycle_seg_list[0] == cycle_seg_list[-1]
-					fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
-					fp.write("Copy_count=%s;" %str(self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]))
-					fp.write("Segments=")
-					for segi in range(len(cycle_seg_list) - 2):
-						fp.write("%d%s," %(int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
-					fp.write("%d%s" %(int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
-					if not output_all_paths:
-						fp.write(";Path_constraints_satisfied=")
-						for pathi in range(len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
-							fp.write("%d," %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
-						if len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
-							fp.write("%d\n" %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
-						else:
-							fp.write("\n")
-					else:
-						fp.write("\n")
-				else: # paths
-					logging.debug("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tTraversing next path, CN = %f." %self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]])
-					path_constraints_satisfied_path = []
-					path_constraints_support_path = []
-					for pathi in self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
-						pathi_ = self.longest_path_constraints[amplicon_idx][1][pathi]
-						path_constraints_satisfied_path.append(self.path_constraints[amplicon_idx][0][pathi_])
-						path_constraints_support_path.append(self.longest_path_constraints[amplicon_idx][2][pathi])
-					cycle_seg_list = eulerian_path_t(self.lr_graph[amplicon_idx], self.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]], \
-									path_constraints_satisfied_path, path_constraints_support_path)
-					fp.write("Cycle=%d;" %(cycle_indices.index(cycle_i) + 1))
-					fp.write("Copy_count=%s;" %str(self.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]))
-					fp.write("Segments=0+,")
-					for segi in range(len(cycle_seg_list) - 1):
-						fp.write("%d%s," %(int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
-					fp.write("%d%s,0-" %(int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
-					if not output_all_paths:
-						fp.write(";Path_constraints_satisfied=")
-						for pathi in range(len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1):
-							fp.write("%d," %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1))
-						if len(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
-							fp.write("%d\n" %(self.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1))
-						else:
-							fp.write("\n")
-					else:
-						fp.write("\n")
-			fp.close()
-
-
 	def closebam(self):
 		"""
 		Close the short read and long read bam file
@@ -1603,14 +1330,13 @@ class bam_to_breakpoint_nanopore():
 		self.lr_bamfh.close()
 
 
-def reconstruct(args):
+def reconstruct_graph(args):
 	start_time = time.time()
 	global_names.TSTART = start_time
 	log_fn = "infer_breakpoint_graph.log"
 	if args.log_fn:
 		log_fn = args.log_fn
-	logging.basicConfig(filename=log_fn, filemode='w', level=logging.DEBUG,
-						format='[%(name)s:%(levelname)s]\t%(message)s')
+	logging.basicConfig(filename = log_fn, filemode = 'w', level = logging.DEBUG, format = '[%(name)s:%(levelname)s]\t%(message)s')
 	logging.info("Python version " + sys.version + "\n")
 	commandstring = 'Commandline: '
 	for arg in sys.argv:
@@ -1621,6 +1347,8 @@ def reconstruct(args):
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + commandstring)
 
 	b2bn = bam_to_breakpoint_nanopore(args.lr_bam, args.cnv_seed)
+	#if args.filter_bp_by_edit_distance:
+	#	b2bn.nm_filter = True
 	b2bn.min_bp_cov_factor = args.min_bp_support
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Opened LR bam files.")
 	b2bn.read_cns(args.cn_seg)
@@ -1647,52 +1375,27 @@ def reconstruct(args):
 							de[3] == bp_[3] and de[4] == bp_[4] and de[5] == bp_[5]:
 						bp_stats_i.append(b2bn.new_bp_stats[bpi])
 						break
-			output_breakpoint_info_lr(b2bn.lr_graph[gi],
-									  args.output_prefix + "_amplicon" + str(gi + 1) + "_breakpoints.txt", bp_stats_i)
+			output_breakpoint_info_lr(b2bn.lr_graph[gi], args.output_prefix + "_amplicon" + str(gi + 1) + "_breakpoints.txt", bp_stats_i)
 		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) +
-					 "Wrote breakpoint information, for all amplicons, to %s." % (
-							 args.output_prefix + '_amplicon*_breakpoints.txt'))
+			"Wrote breakpoint information, for all amplicons, to %s." % (args.output_prefix + '_amplicon*_breakpoints.txt'))
 	else:
 		# b2bn.find_cn_breakpoints()
 		# logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Completed finding breakpoints corresponding to CN changes.")
 		b2bn.build_graph()
 		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Breakpoint graph built for all amplicons.")
 		b2bn.assign_cov()
-		logging.info("#TIME " + '%.4f\t' % (
-				time.time() - global_names.TSTART) + "Fetched read coverage for all sequence and concordant edges.")
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Fetched read coverage for all sequence and concordant edges.")
 		for gi in range(len(b2bn.lr_graph)):
 			b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
 		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Computed CN for all edges.")
 		for gi in range(len(b2bn.lr_graph)):
 			output_breakpoint_graph_lr(b2bn.lr_graph[gi], args.output_prefix + "_amplicon" + str(gi + 1) + "_graph.txt")
-		logging.info(
-			"#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Wrote breakpoint graph for all complicons to %s." % (
-					args.output_prefix + '_amplicon*_graph.txt'))
-		b2bn.compute_path_constraints()
-		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Computed all subpath constraints.")
-		alpha_ = 0.01
-		postprocess_ = 0
-		nthreads = -1
-		time_limit_ = 7200
-		if args.cycle_decomp_alpha:
-			alpha_ = args.cycle_decomp_alpha
-		if args.postprocess_greedy_sol:
-			postprocess_ = 1
-		if args.cycle_decomp_threads:
-			nthreads = args.cycle_decomp_threads
-		if args.cycle_decomp_time_limit:
-			time_limit_ = args.cycle_decomp_time_limit
-		b2bn.cycle_decomposition(alpha=alpha_, num_threads=nthreads, postprocess=postprocess_, time_limit=time_limit_,
-								 model_prefix=args.output_prefix)
-		logging.info(
-			"#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Completed cycle decomposition for all amplicons.")
-		if args.output_all_path_constraints:
-			b2bn.output_cycles(args.output_prefix, output_all_paths=True)
-		else:
-			b2bn.output_cycles(args.output_prefix)
-		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Wrote cycles for all complicons to %s." % (
-				args.output_prefix + '_amplicon*_cycles.txt'))
+		logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Wrote breakpoint graph for all complicons to %s." \
+				% (args.output_prefix + '_amplicon*_graph.txt'))
+	return b2bn
 
-	b2bn.closebam()
+
+def print_complete_message():
 	logging.info("#TIME " + '%.4f\t' % (time.time() - global_names.TSTART) + "Total runtime.")
-	print("\nCompleted reconstruction.")
+
+

@@ -242,7 +242,7 @@ def alignment_from_satags(sa_list, read_length):
 		chimeric alignment in the form of qint, rint and qual list
 		Alignments sorted according to the starting positions on the read on positive strand
 	"""
-	qint, rint, qual = [], [], []
+	qint, rint, qual, nm = [], [], [], []
 	for sa in sa_list:
 		t = sa.split(',')
 		if 'S' not in t[3] or 'M' not in t[3]:
@@ -259,9 +259,12 @@ def alignment_from_satags(sa_list, read_length):
 		else:
 			rint.append([t[0], int(t[1]) + al - 2, int(t[1]) - 1, '-']) # converted to 0 based coordinates
 		qual.append(int(t[4]))
+		nm.append(float(t[-1]))
 	qint_ind = sorted(range(len(qint)), key = lambda i: (qint[i][0], qint[i][1]))
 	qint = [qint[i] for i in qint_ind]
 	rint = [rint[i] for i in qint_ind]
 	qual = [qual[i] for i in qint_ind]
-	return (qint, rint, qual)
+	nm = [nm[i] for i in qint_ind]
+	nm = [nm[i] / (qint[i][1] - qint[i][0]) for i in range(len(nm))]
+	return (qint, rint, qual, nm)
 
