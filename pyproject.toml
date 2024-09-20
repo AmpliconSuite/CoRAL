@@ -1,10 +1,15 @@
 [tool.poetry]
-authors = ["Kaiyuan Zhu <kaiyuan-zhu@ucsd.edu>", "Matt Jones <mgjones@stanford.edu>", "Jens Luebeck <jluebeck@ucsd.edu>"]
+authors = [
+  "Kaiyuan Zhu <kaiyuan-zhu@ucsd.edu>",
+  "Matt Jones <mgjones@stanford.edu>",
+  "Jens Luebeck <jluebeck@ucsd.edu>",
+  "Suhas Rao <nsuhasrao@gmail.com>"
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
   "Natural Language :: English",
-  "Programming Language :: Python :: 3 :: Only",  # Specify Python 3 only
+  "Programming Language :: Python :: 3 :: Only",        # Specify Python 3 only
   "Operating System :: MacOS :: MacOS X",
   "Operating System :: Microsoft :: Windows",
   "Operating System :: POSIX :: Linux",
@@ -16,29 +21,45 @@ license = "MIT"
 name = "CoRAL"
 readme = 'README.md'
 repository = "https://github.com/AmpliconSuite/CoRAL"
-version = "1.0.0"
+version = "2.0.0"
 
-packages = [
-  {include = "src"},
-]
+packages = [{ include = "coral" }]
 
 [tool.poetry.dependencies]
 cvxopt = "*"
 cnvkit = "*"
-gurobipy = "*"
 intervaltree = "*"
 matplotlib = "*"
-pandas = {version = "*", python=">=3.7,<4.0"}
-pysam = {version = ">0.1.7"}
-pytest = {version = ">=4.4", optional = true}
-python = ">=3.7,<4.0"
-scanpydoc = {version = ">=0.5", optional = true}
+pandas = { version = "*", python = ">=3.7,<4.0" }
+pysam = { version = ">0.1.7" }
+pytest = { version = ">=4.4", optional = true }
+python = ">=3.10,<4.0"
+numpy = "==2.0.2"
+numba = "==0.60.0"
+llvmlite = "==0.43.0"
+pomegranate = "==1.1.0"
+scanpydoc = { version = ">=0.5", optional = true }
 typing-extensions = ">=3.7.4"
-typing_extensions = {version = "*", python = "<3.9", optional = true}
+typing_extensions = { version = "*", python = "<3.9", optional = true }
+click = "^8.1.7"
+mypy = "^1.11.2"
+pydantic = "^2.9.2"
+pyomo = "^6.8.0"
+ruff = "^0.6.9"
+highspy = "^1.7.2"
+pyranges = "^0.1.2"
+seaborn = "^0.13.2"
+typer = "^0.12.5"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
-requires = ["setuptools", "poetry-core>=1.0.7", "Cython", "pip>=22.0.0"]
+requires = [
+  "setuptools",
+  "poetry-core>=1.0.7",
+  "Cython",
+  "pip>=22.0.0",
+  "pyproject-hooks==1.0.0",
+]
 
 [tool.poetry.extras]
 dev = ["black", "pytest", "flake8", "codecov", "jupyter", "pre-commit", "isort"]
@@ -55,4 +76,28 @@ docs = [
 ]
 
 [tool.poetry.scripts]
-CoRAL = "src.CoRAL:main"
+coral = "coral.cli:coral_app"
+
+[tool.ruff]
+lint.select = ["ALL"]
+lint.ignore = [
+  "E501",
+  "D",       # Docstrings
+  "COM812",  # Trailing comma
+  "PLR2004", # "magic" value in comparison rather than constant
+  "G004",    # f-strings
+  "UP006",   # Use primitive types rather than `typing` equivalents (only allowed py3.12+)
+  "FBT002",  # Boolean default positional arg
+  "PLR0913", # > 5 args in function signature
+  "T201",    # No prints
+  "TRY003",  # Long messages outside exception class
+  "EM102",   # f-string in exception
+]
+lint.extend-select = ["I"]
+line-length = 80
+lint.pycodestyle.max-doc-length = 80
+
+[tool.mypy]
+enable_error_code = "possibly-undefined"
+disable_error_code = "import-untyped"
+# strict = true
