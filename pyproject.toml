@@ -45,6 +45,9 @@ pydantic = "^2.9.2"
 pyomo = "^6.8.0"
 ruff = "^0.6.9"
 highspy = "^1.7.2"
+pyranges = "^0.1.2"
+seaborn = "^0.13.2"
+typer = "^0.12.5"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"

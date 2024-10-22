@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import pyomo
-import pyomo.environ as pyo
-import pyomo.core
-import pyomo.opt
-import pyomo.util.infeasible
 import logging
 import math
 import os
@@ -13,16 +8,23 @@ import time
 from typing import Dict, List, Optional
 
 from gurobipy import GRB
+
+import pyomo
+import pyomo.contrib.appsi
+import pyomo.core
+import pyomo.environ as pyo
+import pyomo.opt
 import pyomo.solvers
 import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
-import pyomo.contrib.appsi
-from coral import constants, infer_breakpoint_graph, models, state_provider
-from coral.breakpoint_graph import BreakpointGraph
+import pyomo.util.infeasible
+from coral import constants, models, state_provider
+from coral.breakpoint import infer_breakpoint_graph
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
-from coral.models.datatypes import EdgeToCN, ParsedLPSolution
-from coral.path_constraints import longest_path_dict
+from coral.datatypes import EdgeToCN, ParsedLPSolution
+from coral.models.path_constraints import longest_path_dict
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +119,9 @@ def parse_lp_solution(
         logger.debug(f"Walk {i} checking ; CN = {model.w[i].value}.")
         if model.z[i].value >= 0.9:
             logger.debug(f"Cycle/Path {i} exists; CN = {model.w[i].value}.")
-
-            # TODO: for greedy, add break condition. Also add postprocessing for follow up solvers (ie, unsatisfied PC / remaining CN).
-            # if model.w[i].value < resolution:
-            #     logger.debug(
-            #         "\tCN less than resolution, iteration terminated successfully.",
-            #     )
-            #     break
+            if resolution and model.w[i].value < resolution:  # TODO: break condition for greedy
+                logger.debug("\tCN less than resolution, iteration terminated successfully.")
+                break
             found_cycle = False
             for node_idx in range(nnodes):
                 if model.c[node_idx, i].value >= 0.9:
@@ -148,16 +146,16 @@ def parse_lp_solution(
                 cycle = {}
                 path_constraints_s = []
                 # TODO: update correctly using pyomo solution scheme instead of gurobi
-                for xi in range(len(model.x)):
-                    if xi % k == i and model.x[xi] >= 0.9:
-                        xi_ = xi // k
-                        x_xi = int(round(model.x[xi].value))
-                        if xi_ < lseg:
-                            cycle[("e", xi_)] = x_xi
-                        elif xi_ < lseg + lc:
-                            cycle[("c", xi_ - lseg)] = x_xi
-                        elif xi_ < lseg + lc + ld:
-                            cycle[("d", xi_ - lseg - lc)] = x_xi
+                for edge_idx in range(nedges):
+                    if (edge_count := model.x[edge_idx, i].value) >= 0.9:
+                        edge_count = round(edge_count)
+
+                        if edge_idx < lseg:
+                            cycle[("e", edge_idx)] = edge_count
+                        elif edge_idx < lseg + lc:
+                            cycle[("c", edge_idx - lseg)] = edge_count
+                        elif edge_idx < lseg + lc + ld:
+                            cycle[("d", edge_idx - lseg - lc)] = edge_count
                         else:
                             logger.debug(f"Error: Cyclic path cannot connect to source nodes.")
                             logger.debug("Aborted.")
@@ -168,7 +166,7 @@ def parse_lp_solution(
                         # Only used for greedy
                         if unsatisfied_pc:
                             unsatisfied_pc[pi] = -1
-                if model.w[i] > 0.0:
+                if model.w[i].value > 0.0:
                     parsed_sol.cycles[0].append(cycle)
                     parsed_sol.cycle_weights[0].append(model.w[i].value)
                     parsed_sol.path_constraints_satisfied[0].append(path_constraints_s)

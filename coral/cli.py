@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import enum
 import logging
 import pickle
 
 import click
 
-from coral import cycle2bed, cycle_decomposition, cycle_decomposition_old, hsr, infer_breakpoint_graph, plot_amplicons
+from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
+from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.constants import CNGAP_MAX, CNSIZE_MIN, GAIN
 
 
 class Solver(enum.Enum):
-    # HIGHS = "highs"
-    # IPOPT = "ipopt"
-    # GLPK = "glpk"
     GUROBI = "gurobi"
     SCIP = "scip"
     # Coin-OR solvers
     BONMIN = "bonmin"
     COUENNE = "couenne"
-    CLP = "clp"
 
 
 @click.group(help="Long-read amplicon reconstruction pipeline and associated utilities.")
@@ -165,15 +163,6 @@ def reconstruct(
         log_file,
     )
     if not (output_bp or skip_cycle_decomp):
-        # cycle_decomposition_old.reconstruct_cycles(
-        #     output_prefix,
-        #     output_all_path_constraints,
-        #     cycle_decomp_alpha,
-        #     cycle_decomp_time_limit,
-        #     cycle_decomp_threads,
-        #     postprocess_greedy_sol,
-        #     b2bn,
-        # )
         cycle_decomposition.reconstruct_cycles(
             output_prefix,
             output_all_path_constraints,
@@ -188,7 +177,7 @@ def reconstruct(
     print("\nCompleted reconstruction.")
 
 
-@cli_mode.command(name="cycle", help="Pass existing breakpoint file directly to LP solver.")
+@cli_mode.command(name="decompose", help="Pass existing breakpoint file directly to LP solver.")
 @click.option("--output-prefix", type=str, required=True, help="Prefix of output files.")
 @click.option(
     "--output_all_path_constraints",
@@ -210,8 +199,13 @@ def reconstruct(
 )
 @click.option("--cycle-decomp-threads", type=int, help="Number of threads reserved for integer program solvers.")
 @click.option("--bp-graph", type=click.File("rb"), help="Existing BP graph file.")
+@click.option(
+    "--postprocess-greedy-sol",
+    is_flag=True,
+    default=False,
+    help="Postprocess the cycles/paths returned in greedy cycle extraction.",
+)
 @click.option("--solver", type=click.Choice([solver.value for solver in Solver]), default=Solver.GUROBI.value)
-@click.option("--old", is_flag=True, default=False, help="Use old cycle decomposition method.")
 def cycle_decomposition_mode(
     output_prefix: str,
     output_all_path_constraints: bool,
@@ -219,15 +213,13 @@ def cycle_decomposition_mode(
     cycle_decomp_time_limit: int,
     cycle_decomp_threads: int,
     bp_graph: click.File,
+    postprocess_greedy_sol: bool,
     solver: str,
-    old: bool,
 ):
-    module = cycle_decomposition_old if old else cycle_decomposition
     bb = infer_breakpoint_graph.BamToBreakpointNanopore(None, [pickle.load(bp_graph)])
-
-    module.reconstruct_cycles(
+    cycle_decomposition.reconstruct_cycles(
         output_prefix,
-        True,  # output_all_path_constraints,
+        output_all_path_constraints,
         cycle_decomp_alpha,
         cycle_decomp_time_limit,
         cycle_decomp_threads,

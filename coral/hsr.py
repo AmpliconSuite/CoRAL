@@ -6,7 +6,7 @@ from typing import Any
 import matplotlib as mpl
 import pysam
 
-from coral.breakpoint_utilities import (
+from coral.breakpoint.breakpoint_utilities import (
     bpc2bp,
     cluster_bp_list,
     interval2bp,

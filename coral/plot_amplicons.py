@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from typing import DefaultDict, Optional
 
 import matplotlib as mpl
-from intervaltree import IntervalTree  # type: ignore[import-untyped]
+from intervaltree import IntervalTree
+
+from coral.breakpoint import breakpoint_utilities  # type: ignore[import-untyped]
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -17,14 +19,14 @@ from matplotlib import gridspec, ticker
 from matplotlib.patches import Arc, Rectangle
 from pylab import rcParams  # type: ignore[import-untyped]
 
-from coral import breakpoint_utilities, cycle2bed
+from coral import cycle2bed
 
 rcParams["pdf.fonttype"] = 42
 
 
 # makes a gene object from parsed refGene data
 # this stores global properties for the gene
-class gene:
+class Gene:
     def __init__(self, gchrom, gstart, gend, gdata):
         self.gchrom = gchrom
         self.gstart = gstart
@@ -103,7 +105,7 @@ class GraphViz:
 
                 if gname not in seenNames and not is_other_feature:
                     seenNames.add(gname)
-                    currGene = gene(currChrom, tstart, tend, fields)
+                    currGene = Gene(currChrom, tstart, tend, fields)
                     self.genes[currChrom][tstart:tend] = currGene
 
     def parse_graph_file(self, graph_fn):

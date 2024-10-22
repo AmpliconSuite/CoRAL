@@ -1,12 +1,12 @@
 import logging
 from typing import List, Optional, Tuple
-from coral.breakpoint_graph import BreakpointGraph
-import pyomo.environ as pyo
+
 import pyomo.core
+import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible
-
-from coral.models.datatypes import EdgeToCN
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.datatypes import EdgeToCN
 
 logger = logging.getLogger(__name__)
 

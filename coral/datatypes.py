@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, NamedTuple, Optional, Set, cast
+from typing import Any, Dict, List, Literal, NamedTuple, Optional, Set, Tuple, cast
 
 import pyomo.core
 import pyomo.environ as pyo
@@ -40,3 +40,11 @@ class InitialSolution(NamedTuple):
     cycles: List
     cycle_weights: List
     satisfied_path_constraints: List
+
+
+CigarString = str
+Strand = Literal["+", "-"]
+AmpliconInterval = List[Any]  # tuple[str, int, int, int]
+CnsInterval = Any  # tuple[str, int, int]
+Edge = Tuple[int, int]
+PathConstraint = List[List[Any]]

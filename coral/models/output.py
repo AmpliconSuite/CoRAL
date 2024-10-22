@@ -1,22 +1,23 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
 
-import pyomo.opt
-import pyomo.util.infeasible
 import logging
 import random
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Set
 
+import pyomo.contrib.appsi
+import pyomo.opt
 import pyomo.solvers
 import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
-import pyomo.contrib.appsi
-from coral import constants, infer_breakpoint_graph, models, state_provider
-from coral.breakpoint_graph import BreakpointGraph
+import pyomo.util.infeasible
+from coral import constants, models, state_provider
+from coral.breakpoint import infer_breakpoint_graph
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.models import utils
-from coral.path_constraints import longest_path_dict
+from coral.models.path_constraints import longest_path_dict
 
 logger = logging.getLogger(__name__)
 

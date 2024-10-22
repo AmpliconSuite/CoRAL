@@ -15,7 +15,7 @@ import time
 from typing import Dict, NamedTuple
 
 from coral import state_provider
-from coral.types import Strand
+from coral.datatypes import Strand
 
 logger = logging.getLogger(__name__)
 

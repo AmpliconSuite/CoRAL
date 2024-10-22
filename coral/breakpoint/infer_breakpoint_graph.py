@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import functools
 import io
 import logging
@@ -8,6 +7,7 @@ import math
 import pickle
 import sys
 import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
@@ -16,10 +16,10 @@ import intervaltree  # type: ignore[import-untyped]
 import numpy as np
 import pysam
 
-from coral import breakpoint_graph, cigar_parsing, state_provider
-from coral import breakpoint_utilities
-from coral.breakpoint_graph import BreakpointGraph
-from coral.breakpoint_utilities import (
+from coral import cigar_parsing
+from coral.breakpoint import breakpoint_graph, breakpoint_utilities
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.breakpoint_utilities import (
     alignment2bp,
     alignment2bp_l,
     alignment2bp_nm,
@@ -32,8 +32,8 @@ from coral.breakpoint_utilities import (
     interval_overlap_l,
 )
 from coral.constants import CHR_TAG_TO_IDX
-from coral import path_constraints
-from coral.types import AmpliconInterval, CnsInterval
+from coral.datatypes import AmpliconInterval, CnsInterval
+from coral.models import path_constraints
 
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 

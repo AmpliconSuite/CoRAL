@@ -4,19 +4,19 @@ Utilities for breakpoint graph inference.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import io
 import math
 from collections import Counter
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
 
-import intervaltree
 import click
+import intervaltree
 import numpy as np
 
 from coral import constants
 from coral.constants import CHR_TAG_TO_IDX
-from coral.types import CnsInterval
+from coral.datatypes import CnsInterval
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:

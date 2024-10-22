@@ -1,15 +1,14 @@
-from dataclasses import dataclass
 import logging
-
+from dataclasses import dataclass
 from typing import List, Optional, cast
-from coral.breakpoint_graph import BreakpointGraph
-import pyomo.environ as pyo
+
 import pyomo.core
+import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible
-
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.datatypes import EdgeToCN
 from coral.models import constraints
-from coral.models.datatypes import EdgeToCN
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +108,7 @@ def get_model(
     # Relationship between w[i] and z[i]
     # Below constraint is shared by `minimize_cycles` and `minimize_cycles_post`
     model.ConstraintWZ = pyo.Constraint(model.k, rule=lambda model, i: model.w[i] <= model.z[i] * bp_graph.max_cn)
+
     if is_post or is_greedy:
         model.ConstraintWZResolution = pyo.Constraint(
             model.k, rule=lambda model, i: model.w[i] >= model.z[i] * resolution

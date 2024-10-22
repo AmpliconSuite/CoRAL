@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coral import breakpoint_utilities
+from coral.breakpoint import breakpoint_utilities
 
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 

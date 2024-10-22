@@ -1,33 +1,35 @@
 """Functions used for cycle decomposition"""
 
 from __future__ import annotations
-from dataclasses import dataclass, field
 
-import pyomo
-import pyomo.environ as pyo
-import pyomo.core
-import pyomo.opt
-import pyomo.util.infeasible
 import logging
 import math
 import os
 import random
 import time
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Set
 
 import gurobipy as gp
 from gurobipy import GRB
+
+import pyomo
+import pyomo.contrib.appsi
+import pyomo.core
+import pyomo.environ as pyo
+import pyomo.opt
 import pyomo.solvers
 import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
-import pyomo.contrib.appsi
-from coral import constants, infer_breakpoint_graph, models, state_provider
-from coral.breakpoint_graph import BreakpointGraph
+import pyomo.util.infeasible
+from coral import constants, datatypes, models, state_provider
+from coral.breakpoint import infer_breakpoint_graph
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
-from coral.models import datatypes, output, utils
+from coral.models import output, utils
 from coral.models.concrete import CycleLPModel
-from coral.path_constraints import longest_path_dict
+from coral.models.path_constraints import longest_path_dict
 
 logger = logging.getLogger(__name__)
 
@@ -237,14 +239,14 @@ def maximize_weights_greedy(
     node_order: Dict[tuple[Any, Any, Any], int],
     pc_list: List,
     cycle_id: int,
-    alpha: float=0.01,
-    p_total_weight: float=0.9,
-    resolution: float=0.1,
-    cn_tol: float=0.005,
-    p_subpaths: float=0.9,
-    num_threads: int =-1,
-    postprocess: int=0,
-    time_limit: int =7200,
+    alpha: float = 0.01,
+    p_total_weight: float = 0.9,
+    resolution: float = 0.1,
+    cn_tol: float = 0.005,
+    p_subpaths: float = 0.9,
+    num_threads: int = -1,
+    postprocess: int = 0,
+    time_limit: int = 7200,
     model_prefix="pyomo",
     solver_to_use="gurobi",
 ):
@@ -334,7 +336,6 @@ def cycle_decomposition(
         for pathi in bb.longest_path_constraints[amplicon_idx][1]:
             logger.debug(f"Subpath constraint {pathi} = {bb.path_constraints[amplicon_idx][0][pathi]}")
 
-
         k = max(10, ld // 2)  # Initial num cycles/paths
         logger.info(f"Initial num cycles/paths = {k}.")
         nnodes = len(bp_graph.nodes)  # Does not include s and t
@@ -366,7 +367,7 @@ def cycle_decomposition(
                     total_weights=total_weights,
                     node_order=node_order,
                     pc_list=bb.longest_path_constraints[amplicon_idx][0],
-                    cycle_id=0, # TODO: FIX!
+                    cycle_id=0,  # TODO: FIX!
                     alpha=alpha,
                     p_total_weight=p_total_weight,
                     resolution=resolution,
@@ -472,7 +473,7 @@ def cycle_decomposition(
                 total_weights=total_weights,
                 node_order=node_order,
                 pc_list=bb.longest_path_constraints[amplicon_idx][0],
-                cycle_id=0, # TODO: FIX!
+                cycle_id=0,  # TODO: FIX!
                 alpha=alpha,
                 p_total_weight=p_total_weight,
                 resolution=resolution,
