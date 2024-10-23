@@ -163,7 +163,7 @@ class bam_to_breakpoint_nanopore():
 		for r in self.chimeric_alignments.keys():
 			if r not in self.read_length:
 				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Found chimeric read without primary alignment.")
-				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tRead name: %s; Read length: N/A." %r)
+				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tRead name: %s" %r)
 				logging.warning("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "\tAll CIGAR strings: %s." %(self.chimeric_alignments[r]))
 				reads_wo_primary_alignment.append(r)
 				continue
@@ -171,7 +171,7 @@ class bam_to_breakpoint_nanopore():
 			self.chimeric_alignments[r] = cigar_parsing.alignment_from_satags(self.chimeric_alignments[r], rl)
 		for r in reads_wo_primary_alignment:
 			del self.chimeric_alignments[r]
-		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Computed alignment intervals on all chimeric reads.")
+		logging.info("#TIME " + '%.4f\t' %(time.time() - global_names.TSTART) + "Computed alignment intervals on all %d chimeric reads." %(len(self.chimeric_alignments)))
 
 
 	def pos2cni(self, chr, pos):
@@ -366,7 +366,7 @@ class bam_to_breakpoint_nanopore():
 			except:
 				continue
 			
-			d1_segs = dict() # All CN segments which share a chimeric alignment to the given interval 
+			d1_segs = dict()  # All CN segments which share a chimeric alignment to the given interval
 			for i in range(si, ei + 1):
 				if i in self.chimeric_alignments_seg[chr]:
 					for r in self.chimeric_alignments_seg[chr][i]:
