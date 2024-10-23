@@ -2,7 +2,6 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional, cast
 
-import pyomo.core
 import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible

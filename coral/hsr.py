@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import pathlib
 import sys
 from typing import Any
 
 import matplotlib as mpl
 import pysam
+import typer
 
 from coral.breakpoint.breakpoint_utilities import (
     bpc2bp,
@@ -58,9 +60,9 @@ def fetch(lr_bamfh):
 
 
 def locate_hsrs(
-    lr_bam: str,
-    cycles: str,
-    cn_seg: str,
+    lr_bam: pathlib.Path,
+    cycle_file: typer.FileText,
+    cn_seg_file: typer.FileText,
     output_prefix: str,
     normal_cov: float,
     bp_match_cutoff: int,
@@ -69,21 +71,21 @@ def locate_hsrs(
     ecdna_intervals: list[list[Any]] = []
     ecdna_intervals_ext: list[list[Any]] = []
 
-    cycle_fn = cycles
-    if cycles.endswith("_cycles.txt"):
+    cycle_filename = cycle_file.name
+    if cycle_file.name.endswith("_cycles.txt"):
         # convert it to a bed
         init_char = "" if output_prefix.endswith("/") else "_"
         conv_cycle_fn = output_prefix + init_char + "converted_"
         conv_cycle_fn += "cycles.bed"
-        cycle2bed.convert_cycles_to_bed(cycles, conv_cycle_fn)
-        cycle_fn = conv_cycle_fn
+        cycle2bed.convert_cycles_to_bed(cycle_file, conv_cycle_fn)
+        cycle_filename = conv_cycle_fn
 
-    elif not cycles.endswith(".bed"):
-        sys.stderr.write(cycles + "\n")
+    elif not cycle_filename.endswith(".bed"):
+        sys.stderr.write(cycle_filename + "\n")
         sys.stderr.write("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
         sys.exit(1)
 
-    with open(cycle_fn, "r") as fp:
+    with open(cycle_filename, "r") as fp:
         for line in fp:
             if line.startswith("#"):
                 continue
@@ -96,29 +98,28 @@ def locate_hsrs(
         print(ival)
 
     cns_dict: dict = {}
-    with open(cn_seg, "r") as fp:
-        for line in fp:
-            s = line.strip().split()
-            if line.startswith("chromosome"):
-                continue
+    for line in cn_seg_file:
+        s = line.strip().split()
+        if line.startswith("chromosome"):
+            continue
 
-            if s[0] not in cns_dict:
-                cns_dict[s[0]] = {}
+        if s[0] not in cns_dict:
+            cns_dict[s[0]] = {}
 
-            if cn_seg.endswith(".cns"):
-                cn = 2 * (2 ** float(s[4]))
-            elif cn_seg.endswith(".bed"):
-                cn = float(s[3])
-            else:
-                sys.stderr.write(cn_seg + "\n")
-                sys.stderr.write("Invalid cn_seg file format!\n")
+        if cn_seg_file.name.endswith(".cns"):
+            cn = 2 * (2 ** float(s[4]))
+        elif cn_seg_file.name.endswith(".bed"):
+            cn = float(s[3])
+        else:
+            sys.stderr.write(cn_seg_file.name + "\n")
+            sys.stderr.write("Invalid cn_seg file format!\n")
 
-            try:
-                cns_dict[s[0]].append([int(s[1]), int(s[2]), cn])  # type: ignore[possibly-undefined]
-            except:
-                cns_dict[s[0]] = [[int(s[1]), int(s[2]), cn]]  # type: ignore[possibly-undefined]
+        try:
+            cns_dict[s[0]].append([int(s[1]), int(s[2]), cn])  # type: ignore[possibly-undefined]
+        except:
+            cns_dict[s[0]] = [[int(s[1]), int(s[2]), cn]]  # type: ignore[possibly-undefined]
 
-    lr_bamfh = pysam.AlignmentFile(lr_bam, "rb")
+    lr_bamfh = pysam.AlignmentFile(str(lr_bam), "rb")
     read_length, chimeric_alignments = fetch(lr_bamfh)
     print("Fetched %d chimeric alignments." % len(chimeric_alignments))
 
@@ -239,7 +240,7 @@ def locate_hsrs(
                     if bpi_ < 0:
                         bp_refined.append(bp + [bpr])
                         bp_stats.append(bp_stats_)
-    print("Found %d breakpoints connecting ecDNA and chromosomes." % len(bp_refined))
+    print(f"Found {len(bp_refined)} breakpoints connecting ecDNA and chromosomes.")
     lr_bamfh.close()
     sum_sizes = sum(CHR_SIZES.values())
     agg_size = 0

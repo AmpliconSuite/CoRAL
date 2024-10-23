@@ -12,7 +12,7 @@ import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
-from coral import constants, models, state_provider
+from coral import constants
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
@@ -338,16 +338,13 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
                     del edges_cur[("e", last_seq_edge)]
         if valid == 1 and len(best_path) == 0:
             best_path = eulerian_path_
-        path_metric = [[], 0, 0]
+        path_metric: list[Any] = [[], 0, 0]
         # check if the remaining path constraints are satisfied
         for pathi in range(len(path_constraints_next_path)):
             path_ = path_constraints_next_path[pathi]
             s = 0
             for ei in range(2, len(eulerian_path) - 1 - len(path_)):
-                if (
-                    eulerian_path[ei : ei + len(path_)] == path_[:]
-                    or eulerian_path[ei : ei + len(path_)] == path_[::-1]
-                ):
+                if eulerian_path[ei : ei + len(path_)] == path_[:] or eulerian_path[ei : ei + len(path_)] == path_[::-1]:
                     s = 1
                     break
             if s == 0 and valid == 1:
@@ -379,9 +376,7 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
     return best_path
 
 
-def output_cycles(
-    bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths=False
-) -> None:
+def output_cycles(bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths=False) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     for amplicon_idx in range(len(bb.lr_graph)):
         logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
@@ -419,9 +414,7 @@ def output_cycles(
         else:
             fp.write("List of longest subpath constraints\n")
             path_constraint_indices_ = []
-            for paths in (
-                bb.path_constraints_satisfied[amplicon_idx][0] + bb.path_constraints_satisfied[amplicon_idx][1]
-            ):
+            for paths in bb.path_constraints_satisfied[amplicon_idx][0] + bb.path_constraints_satisfied[amplicon_idx][1]:
                 for pathi in paths:
                     if pathi not in path_constraint_indices_:
                         path_constraint_indices_.append(pathi)

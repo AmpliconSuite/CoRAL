@@ -7,8 +7,6 @@ import random
 import time
 from typing import Dict, List, Optional
 
-from gurobipy import GRB
-
 import pyomo
 import pyomo.contrib.appsi
 import pyomo.core
@@ -19,12 +17,9 @@ import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
-from coral import constants, models, state_provider
-from coral.breakpoint import infer_breakpoint_graph
+from coral import datatypes
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import EdgeToCN, ParsedLPSolution
-from coral.models.path_constraints import longest_path_dict
 
 logger = logging.getLogger(__name__)
 
@@ -129,14 +124,12 @@ def parse_lp_solution(
                     break
             if not found_cycle:
                 cycle: Dict = {}
-                path_constraints_s = []
                 for edge_idx in range(nedges):
                     if (edge_count := model.x[edge_idx, i].value) >= 0.9:
+                        edge_count = round(edge_count)
                         # Update cycle in-place via helper
                         process_cycle_edge(cycle, model, edge_idx, edge_count, bp_graph, remaining_cn, resolution)
-                for pi in range(len(pc_list)):
-                    if model.r[pi, i].value >= 0.9:
-                        path_constraints_s.append(pi)
+                path_constraints_s = [pi for pi in range(len(pc_list)) if model.r[pi, i].value >= 0.9]
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.cycles[1].append(cycle)
                     parsed_sol.cycle_weights[1].append(walk_weight)
@@ -145,11 +138,9 @@ def parse_lp_solution(
             else:
                 cycle = {}
                 path_constraints_s = []
-                # TODO: update correctly using pyomo solution scheme instead of gurobi
                 for edge_idx in range(nedges):
                     if (edge_count := model.x[edge_idx, i].value) >= 0.9:
                         edge_count = round(edge_count)
-
                         if edge_idx < lseg:
                             cycle[("e", edge_idx)] = edge_count
                         elif edge_idx < lseg + lc:
@@ -157,7 +148,7 @@ def parse_lp_solution(
                         elif edge_idx < lseg + lc + ld:
                             cycle[("d", edge_idx - lseg - lc)] = edge_count
                         else:
-                            logger.debug(f"Error: Cyclic path cannot connect to source nodes.")
+                            logger.debug("Error: Cyclic path cannot connect to source nodes.")
                             logger.debug("Aborted.")
                             os.abort()
                 for pi in range(len(pc_list)):
@@ -172,24 +163,24 @@ def parse_lp_solution(
                     parsed_sol.path_constraints_satisfied[0].append(path_constraints_s)
                     parsed_sol.path_constraints_satisfied_set |= set(path_constraints_s)
             for seqi in range(lseg):
-                parsed_sol.total_weights_included += (
-                    model.x[seqi, i].value * model.w[i].value * bp_graph.sequence_edges[seqi][-2]
-                )
+                parsed_sol.total_weights_included += model.x[seqi, i].value * model.w[i].value * bp_graph.sequence_edges[seqi][-2]
 
     logger.debug(f"Total length weighted CN from cycles/paths = {parsed_sol.total_weights_included}/{total_weights}.")
-    logger.debug(
-        f"Total num subpath constraints satisfied = {len(parsed_sol.path_constraints_satisfied_set)}/{len(pc_list)}."
-    )
+    logger.debug(f"Total num subpath constraints satisfied = {len(parsed_sol.path_constraints_satisfied_set)}/{len(pc_list)}.")
     return parsed_sol
 
 
-def get_solver(solver_name: str, num_threads: int, time_limit_s: int) -> pyomo.solvers.plugins.solvers:
-    if solver_name == "gurobi":
-        solver = pyo.SolverFactory(solver_name, solver_io="python")
+def get_solver(solver_type: datatypes.Solver, num_threads: int, time_limit_s: int) -> pyomo.solvers.plugins.solvers:
+    if solver_type == datatypes.Solver.GUROBI:
+        solver = pyo.SolverFactory(solver_type.value, solver_io="python")
         if num_threads > 0:
             solver.options["threads"] = num_threads
         solver.options["NonConvex"] = 2
         solver.options["timelimit"] = time_limit_s
+    elif solver_type == datatypes.Solver.SCIP:
+        solver = pyo.SolverFactory(solver_type.value)
+        solver.options["lp/threads"] = num_threads
+        solver.options["propagating/nlobbt/nlptimelimit"] = time_limit_s
     else:
-        solver = pyo.SolverFactory(solver_name)
+        solver = pyo.SolverFactory(solver_type.value)
     return solver

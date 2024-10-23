@@ -1,13 +1,13 @@
+import enum
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, NamedTuple, Optional, Set, Tuple, cast
+from typing import Any, Dict, List, NamedTuple, Optional, Set, cast
 
 import pyomo.core
 import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.models import constraints
 
 
 @dataclass
@@ -42,9 +42,17 @@ class InitialSolution(NamedTuple):
     satisfied_path_constraints: List
 
 
-CigarString = str
-Strand = Literal["+", "-"]
-AmpliconInterval = List[Any]  # tuple[str, int, int, int]
-CnsInterval = Any  # tuple[str, int, int]
-Edge = Tuple[int, int]
-PathConstraint = List[List[Any]]
+class Solver(str, enum.Enum):
+    GUROBI = "gurobi"
+    SCIP = "scip"
+    # Coin-OR solvers
+    BONMIN = "bonmin"
+    COUENNE = "couenne"
+
+
+class ReferenceGenome(str, enum.Enum):
+    hg19 = "hg19"
+    hg38 = "hg38"
+    GRCh38 = "GRCh38"
+    mm10 = "mm10"
+    GRCh37 = "GRCh37"

@@ -1,144 +1,81 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
-import enum
 import logging
+import pathlib
 import pickle
+from typing import Annotated
 
-import click
+import typer
 
 from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
 from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
-from coral.constants import CNGAP_MAX, CNSIZE_MIN, GAIN
+from coral.datatypes import ReferenceGenome, Solver
+
+coral_app = typer.Typer(help="Long-read amplicon reconstruction pipeline and associated utilities.")
 
 
-class Solver(enum.Enum):
-    GUROBI = "gurobi"
-    SCIP = "scip"
-    # Coin-OR solvers
-    BONMIN = "bonmin"
-    COUENNE = "couenne"
-
-
-@click.group(help="Long-read amplicon reconstruction pipeline and associated utilities.")
-def cli_mode() -> None:
-    pass
-
-
-def validate_cns_file(ctx: click.Context, param_name: str, cns_file: click.File) -> click.File:
+def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     cns_filename = cns_file.name
     if cns_filename.endswith(".bed") or cns_filename.endswith(".cns"):
         return cns_file
-    raise click.BadParameter("Invalid cn-seg file format! (Only .bed and .cns formats are supported.)")
+    raise typer.BadParameter("Invalid cn-seg file format! (Only .bed and .cns formats are supported.)")
 
 
-@cli_mode.command(help="Filter and merge amplified intervals.")
-@click.option(
-    "--cn-seg",
-    type=str,
-    required=True,
-    help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).",
-)
-@click.option(
-    "--out",
-    type=str,
-    default="<INPUT_CNS_BASENAME>_CNV_SEEDS.bed",
-    help="OPTIONAL: Prefix filename for output bed file. Default: <INPUT_CNS_BASENAME>_CNV_SEEDS.bed",
-)
-@click.option(
-    "--gain",
-    type=float,
-    default=GAIN,
-    help="OPTIONAL: CN gain threshold for interval to be considered as a seed. Default: 6.0",
-)
-@click.option(
-    "--min-seed-size",
-    type=float,
-    default=CNSIZE_MIN,
-    help="OPTIONAL: Minimum size (in bp) for interval to be considered as a seed. Default: 100000",
-)
-@click.option(
-    "--max-seg-gap",
-    type=float,
-    default=CNGAP_MAX,
-    help="OPTIONAL: Maximum gap size (in bp) to merge two proximal intervals. Default: 300000",
-)
-@click.pass_context  # TODO: do we need to actually log arguments or can we remove this for housekeeping?
-def seed(ctx: click.Context, cn_seg: str, out: str, gain: float, min_seed_size: float, max_seg_gap: float) -> None:
+# Note: typer.Arguments are required, typer.Options are optional
+BamArg = Annotated[pathlib.Path, typer.Option(help="Sorted indexed (long read) bam file.")]
+CnvSeedArg = Annotated[typer.FileText, typer.Option(help="Bed file of CNV seed intervals.")]
+CnSegArg = Annotated[
+    typer.FileText,
+    typer.Option(help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).", callback=validate_cns_file),
+]
+OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
+OutputPCFlag = Annotated[bool, typer.Option(help="If specified, output all path constraints in *.cycles file.")]
+PostProcessFlag = Annotated[bool, typer.Option(help="Postprocess the cycles/paths returned in greedy cycle extraction.")]
+SolverArg = Annotated[Solver, typer.Option(help="LP solver to use.")]
+ThreadsArg = Annotated[int, typer.Option(help="Number of threads reserved for integer program solvers.")]
+TimeLimitArg = Annotated[int, typer.Option(help="Maximum running time (in seconds) reserved for integer program solvers.")]
+AlphaArg = Annotated[float, typer.Option(help="Parameter used to balance CN weight and path constraints in greedy cycle extraction.")]
+
+
+@coral_app.command(help="Filter and merge amplified intervals.")
+def seed(
+    ctx: typer.Context,
+    cn_seg: CnSegArg,
+    output_prefix: OutputPrefixArg,
+    gain: Annotated[float, typer.Option(help="CN gain threshold for interval to be considered as a seed.")] = 6.0,
+    min_seed_size: Annotated[float, typer.Option(help="Minimum size (in bp) for interval to be considered as a seed.")] = 100000,
+    max_seg_gap: Annotated[float, typer.Option(help="Maximum gap size (in bp) to merge two proximal intervals.")] = 300000,
+) -> None:
     print(f"Performing seeding mode with options: {ctx.params}")
-    run_seeding(cn_seg, out, gain, min_seed_size, max_seg_gap)
+    run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap)
 
 
-@cli_mode.command(help="Reconstruct focal amplifications")
-# TODO; unify shared params with hsr via click subgroups
-@click.option("--lr-bam", type=str, required=True, help="Sorted indexed (long read) bam file.")
-@click.option("--cnv-seed", type=click.File("r"), required=True, help="Bed file of CNV seed intervals.")
-@click.option(
-    "--cn-seg",
-    type=click.File("r"),
-    required=True,
-    callback=validate_cns_file,
-    help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).",
-)
-@click.option("--output-prefix", type=str, required=True, help="Prefix of output files.")
-@click.option("--output-bp", is_flag=True, default=False, help="If specified, only output the list of breakpoints.")
-@click.option(
-    "--skip-cycle-decomp",
-    is_flag=True,
-    default=False,
-    help="If specified, only reconstruct and output the breakpoint graph for all amplicons.",
-)
-@click.option(
-    "--output_all_path_constraints",
-    is_flag=True,
-    default=False,
-    help="If specified, output all path constraints in *.cycles file.",
-)
-@click.option(
-    "--min-bp-support",
-    type=float,
-    default=1.0,
-    help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support.",
-)
-@click.option(
-    "--cycle-decomp-alpha",
-    type=float,
-    default=0.01,
-    help="Parameter used to balance CN weight and path constraints in greedy cycle extraction.",
-)
-@click.option(
-    "--cycle-decomp-time-limit",
-    type=int,
-    default=7200,
-    help="Maximum running time (in seconds) reserved for integer program solvers.",
-)
-@click.option("--cycle-decomp-threads", type=int, help="Number of threads reserved for integer program solvers.")
-@click.option(
-    "--postprocess-greedy-sol",
-    is_flag=True,
-    default=False,
-    help="Postprocess the cycles/paths returned in greedy cycle extraction.",
-)
-@click.option("--log-file", type=str, default="", help="Name of log file.")
-@click.option("--solver", type=click.Choice([solver.value for solver in Solver]), default=Solver.GUROBI.value)
-@click.pass_context
+@coral_app.command(help="Reconstruct focal amplifications")
 def reconstruct(
-    ctx: click.Context,
-    lr_bam: str,
-    cnv_seed: click.File,
-    cn_seg: click.File,
-    output_prefix: str,
-    output_bp: bool,
-    skip_cycle_decomp: bool,
-    output_all_path_constraints: bool,
-    min_bp_support: float,
-    cycle_decomp_alpha: float,
-    cycle_decomp_time_limit: int,
-    cycle_decomp_threads: int,
-    postprocess_greedy_sol: bool,
-    log_file: str,
-    solver: str,
+    ctx: typer.Context,
+    output_prefix: OutputPrefixArg,
+    lr_bam: BamArg,
+    cnv_seed: CnvSeedArg,
+    cn_seg: CnSegArg,
+    log_file: Annotated[str, typer.Option(help="Name of log file.")] = "",
+    cycle_decomp_alpha: AlphaArg = 0.01,
+    cycle_decomp_time_limit: TimeLimitArg = 7200,
+    cycle_decomp_threads: ThreadsArg = -1,
+    solver: SolverArg = Solver.GUROBI,
+    output_all_path_constraints: OutputPCFlag = False,
+    postprocess_greedy_sol: PostProcessFlag = False,
+    output_bp: Annotated[bool, typer.Option(help="If specified, only output the list of breakpoints.")] = False,
+    skip_cycle_decomp: Annotated[
+        bool,
+        typer.Option(
+            help="If specified, only reconstruct and output the breakpoint graph for all amplicons.",
+        ),
+    ] = False,
+    min_bp_support: Annotated[
+        float,
+        typer.Option(help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."),
+    ] = 1.0,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
     logging.basicConfig(
@@ -177,146 +114,71 @@ def reconstruct(
     print("\nCompleted reconstruction.")
 
 
-@cli_mode.command(name="decompose", help="Pass existing breakpoint file directly to LP solver.")
-@click.option("--output-prefix", type=str, required=True, help="Prefix of output files.")
-@click.option(
-    "--output_all_path_constraints",
-    is_flag=True,
-    default=False,
-    help="If specified, output all path constraints in *.cycles file.",
-)
-@click.option(
-    "--cycle-decomp-alpha",
-    type=float,
-    default=0.01,
-    help="Parameter used to balance CN weight and path constraints in greedy cycle extraction.",
-)
-@click.option(
-    "--cycle-decomp-time-limit",
-    type=int,
-    default=7200,
-    help="Maximum running time (in seconds) reserved for integer program solvers.",
-)
-@click.option("--cycle-decomp-threads", type=int, help="Number of threads reserved for integer program solvers.")
-@click.option("--bp-graph", type=click.File("rb"), help="Existing BP graph file.")
-@click.option(
-    "--postprocess-greedy-sol",
-    is_flag=True,
-    default=False,
-    help="Postprocess the cycles/paths returned in greedy cycle extraction.",
-)
-@click.option("--solver", type=click.Choice([solver.value for solver in Solver]), default=Solver.GUROBI.value)
+@coral_app.command(name="cycle", help="Pass existing breakpoint file directly to LP solver.")
 def cycle_decomposition_mode(
-    output_prefix: str,
-    output_all_path_constraints: bool,
-    cycle_decomp_alpha: float,
-    cycle_decomp_time_limit: int,
-    cycle_decomp_threads: int,
-    bp_graph: click.File,
-    postprocess_greedy_sol: bool,
-    solver: str,
-):
+    bp_graph: Annotated[typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")],
+    output_prefix: OutputPrefixArg,
+    alpha: AlphaArg = 0.01,
+    time_limit_s: TimeLimitArg = 7200,
+    threads: ThreadsArg = -1,
+    solver: SolverArg = Solver.GUROBI,
+    output_all_path_constraints: OutputPCFlag = False,
+    postprocess_greedy_sol: PostProcessFlag = False,
+) -> None:
     bb = infer_breakpoint_graph.BamToBreakpointNanopore(None, [pickle.load(bp_graph)])
     cycle_decomposition.reconstruct_cycles(
         output_prefix,
         output_all_path_constraints,
-        cycle_decomp_alpha,
-        cycle_decomp_time_limit,
-        cycle_decomp_threads,
+        alpha,
+        time_limit_s,
+        threads,
         solver,
-        postprocess_greedy_sol=False,
+        postprocess_greedy_sol=postprocess_greedy_sol,
         bb=bb,
     )
 
 
-@cli_mode.command(name="hsr", help="Detect possible integration points of ecDNA HSR amplifications.")
-@click.option("--lr-bam", type=str, required=True, help="Sorted indexed (long read) bam file.")
-@click.option(
-    "--cycles", type=str, required=True, help="AmpliconSuite-formatted cycles file"
-)  # TODO: update type to file
-@click.option(
-    "--cn-seg",
-    type=str,
-    required=True,
-    help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).",
-)
-@click.option("--output-prefix", type=str, required=True, help="Prefix of output files.")
-@click.option("--normal-cov", type=float, required=True, help="Estimated diploid coverage.")
-@click.option("--bp-match-cutoff", type=int, default=100, help="Breakpoint matching cutoff.")
-@click.option(
-    "--bp-match-cutoff-clustering", type=int, default=2000, help="Crude breakpoint matching cutoff for clustering."
-)
-@click.pass_context
+@coral_app.command(name="hsr", help="Detect possible integration points of ecDNA HSR amplifications.")
 def hsr_mode(
-    ctx: click.Context,
-    lr_bam: str,
-    cycles: str,
-    cn_seg: str,
-    output_prefix: str,
-    normal_cov: float,
-    bp_match_cutoff: int,
-    bp_match_cutoff_clustering: int,
+    ctx: typer.Context,
+    lr_bam: BamArg,
+    cn_seg: CnSegArg,
+    output_prefix: OutputPrefixArg,
+    cycles: Annotated[typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")],
+    normal_cov: Annotated[float, typer.Option(help="Estimated diploid coverage.")],
+    bp_match_cutoff: Annotated[int, typer.Option(help="Breakpoint matching cutoff.")] = 100,
+    bp_match_cutoff_clustering: Annotated[int, typer.Option(help="Crude breakpoint matching cutoff for clustering.")] = 2000,
 ) -> None:
     print(f"Performing HSR mode with options: {ctx.params}")
     hsr.locate_hsrs(lr_bam, cycles, cn_seg, output_prefix, normal_cov, bp_match_cutoff, bp_match_cutoff_clustering)
 
 
-@cli_mode.command(name="plot", help="Generate plots of amplicon cycles and/or graph from AA-formatted output files")
-@click.option("--ref", type=click.Choice(["hg19", "hg38", "GRCh38", "mm10", "GRCh37"]), required=True)
-@click.option("--bam", type=str, help="Sorted indexed (long read) bam file.")
-@click.option("--graph", type=str, help="AmpliconSuite-formatted *.graph file")  # TODO: update type to file
-@click.option("--cycles", type=str, help="AmpliconSuite-formatted cycles file")  # TODO: update type to file
-@click.option("--output-prefix", "-o", type=str, required=True, help="Prefix of output files.")
-@click.option("--plot-graph", is_flag=True, default=False, help="Visualize breakpoint graph.")
-@click.option("--plot-cycles", is_flag=True, default=False, help="Visualize (selected) cycles.")
-@click.option("--only-cyclic-paths", is_flag=True, default=False, help="Only plot cyclic paths from cycles file.")
-@click.option("--num-cycles", type=int, help="Only plot the first NUM_CYCLES cycles.")
-@click.option(
-    "--max-coverage", type=float, default=float("inf"), help="Limit the maximum visualized coverage in the graph."
-)
-@click.option("--min-mapq", type=float, default=0, help="Minimum mapping quality to count read in coverage plotting.")
-@click.option(
-    "--gene-subset-list",
-    type=list[str],
-    default=[],
-    help="List of genes to visualize (will show all by default).",
-)
-@click.option("--hide-genes", is_flag=True, default=False, help="Do not show gene track.")
-@click.option("--gene-fontsize", type=float, default=12.0, help="Change size of gene font.")
-@click.option(
-    "--bushman-genes", is_flag=True, default=False, help="Reduce gene set to the Bushman cancer-related gene set"
-)
-@click.option(
-    "--region",
-    type=str,
-    help="(Graph plotting) Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'.",
-)
-@click.pass_context
+@coral_app.command(name="plot", help="Generate plots of amplicon cycles and/or graph from AA-formatted output files")
 def plot_mode(
-    ctx: click.Context,
-    ref: str,
-    bam: str,
-    graph: str,
-    cycles: str,
-    output_prefix: str,
-    plot_graph: bool,
-    plot_cycles: bool,
-    only_cyclic_paths: bool,
-    num_cycles: bool,
-    max_coverage: float,
-    min_mapq: float,
-    gene_subset_list: list[str],
-    hide_genes: bool,
-    gene_fontsize: float,
-    bushman_genes: bool,
-    region: str,
+    ctx: typer.Context,
+    ref: Annotated[ReferenceGenome, typer.Option(help="Reference genome.")],
+    graph: Annotated[typer.FileText | None, typer.Option(help="AmpliconSuite-formatted *.graph file.")],
+    cycle_file: Annotated[typer.FileText | None, typer.Option(help="AmpliconSuite-formatted cycles file.")],
+    bam: BamArg,
+    output_prefix: OutputPrefixArg,
+    num_cycles: Annotated[int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")],
+    region: Annotated[str | None, typer.Option(help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'.")],
+    plot_graph: Annotated[bool, typer.Option(help="Visualize breakpoint graph.")] = False,
+    plot_cycles: Annotated[bool, typer.Option(help="Visualize (selected) cycles.")] = False,
+    only_cyclic_paths: Annotated[bool, typer.Option(help="Only plot cyclic paths from cycles file.")] = False,
+    max_coverage: Annotated[float, typer.Option(help="Limit the maximum visualized coverage in the graph.")] = float("inf"),
+    min_mapq: Annotated[float, typer.Option(help="Minimum mapping quality to count read in coverage plotting.")] = 0.0,
+    gene_subset_list: Annotated[list[str], typer.Option(help="List of genes to visualize (will show all by default).")] = [],
+    hide_genes: Annotated[bool, typer.Option(help="Do not show gene track.")] = False,
+    gene_fontsize: Annotated[float, typer.Option(help="Change size of gene font.")] = 12.0,
+    bushman_genes: Annotated[bool, typer.Option(help="Reduce gene set to the Bushman cancer-related gene set.")] = False,
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
     plot_amplicons.plot_amplicons(
         ref,
         bam,
         graph,
-        cycles,
+        cycle_file,
         output_prefix,
         plot_graph,
         plot_cycles,
@@ -332,18 +194,16 @@ def plot_mode(
     )
 
 
-@cli_mode.command(name="cycle2bed", help="Convert cycle files in AA format to bed format.")
-@click.option("--cycle-file", type=str, required=True, help="Input AA-formatted cycle file.")
-@click.option("--output-file", type=str, required=True, help="Output file name.")
-@click.option("--num-cycles", type=int, help="Only plot the first NUM_CYCLES cycles.")
-@click.option(
-    "--rotate-to-min",
-    is_flag=True,
-    default=False,
-    help="Output cycles starting from the canonically smallest segment with positive strand.",
-)
-@click.pass_context
-def cycle2bed_mode(ctx: click.Context, cycle_file: str, output_file: str, num_cycles: int, rotate_to_min: bool) -> None:
+@coral_app.command(name="cycle2bed", help="Convert cycle files in AA format to bed format.")
+def cycle2bed_mode(
+    ctx: typer.Context,
+    cycle_file: Annotated[typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")],
+    output_file: Annotated[str, typer.Option(help="Output file name.")],
+    num_cycles: Annotated[int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")],
+    rotate_to_min: Annotated[
+        bool, typer.Option(help="Output cycles starting from the canonically smallest segment with positive strand.")
+    ] = False,
+) -> None:
     print(f"Performing cycle to bed mode with options: {ctx.params}")
     if rotate_to_min:
         cycle2bed.convert_cycles_to_bed(cycle_file, output_file, True, num_cycles)

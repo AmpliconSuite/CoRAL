@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import DefaultDict, Optional
 
 import matplotlib as mpl
+import typer
 from intervaltree import IntervalTree
 
 from coral.breakpoint import breakpoint_utilities  # type: ignore[import-untyped]
@@ -53,7 +55,7 @@ class GraphViz:
     intervals_from_graph: dict = field(default_factory=dict)
     num_amplified_intervals = 0
     intervals_from_cycle: dict = field(default_factory=dict)
-    discordant_edges: dict = field(default_factory=dict)
+    discordant_edges: list[list] = field(default_factory=list)
     cycles: dict[int, int] = field(default_factory=dict)
     cycle_flag: dict[str, bool] = field(default_factory=dict)
     genes: DefaultDict[str, IntervalTree] = field(default_factory=lambda: defaultdict(IntervalTree))
@@ -95,12 +97,7 @@ class GraphViz:
                 tend = int(fields[5])
                 gname = fields[-4]
                 is_other_feature = gname.startswith("LOC") or gname.startswith("LINC") or gname.startswith("MIR")
-                if (
-                    restrict_to_bushman
-                    and gname not in bushman_set
-                    or gene_subset_list
-                    and gname not in gene_subset_list
-                ):
+                if restrict_to_bushman and gname not in bushman_set or gene_subset_list and gname not in gene_subset_list:
                     continue
 
                 if gname not in seenNames and not is_other_feature:
@@ -108,69 +105,67 @@ class GraphViz:
                     currGene = Gene(currChrom, tstart, tend, fields)
                     self.genes[currChrom][tstart:tend] = currGene
 
-    def parse_graph_file(self, graph_fn):
-        with open(graph_fn) as fp:
-            for line in fp:
-                s = line.strip().split("\t")
-                if s[0] == "sequence":
-                    schr = s[1].split(":")[0]
-                    start = int(s[1].split(":")[1][:-1])
-                    end = int(s[2].split(":")[1][:-1])
-                    try:
-                        # altered to use AA graph (not CoRAL)
-                        self.sequence_edges_by_chr[schr].append(
-                            [schr, start, end, float(s[3]), int(s[6]), int(s[5])],
-                        )
-                    except:
-                        self.sequence_edges_by_chr[schr] = [
-                            [schr, start, end, float(s[3]), int(s[6]), int(s[5])],
-                        ]
-                    self.max_cn = max(float(s[3]), self.max_cn)
-                elif s[0] == "discordant":
-                    b1 = s[1].split("->")[0]
-                    b2 = s[1].split("->")[1]
-                    chr1 = b1.split(":")[0]
-                    pos1 = int(b1.split(":")[1][:-1])
-                    o1 = b1.split(":")[1][-1]
-                    chr2 = b2.split(":")[0]
-                    pos2 = int(b2.split(":")[1][:-1])
-                    o2 = b2.split(":")[1][-1]
-                    self.discordant_edges.append(
-                        [chr1, pos1, o1, chr2, pos2, o2, float(s[2]), int(s[3])],
+    def parse_graph_file(self, graph_file: typer.FileText):
+        for line in graph_file:
+            s = line.strip().split("\t")
+            if s[0] == "sequence":
+                schr = s[1].split(":")[0]
+                start = int(s[1].split(":")[1][:-1])
+                end = int(s[2].split(":")[1][:-1])
+                try:
+                    # altered to use AA graph (not CoRAL)
+                    self.sequence_edges_by_chr[schr].append(
+                        [schr, start, end, float(s[3]), int(s[6]), int(s[5])],
                     )
+                except:
+                    self.sequence_edges_by_chr[schr] = [
+                        [schr, start, end, float(s[3]), int(s[6]), int(s[5])],
+                    ]
+                self.max_cn = max(float(s[3]), self.max_cn)
+            elif s[0] == "discordant":
+                b1 = s[1].split("->")[0]
+                b2 = s[1].split("->")[1]
+                chr1 = b1.split(":")[0]
+                pos1 = int(b1.split(":")[1][:-1])
+                o1 = b1.split(":")[1][-1]
+                chr2 = b2.split(":")[0]
+                pos2 = int(b2.split(":")[1][:-1])
+                o2 = b2.split(":")[1][-1]
+                self.discordant_edges.append(
+                    [chr1, pos1, o1, chr2, pos2, o2, float(s[2]), int(s[3])],
+                )
 
-    def parse_cycle_file(self, cycle_fn, output_prefix, num_cycles):
+    def parse_cycle_file(self, cycle_file: typer.FileText, output_prefix, num_cycles):
         # check if it ends with .bed, if not convert it
-        if cycle_fn.endswith("_cycles.txt"):
+        if cycle_file.name.endswith("_cycles.txt"):
             # convert it to a bed
             init_char = "" if output_prefix.endswith("/") else "_"
             conv_cycle_fn = output_prefix + init_char + "converted_"
             if num_cycles:
                 conv_cycle_fn += str(num_cycles) + "_"
             conv_cycle_fn += "cycles.bed"
-            cycle2bed.convert_cycles_to_bed(cycle_fn, conv_cycle_fn, num_cycles)
-            cycle_fn = conv_cycle_fn
+            cycle2bed.convert_cycles_to_bed(cycle_file, conv_cycle_fn, num_cycles)
+            cycle_file = conv_cycle_fn
 
-        elif not cycle_fn.endswith(".bed"):
-            sys.stderr.write(cycle_fn + "\n")
+        elif not cycle_file.name.endswith(".bed"):
+            sys.stderr.write(cycle_file + "\n")
             sys.stderr.write(
                 "Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n",
             )
             sys.exit(1)
 
-        with open(cycle_fn) as fp:
-            for line in fp:
-                s = line.strip().split("\t")
-                if s[0][0] == "#":
-                    continue
-                if s[4] not in self.cycles:
-                    self.cycles[s[4]] = [[s[0], int(s[1]), int(s[2]), s[3]]]
-                    if s[5] == "True":
-                        self.cycle_flags[s[4]] = [True, float(s[6])]
-                    else:
-                        self.cycle_flags[s[4]] = [False, float(s[6])]
+        for line in cycle_file:
+            s = line.strip().split("\t")
+            if s[0][0] == "#":
+                continue
+            if s[4] not in self.cycles:
+                self.cycles[s[4]] = [[s[0], int(s[1]), int(s[2]), s[3]]]
+                if s[5] == "True":
+                    self.cycle_flags[s[4]] = [True, float(s[6])]
                 else:
-                    self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
+                    self.cycle_flags[s[4]] = [False, float(s[6])]
+            else:
+                self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
 
     def graph_amplified_intervals(self):
         for chrom in self.sequence_edges_by_chr.keys():
@@ -320,8 +315,7 @@ class GraphViz:
             amplified_intervals_start[chrom] = [x]
             for seq in self.sequence_edges_by_chr[chrom]:
                 if chrom not in self.intervals_from_graph or (
-                    interval_idx >= len(self.intervals_from_graph[chrom])
-                    or seq[1] > self.intervals_from_graph[chrom][interval_idx][1]
+                    interval_idx >= len(self.intervals_from_graph[chrom]) or seq[1] > self.intervals_from_graph[chrom][interval_idx][1]
                 ):
                     # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
@@ -388,16 +382,10 @@ class GraphViz:
             if chr1 in self.intervals_from_graph and chr2 in self.intervals_from_graph:
                 while pos1 > self.intervals_from_graph[chr1][int1][1]:
                     int1 += 1
-                bp_x1 = (
-                    amplified_intervals_start[chr1][int1]
-                    + (pos1 - self.intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
-                )
+                bp_x1 = amplified_intervals_start[chr1][int1] + (pos1 - self.intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
                 while pos2 > self.intervals_from_graph[chr2][int2][1]:
                     int2 += 1
-                bp_x2 = (
-                    amplified_intervals_start[chr2][int2]
-                    + (pos2 - self.intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
-                )
+                bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
                 # check if either bp overlaps before plotting
                 if self.plot_bounds:
                     # Check if both breakpoints belong to the same chromosome as in plot bounds
@@ -547,12 +535,8 @@ class GraphViz:
 
                             cut_gs = max(self.plot_bounds[1], cut_gs)
                             cut_ge = min(self.plot_bounds[2], cut_ge)
-                            gene_start = (
-                                amplified_intervals_start[chrom][inti] + (cut_gs - int_[0]) * 100.0 / total_len_amp
-                            )
-                            gene_end = (
-                                amplified_intervals_start[chrom][inti] + (cut_ge - int_[0]) * 100.0 / total_len_amp
-                            )
+                            gene_start = amplified_intervals_start[chrom][inti] + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                            gene_end = amplified_intervals_start[chrom][inti] + (cut_ge - int_[0]) * 100.0 / total_len_amp
 
                         ax3.text(
                             (gene_start + gene_end) / 2,
@@ -579,12 +563,8 @@ class GraphViz:
                             #     cut_es = max(self.plot_bounds[1], cut_es)
                             #     cut_ee = min(self.plot_bounds[2], cut_ee)
                             #
-                            exon_start_pos = (
-                                amplified_intervals_start[chrom][inti] + (cut_es - int_[0]) * 100.0 / total_len_amp
-                            )
-                            exon_end_pos = (
-                                amplified_intervals_start[chrom][inti] + (cut_ee - int_[0]) * 100.0 / total_len_amp
-                            )
+                            exon_start_pos = amplified_intervals_start[chrom][inti] + (cut_es - int_[0]) * 100.0 / total_len_amp
+                            exon_end_pos = amplified_intervals_start[chrom][inti] + (cut_ee - int_[0]) * 100.0 / total_len_amp
 
                             exon_min_width = 0.2 * zoom_factor  # Adjust the minimum width as needed
                             exon_width = exon_end_pos - exon_start_pos
@@ -634,9 +614,7 @@ class GraphViz:
                             if chri == len(sorted_chrs) - 1:
                                 amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
                             else:
-                                amplified_intervals_end = (
-                                    amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
-                                )
+                                amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
                             xtickpos.append(
                                 (amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5,
                             )
@@ -727,9 +705,7 @@ class GraphViz:
         if cycle_only:
             cycles_to_plot = [cycle_id for cycle_id in cycles_to_plot if self.cycle_flags[cycle_id][0]]
         cycles_to_plot = sorted(cycles_to_plot)
-        height = sum([2 * len(self.cycles[cycle_id]) - 1 for cycle_id in cycles_to_plot]) + 6 * (
-            len(cycles_to_plot) - 1
-        )
+        height = sum([2 * len(self.cycles[cycle_id]) - 1 for cycle_id in cycles_to_plot]) + 6 * (len(cycles_to_plot) - 1)
         fig = plt.figure(figsize=(width, max(4, height * 0.25)))
         if not hide_genes:
             vrat = 50 / height
@@ -1142,12 +1118,8 @@ class GraphViz:
 
                             cut_es = max(int_[0], exon_start)
                             cut_ee = min(int_[1], exon_end)
-                            exon_start_pos = (
-                                amplified_intervals_start[chrom][inti] + (cut_es - int_[0]) * 100.0 / total_len_amp
-                            )
-                            exon_end_pos = (
-                                amplified_intervals_start[chrom][inti] + (cut_ee - int_[0]) * 100.0 / total_len_amp
-                            )
+                            exon_start_pos = amplified_intervals_start[chrom][inti] + (cut_es - int_[0]) * 100.0 / total_len_amp
+                            exon_end_pos = amplified_intervals_start[chrom][inti] + (cut_ee - int_[0]) * 100.0 / total_len_amp
 
                             exon_min_width = 0.2  # Adjust the minimum width as needed
                             exon_width = exon_end_pos - exon_start_pos
@@ -1176,11 +1148,7 @@ class GraphViz:
                     xtickpos.append(amplified_intervals_start[chrom][inti])
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                         xtickpos.append(
-                            (
-                                amplified_intervals_start[chrom][inti]
-                                + amplified_intervals_start[chrom][inti + 1]
-                                - margin_between_intervals
-                            )
+                            (amplified_intervals_start[chrom][inti] + amplified_intervals_start[chrom][inti + 1] - margin_between_intervals)
                             * 0.5,
                         )
                 else:
@@ -1194,9 +1162,7 @@ class GraphViz:
                         if chri == len(sorted_chrs) - 1:
                             amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
                         else:
-                            amplified_intervals_end = (
-                                amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
-                            )
+                            amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
                         xtickpos.append(
                             (amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5,
                         )
@@ -1237,31 +1203,31 @@ class GraphViz:
 
 def plot_amplicons(
     ref: str,
-    bam: str,
-    graph: str,
-    cycles: str,
+    bam: pathlib.Path,
+    graph_file: typer.FileText | None,
+    cycle_file: typer.FileText | None,
     output_prefix: str,
     plot_graph: bool,
     plot_cycles: bool,
     only_cyclic_paths: bool,
-    num_cycles: bool,
+    num_cycles: int | None,
     max_coverage: float,
     min_mapq: float,
     gene_subset_list: list[str],
     hide_genes: bool,
     gene_fontsize: float,
     bushman_genes: bool,
-    region: str,
+    region: str | None,
 ):
     if plot_graph:
-        if not graph:
+        if not graph_file:
             print("Please specify the breakpoint graph file to plot.")
             sys.exit(1)
         if not bam:
             print("Please specify the bam file to plot.")
             sys.exit(1)
 
-    if plot_cycles and not cycles:
+    if plot_cycles and not cycle_file:
         print("Please specify the cycle file, in *.bed format, to plot.")
         sys.exit(1)
 
@@ -1272,7 +1238,7 @@ def plot_amplicons(
     g.parse_genes(ref, set(gene_subset_list), bushman_genes)
     if plot_graph:
         g.open_bam(bam)
-        g.parse_graph_file(graph)
+        g.parse_graph_file(graph_file)  # type: ignore[arg-type]
         if region:
             pchrom = region.split(":")[0]
             pb1, pb2 = region.split(":")[1].rsplit("-")
@@ -1291,7 +1257,7 @@ def plot_amplicons(
         )
 
     if plot_cycles:
-        g.parse_cycle_file(cycles, output_prefix, num_cycles)
+        g.parse_cycle_file(cycle_file, output_prefix, num_cycles)
         cycle_ids_ = None
         cycle_only_ = False
         if num_cycles:
@@ -1299,9 +1265,9 @@ def plot_amplicons(
         if only_cyclic_paths:
             cycle_only_ = True
 
-        graph_given_ = graph is not None
+        graph_given_ = graph_file is not None
         if graph_given_:
-            g.parse_graph_file(graph)
+            g.parse_graph_file(graph_file)  # type: ignore[arg-type]
             g.graph_amplified_intervals()
 
         g.cycle_amplified_intervals(

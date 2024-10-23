@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, NamedTuple
-
-from coral import state_provider
-from coral.datatypes import Strand
+from typing import Dict, Literal, NamedTuple
 
 logger = logging.getLogger(__name__)
+
+Strand = Literal["+", "-"]
 
 
 class AlignmentPos(NamedTuple):

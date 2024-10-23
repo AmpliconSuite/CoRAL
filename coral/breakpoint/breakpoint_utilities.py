@@ -16,7 +16,7 @@ import numpy as np
 
 from coral import constants
 from coral.constants import CHR_TAG_TO_IDX
-from coral.datatypes import CnsInterval
+from coral.types import CnsInterval
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:

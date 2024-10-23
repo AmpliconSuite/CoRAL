@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import sys
 
-from coral.constants import CHR_SIZES, CNGAP_MAX, CNSIZE_MAX, CNSIZE_MIN, GAIN
+import typer
+
+from coral.constants import CHR_SIZES, CNSIZE_MAX
 
 
 def interval_overlap(int1, int2):
@@ -11,7 +13,7 @@ def interval_overlap(int1, int2):
     return int1[0] == int2[0] and int(int1[1]) <= int(int2[2]) and int(int2[1]) <= int(int1[2])
 
 
-def run_seeding(cn_seg: str, output_filename: str, gain: float, min_seed_size: float, max_seg_gap: float):
+def run_seeding(cn_seg_file: typer.FileText, output_filename: str, gain: float, min_seed_size: float, max_seg_gap: float):
     blocked_intervals = []
     chr_arms: dict[str, list[list]] = {}
 
@@ -29,31 +31,30 @@ def run_seeding(cn_seg: str, output_filename: str, gain: float, min_seed_size: f
 
     cnv_seeds = []
     cur_seed: list[tuple] = []
-    with open(cn_seg) as fp:
-        for line in fp:
-            s = line.strip().split()
-            if s[0] != "chromosome":
-                if cn_seg.endswith(".cns"):
-                    cn = 2 * (2 ** float(s[4]))
-                elif cn_seg.endswith(".bed"):
-                    cn = float(s[3])
+    for line in cn_seg_file:
+        s = line.strip().split()
+        if s[0] != "chromosome":
+            if cn_seg_file.name.endswith(".cns"):
+                cn = 2 * (2 ** float(s[4]))
+            elif cn_seg_file.name.endswith(".bed"):
+                cn = float(s[3])
+            else:
+                sys.stderr.write(cn_seg_file.name + "\n")
+                sys.stderr.write("Invalid cn_seg file format!\n")
+            # Require absolute CN >= max(gain, cn_cutoff_chrarm)
+            if cn >= gain and (int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]):  # type: ignore[possibly-undefined]
+                # assume input CN segments sorted by chr and pos
+                if len(cur_seed) > 0 and s[0] == cur_seed[-1][0] and int(s[1]) - cur_seed[-1][2] <= max_seg_gap:
+                    cur_seed.append((s[0], int(s[1]), int(s[2]), cn))
+                elif len(cur_seed) == 0:
+                    cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
                 else:
-                    sys.stderr.write(cn_seg + "\n")
-                    sys.stderr.write("Invalid cn_seg file format!\n")
-                # Require absolute CN >= max(GAIN, cn_cutoff_chrarm)
-                if cn >= GAIN and (int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]):  # type: ignore[possibly-undefined]
-                    # assume input CN segments sorted by chr and pos
-                    if len(cur_seed) > 0 and s[0] == cur_seed[-1][0] and int(s[1]) - cur_seed[-1][2] <= CNGAP_MAX:
-                        cur_seed.append((s[0], int(s[1]), int(s[2]), cn))
-                    elif len(cur_seed) == 0:
-                        cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
-                    else:
-                        cnv_seeds.append(cur_seed)
-                        cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
-                if int(s[2]) <= chr_arms[s[0]][0][0]:
-                    chr_arms[s[0]][1][0].append((s[0], int(s[1]), int(s[2]), cn))
-                if int(s[1]) >= chr_arms[s[0]][0][1]:
-                    chr_arms[s[0]][1][1].append((s[0], int(s[1]), int(s[2]), cn))
+                    cnv_seeds.append(cur_seed)
+                    cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
+            if int(s[2]) <= chr_arms[s[0]][0][0]:
+                chr_arms[s[0]][1][0].append((s[0], int(s[1]), int(s[2]), cn))
+            if int(s[1]) >= chr_arms[s[0]][0][1]:
+                chr_arms[s[0]][1][1].append((s[0], int(s[1]), int(s[2]), cn))
     cnv_seeds.append(cur_seed)
 
     for chr in chr_arms:
@@ -78,15 +79,15 @@ def run_seeding(cn_seg: str, output_filename: str, gain: float, min_seed_size: f
                     break
         chr_arms[chr].append([ccn_p, ccn_q])
 
-    OUTPUT_FN = cn_seg.replace(".cns", "_CNV_SEEDS.bed")
+    OUTPUT_FN = cn_seg.replace(".cns", "CNV_SEEDS.bed")
     if output_filename:
         OUTPUT_FN = output_filename
     with open(OUTPUT_FN, "w") as fp:
         for seed in cnv_seeds:
             sum_seed_len = sum([cns[2] - cns[1] for cns in seed])
-            cn_cutoff_chrarm = GAIN
+            cn_cutoff_chrarm = gain
             if sum_seed_len > CNSIZE_MAX:
-                cn_cutoff_chrarm = 1.2 * GAIN
+                cn_cutoff_chrarm = 1.2 * gain
             if seed[-1][2] <= chr_arms[seed[-1][0]][0][0]:  # p arm
                 cn_cutoff_chrarm = cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][0] - 2.0
             elif seed[0][1] >= chr_arms[seed[-1][0]][0][1]:  # q arm
@@ -100,17 +101,17 @@ def run_seeding(cn_seg: str, output_filename: str, gain: float, min_seed_size: f
                 lastseg: list = []
                 sum_seed_len = 0
                 for cns in seed:
-                    if len(lastseg) > 0 and cns[1] - lastseg[2] <= CNGAP_MAX:
+                    if len(lastseg) > 0 and cns[1] - lastseg[2] <= max_seg_gap:
                         sum_seed_len += cns[2] - cns[1]
                         lastseg[2] = cns[2]
                     elif len(lastseg) == 0:
                         lastseg = list(cns)
                         sum_seed_len += cns[2] - cns[1]
-                    elif sum_seed_len >= CNSIZE_MIN:
+                    elif sum_seed_len >= min_seed_size:
                         fp.write("%s\t%d\t%d\n" % (lastseg[0], lastseg[1], lastseg[2] - 1))
                         sum_seed_len = 0
                         lastseg = list(cns)
-                if sum_seed_len >= CNSIZE_MIN:
+                if sum_seed_len >= min_seed_size:
                     fp.write("%s\t%d\t%d\n" % (lastseg[0], lastseg[1], lastseg[2] - 1))
 
     print("Created " + OUTPUT_FN)
