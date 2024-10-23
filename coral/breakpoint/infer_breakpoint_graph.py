@@ -6,22 +6,18 @@ import logging
 import math
 import pathlib
 import pickle
-import sys
-import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
-import click
 import intervaltree  # type: ignore[import-untyped]
 import numpy as np
 import pysam
 import typer
 
 from coral import cigar_parsing
-from coral.breakpoint import breakpoint_graph, breakpoint_utilities
+from coral.breakpoint import breakpoint_graph, breakpoint_types, breakpoint_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.breakpoint.breakpoint_types import CNSSegData
+from coral.breakpoint.breakpoint_types import RawCNData
 from coral.breakpoint.breakpoint_utilities import (
     alignment2bp,
     alignment2bp_l,
@@ -51,13 +47,14 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BamToBreakpointNanopore:
     lr_bamfh: pysam.AlignmentFile  # Long read bam file
+    coverage_info: breakpoint_types.CoverageInfo
 
     lr_graph: list[BreakpointGraph] = field(default_factory=list)  # Breakpoint graph
 
     max_seq_len: int = 2000000
-    cn_gain: float = 5.0
     min_bp_cov_factor: float = 1.0
     min_bp_match_cutoff_: int = 100
+
     interval_delta: int = 100000
     min_cluster_cutoff: int = 3  # Hard cutoff for considering a long read breakpoint cluster
     max_breakpoint_distance_cutoff: int = 2000  # Used for breakpoint clustering - if the distance of two breakpoint positions are greater than this cutoff, then start a new cluster
@@ -79,12 +76,6 @@ class BamToBreakpointNanopore:
     amplicon_intervals: list[AmpliconInterval] = field(default_factory=list)  # AA amplicon intervals
     amplicon_interval_connections: dict[str, List[AmpliconInterval]] = field(default_factory=dict)
 
-    cns_intervals: list[CnsInterval] = field(default_factory=list)  # CN segments
-    cns_intervals_by_chr: dict[str, list[CnsInterval]] = field(default_factory=dict)
-    log2_cn: list[float] = field(default_factory=list)  # log2 CN for each CN segment
-    cns_tree: dict[str, intervaltree.IntervalTree] = field(default_factory=dict)  # Interval tree structure for each chromosome
-    normal_cov: float = 0.0  # Normal long read coverage - used for CN assignment
-
     ccid2id: dict[int, int] = field(default_factory=dict)
     new_bp_list: list[list[int]] = field(default_factory=list)  # List of breakpoints (discordant edges)
     new_bp_stats: list[list[int]] = field(default_factory=list)  # Statistics of breakpoints (discordant edges)
@@ -97,106 +88,15 @@ class BamToBreakpointNanopore:
     cycle_weights: dict[int, list[list[float]]] = field(default_factory=dict)  # cycles, paths
     path_constraints_satisfied: dict[int, list[list[list[int]]]] = field(default_factory=dict)  # cycles, paths
 
-    def set_raw_cns_data(self, cns_data: CNSSegData):
-        self.cns_tree = cns_data.tree
-        self.cns_intervals = cns_data.intervals
-        self.cns_intervals_by_chr = cns_data.intervals_by_chr
-        self.log2_cn = cns_data.log2_cn
-
-    def read_cns(self, cns_file: io.TextIOWrapper):
-        """Read in (cnvkit) *.cns file and estimate the normal long read coverage"""
-        self.set_raw_cns_data(CNSSegData.from_file(cns_file))
-
-        logger.debug(f"Total num LR copy number segments:{len(self.log2_cn)}.")
-        log2_cn_order = np.argsort(self.log2_cn)
-        cns_intervals_median = []
-        log2_cn_median = []
-        im = int(len(log2_cn_order) / 2.4)
-        ip = im + 1
-        total_int_len = 0
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[ip]])
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[im]])
-        log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-        log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-        total_int_len += self.cns_intervals[log2_cn_order[ip]][2] - self.cns_intervals[log2_cn_order[ip]][1] + 1
-        total_int_len += self.cns_intervals[log2_cn_order[im]][2] - self.cns_intervals[log2_cn_order[im]][1] + 1
-        i = 1
-        while total_int_len < 10000000:
-            cns_intervals_median.append(self.cns_intervals[log2_cn_order[ip + i]])
-            cns_intervals_median.append(self.cns_intervals[log2_cn_order[im - i]])
-            log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-            log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-            total_int_len += self.cns_intervals[log2_cn_order[ip + i]][2] - self.cns_intervals[log2_cn_order[ip + i]][1] + 1
-            total_int_len += self.cns_intervals[log2_cn_order[im - i]][2] - self.cns_intervals[log2_cn_order[im - i]][1] + 1
-            i += 1
-        logger.debug(f"Use {len(cns_intervals_median)} LR copy number segments.")
-        logger.debug(f"Total length of LR copy number segments: {total_int_len}.")
-        logger.debug(f"Average LR copy number: {np.average(log2_cn_median)}.")
-        nnc = 0
-        for i in range(len(cns_intervals_median)):
-            nnc += sum(
-                [
-                    sum(nc)
-                    for nc in self.lr_bamfh.count_coverage(
-                        cns_intervals_median[i][0],
-                        cns_intervals_median[i][1],
-                        cns_intervals_median[i][2] + 1,
-                        quality_threshold=0,
-                        read_callback="nofilter",
-                    )
-                ]
-            )
-        self.normal_cov = nnc * 1.0 / total_int_len
-        logger.info(f"LR normal cov ={self.normal_cov}, {nnc=}, {total_int_len=}.")
-        self.min_cluster_cutoff = max(self.min_cluster_cutoff, int(self.min_bp_cov_factor * self.normal_cov))
-        logger.debug(f"Reset min_cluster_cutoff to {self.min_cluster_cutoff}.")
-
-    def fetch(self):
-        for read in self.lr_bamfh.fetch():
-            rn = read.query_name
-            if read.flag < 256 and rn not in self.read_length:
-                self.read_length[rn] = read.query_length
-            try:
-                sa_list = read.get_tag("SA:Z:")[:-1].split(";")
-                for sa in sa_list:
-                    try:
-                        if sa not in self.chimeric_alignments[rn]:
-                            self.chimeric_alignments[rn].append(sa)
-                    except:
-                        self.chimeric_alignments[rn] = [sa]
-            except:
-                if read.mapping_quality == 60:
-                    e = read.get_cigar_stats()[0][-1] / read.query_length
-                    self.nm_stats[0] += e
-                    self.nm_stats[1] += e * e
-                    self.nm_stats[2] += 1
-        self.nm_stats[0] /= self.nm_stats[2]
-        self.nm_stats[1] = math.sqrt(self.nm_stats[1] / self.nm_stats[2] - self.nm_stats[0] ** 2)
-        logger.info(f"Fetched {len(self.chimeric_alignments)} chimeric reads.")
-        reads_wo_primary_alignment = []
-        for r in self.chimeric_alignments.keys():
-            if r not in self.read_length:
-                logger.warning(f"Found chimeric read name {r} without primary alignment; Read length: N/A.")
-                logger.warning(f"All CIGAR strings: {self.chimeric_alignments[r]}.")
-                reads_wo_primary_alignment.append(r)
-                continue
-            rl = self.read_length[r]
-            self.chimeric_alignments[r] = cigar_parsing.alignment_from_satags(self.chimeric_alignments[r], rl)
-        for r in reads_wo_primary_alignment:
-            del self.chimeric_alignments[r]
-        logger.info(
-            "Computed alignment intervals on all chimeric reads.",
-        )
-
     def pos2cni(self, chr, pos):
-        return self.cns_tree[chr][pos]
+        return self.cns.tree[chr][pos]
 
     def hash_alignment_to_seg(self):
         """Speed up amplified interval search by hashing chimeric alignments from each long read to CN segments"""
         for read in self.chimeric_alignments.keys():
             for ri in range(len(self.chimeric_alignments[read][1])):
                 rint = self.chimeric_alignments[read][1][ri]
-                if rint[0] in self.cns_tree:
+                if rint[0] in self.cns.tree:
                     lcni_ = self.pos2cni(rint[0], min(rint[1], rint[2]))
                     rcni_ = self.pos2cni(rint[0], max(rint[1], rint[2]))
                     assert len(lcni_) <= 1 and len(rcni_) <= 1
@@ -228,32 +128,32 @@ class BamToBreakpointNanopore:
             chr = self.amplicon_intervals[ai][0]
             lcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][1]))[0].data
             rcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][2]))[0].data
-            self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1]
+            self.amplicon_intervals[ai][1] = self.cns.intervals_by_chr[chr][lcni][1]
             if (
                 len(
                     list(
                         self.pos2cni(
                             chr,
-                            self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta,
+                            self.cns.intervals_by_chr[chr][lcni][1] - self.interval_delta,
                         ),
                     ),
                 )
                 > 0
             ):
-                self.amplicon_intervals[ai][1] = self.cns_intervals_by_chr[chr][lcni][1] - self.interval_delta
-            self.amplicon_intervals[ai][2] = self.cns_intervals_by_chr[chr][rcni][2]
+                self.amplicon_intervals[ai][1] = self.cns.intervals_by_chr[chr][lcni][1] - self.interval_delta
+            self.amplicon_intervals[ai][2] = self.cns.intervals_by_chr[chr][rcni][2]
             if (
                 len(
                     list(
                         self.pos2cni(
                             chr,
-                            self.cns_intervals_by_chr[chr][rcni][2] + self.interval_delta,
+                            self.cns.intervals_by_chr[chr][rcni][2] + self.interval_delta,
                         ),
                     ),
                 )
                 > 0
             ):
-                self.amplicon_intervals[ai][2] = self.cns_intervals_by_chr[chr][rcni][2] + self.interval_delta
+                self.amplicon_intervals[ai][2] = self.cns.intervals_by_chr[chr][rcni][2] + self.interval_delta
             logger.debug(f"\tUpdated amplicon interval {self.amplicon_intervals[ai]}")
 
         ccid = 0
@@ -476,8 +376,8 @@ class BamToBreakpointNanopore:
                 nir = set([])
                 lasti = 0
                 for i in range(len(sorted_bins_chr_) - 1):
-                    nil = self.cns_intervals_by_chr[chr_][sorted_bins_chr_[i + 1]][1]
-                    lir = self.cns_intervals_by_chr[chr_][sorted_bins_chr_[i]][2]
+                    nil = self.cns.intervals_by_chr[chr_][sorted_bins_chr_[i + 1]][1]
+                    lir = self.cns.intervals_by_chr[chr_][sorted_bins_chr_[i]][2]
                     if sorted_bins_chr_[i + 1] - sorted_bins_chr_[i] > 2 or nil - lir > self.max_seq_len:
                         nir |= d1_segs[chr_][sorted_bins_chr_[i]]
                         new_intervals.append(
@@ -492,8 +392,8 @@ class BamToBreakpointNanopore:
 
                 # Refine initial intervals
                 for nint_ in new_intervals:
-                    ns = self.cns_intervals_by_chr[nint_[0]][nint_[1]][1]
-                    ne = self.cns_intervals_by_chr[nint_[0]][nint_[2]][2]
+                    ns = self.cns.intervals_by_chr[nint_[0]][nint_[1]][1]
+                    ne = self.cns.intervals_by_chr[nint_[0]][nint_[2]][2]
                     logger.debug(f"\t\tRefining new interval {[chr_, ns, ne]}.")
                     new_bp_list = []
                     if self.nm_filter:
@@ -645,10 +545,10 @@ class BamToBreakpointNanopore:
                         )
                         lasti = 0
                         for i in range(len(nint_segs) - 1):
-                            nil = self.cns_intervals_by_chr[chr_][nint_segs[i + 1][0]][1]
-                            ncn = self.cns_intervals_by_chr[chr_][nint_segs[i + 1][0]][3]
-                            lir = self.cns_intervals_by_chr[chr_][nint_segs[i][0]][2]
-                            lcn = self.cns_intervals_by_chr[chr_][nint_segs[i][0]][3]
+                            nil = self.cns.intervals_by_chr[chr_][nint_segs[i + 1][0]][1]
+                            ncn = self.cns.intervals_by_chr[chr_][nint_segs[i + 1][0]][3]
+                            lir = self.cns.intervals_by_chr[chr_][nint_segs[i][0]][2]
+                            lcn = self.cns.intervals_by_chr[chr_][nint_segs[i][0]][3]
                             amp_flag = (ncn >= self.cn_gain) or (lcn >= self.cn_gain)
                             if (
                                 (nint_segs[i + 1][0] - nint_segs[i][0] > 2)
@@ -657,36 +557,36 @@ class BamToBreakpointNanopore:
                                 or (not amp_flag and nil - lir > 2 * self.interval_delta)
                                 or (not amp_flag and nint_segs[i + 1][1] - nint_segs[i][1] > 3 * self.interval_delta)
                             ):
-                                amp_flag_l = self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][3] >= self.cn_gain
-                                amp_flag_r = self.cns_intervals_by_chr[chr_][nint_segs[i][0]][3] >= self.cn_gain
+                                amp_flag_l = self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][3] >= self.cn_gain
+                                amp_flag_r = self.cns.intervals_by_chr[chr_][nint_segs[i][0]][3] >= self.cn_gain
                                 if not amp_flag_l:
                                     l = max(
                                         nint_segs[lasti][1] - self.interval_delta,
-                                        self.cns_intervals_by_chr[chr_][0][1],
+                                        self.cns.intervals_by_chr[chr_][0][1],
                                     )
                                 else:
                                     l = max(
-                                        self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1] - self.interval_delta,
-                                        self.cns_intervals_by_chr[chr_][0][1],
+                                        self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][1] - self.interval_delta,
+                                        self.cns.intervals_by_chr[chr_][0][1],
                                     )
                                 if not amp_flag_r:
                                     r = min(
                                         nint_segs[i][1] + self.interval_delta,
-                                        self.cns_intervals_by_chr[chr_][-1][2],
+                                        self.cns.intervals_by_chr[chr_][-1][2],
                                     )
                                 else:
                                     r = min(
                                         lir + self.interval_delta,
-                                        self.cns_intervals_by_chr[chr_][-1][2],
+                                        self.cns.intervals_by_chr[chr_][-1][2],
                                     )
                                 if (
-                                    self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][3]
+                                    self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][3]
                                     and nint_segs[lasti][1] - int(self.max_seq_len / 2) > l
                                 ):
                                     l = nint_segs[lasti][1] - int(self.max_seq_len / 2)
                                 r = min(nint_segs[i][1] + int(self.max_seq_len / 2), r)
                                 if len(list(self.pos2cni(chr_, l))) == 0:
-                                    l = self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1]
+                                    l = self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][1]
                                 if len(list(self.pos2cni(chr_, r))) == 0:
                                     r = lir
                                 new_intervals_refined.append([chr_, l, r, -1])
@@ -705,35 +605,35 @@ class BamToBreakpointNanopore:
                                         "\t\t\t%s" % self.new_bp_list[bpi][:6],
                                     )
                         if len(nint_segs) > 0:
-                            amp_flag_l = self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][3] >= self.cn_gain
-                            amp_flag_r = self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][3] >= self.cn_gain
+                            amp_flag_l = self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][3] >= self.cn_gain
+                            amp_flag_r = self.cns.intervals_by_chr[chr_][nint_segs[-1][0]][3] >= self.cn_gain
                             if not amp_flag_l:
                                 l = max(
                                     nint_segs[lasti][1] - self.interval_delta,
-                                    self.cns_intervals_by_chr[chr_][0][1],
+                                    self.cns.intervals_by_chr[chr_][0][1],
                                 )
                             else:
                                 l = max(
-                                    self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1] - self.interval_delta,
-                                    self.cns_intervals_by_chr[chr_][0][1],
+                                    self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][1] - self.interval_delta,
+                                    self.cns.intervals_by_chr[chr_][0][1],
                                 )
                             if not amp_flag_r:
                                 r = min(
                                     nint_segs[-1][1] + self.interval_delta,
-                                    self.cns_intervals_by_chr[chr_][-1][2],
+                                    self.cns.intervals_by_chr[chr_][-1][2],
                                 )
                             else:
                                 r = min(
-                                    self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][2] + self.interval_delta,
-                                    self.cns_intervals_by_chr[chr_][-1][2],
+                                    self.cns.intervals_by_chr[chr_][nint_segs[-1][0]][2] + self.interval_delta,
+                                    self.cns.intervals_by_chr[chr_][-1][2],
                                 )
                             if nint_segs[lasti][1] - int(self.max_seq_len / 2) > l:
                                 l = nint_segs[lasti][1] - int(self.max_seq_len / 2) > l
                             r = min(nint_segs[-1][1] + int(self.max_seq_len / 2), r)
                             if len(list(self.pos2cni(chr_, l))) == 0:
-                                l = self.cns_intervals_by_chr[chr_][nint_segs[lasti][0]][1]
+                                l = self.cns.intervals_by_chr[chr_][nint_segs[lasti][0]][1]
                             if len(list(self.pos2cni(chr_, r))) == 0:
-                                r = self.cns_intervals_by_chr[chr_][nint_segs[-1][0]][2]
+                                r = self.cns.intervals_by_chr[chr_][nint_segs[-1][0]][2]
                             new_intervals_refined.append([chr_, l, r, -1])
                             new_intervals_connections.append([])
                             for i_ in range(lasti, len(nint_segs)):
@@ -751,10 +651,10 @@ class BamToBreakpointNanopore:
                         lasti = 0
                         for i in range(len(nint_segs_) - 1):
                             # two intervals in nint_segs_ might be on different chrs
-                            nil = self.cns_intervals_by_chr[nint_segs_[i + 1][0]][nint_segs_[i + 1][1]][1]
-                            ncn = self.cns_intervals_by_chr[nint_segs_[i + 1][0]][nint_segs_[i + 1][1]][3]
-                            lir = self.cns_intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][2]
-                            lcn = self.cns_intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][3]
+                            nil = self.cns.intervals_by_chr[nint_segs_[i + 1][0]][nint_segs_[i + 1][1]][1]
+                            ncn = self.cns.intervals_by_chr[nint_segs_[i + 1][0]][nint_segs_[i + 1][1]][3]
+                            lir = self.cns.intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][2]
+                            lcn = self.cns.intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][3]
                             amp_flag = (ncn >= self.cn_gain) or (lcn >= self.cn_gain)
                             if (
                                 (nint_segs_[i + 1][0] != nint_segs_[i][0])
@@ -764,32 +664,32 @@ class BamToBreakpointNanopore:
                                 or (not amp_flag and nil - lir > 2 * self.interval_delta)
                                 or (not amp_flag and nint_segs_[i + 1][2] - nint_segs_[i][2] > 3 * self.interval_delta)
                             ):
-                                amp_flag_l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
-                                amp_flag_r = self.cns_intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][3] >= self.cn_gain
+                                amp_flag_l = self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
+                                amp_flag_r = self.cns.intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][3] >= self.cn_gain
                                 if not amp_flag_l:
                                     l = max(
                                         nint_segs_[lasti][2] - self.interval_delta,
-                                        self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1],
+                                        self.cns.intervals_by_chr[nint_segs_[lasti][0]][0][1],
                                     )
                                 else:
                                     l = max(
-                                        self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
-                                        self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1],
+                                        self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
+                                        self.cns.intervals_by_chr[nint_segs_[lasti][0]][0][1],
                                     )
                                 if not amp_flag_r:
                                     r = min(
                                         nint_segs_[i][2] + self.interval_delta,
-                                        self.cns_intervals_by_chr[nint_segs_[i][0]][-1][2],
+                                        self.cns.intervals_by_chr[nint_segs_[i][0]][-1][2],
                                     )
                                 else:
                                     r = min(
                                         lir + self.interval_delta,
-                                        self.cns_intervals_by_chr[nint_segs_[i][0]][-1][2],
+                                        self.cns.intervals_by_chr[nint_segs_[i][0]][-1][2],
                                     )
                                 l = max(nint_segs_[lasti][2] - int(self.max_seq_len / 2), l)
                                 r = min(nint_segs_[i][2] + int(self.max_seq_len / 2), r)
                                 if len(list(self.pos2cni(nint_segs_[lasti][0], l))) == 0:
-                                    l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
+                                    l = self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
                                 if len(list(self.pos2cni(nint_segs_[i][0], r))) == 0:
                                     r = lir
                                 new_intervals_refined.append([nint_segs_[lasti][0], l, r, -1])
@@ -802,34 +702,34 @@ class BamToBreakpointNanopore:
                                     "\t\tSkip breakpoints connected to the new interval.",
                                 )
                         if len(nint_segs_) > 0:
-                            amp_flag_l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
-                            amp_flag_r = self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][3] >= self.cn_gain
+                            amp_flag_l = self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
+                            amp_flag_r = self.cns.intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][3] >= self.cn_gain
                             if not amp_flag_l:
                                 l = max(
                                     nint_segs_[lasti][2] - self.interval_delta,
-                                    self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1],
+                                    self.cns.intervals_by_chr[nint_segs_[lasti][0]][0][1],
                                 )
                             else:
                                 l = max(
-                                    self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
-                                    self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1],
+                                    self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
+                                    self.cns.intervals_by_chr[nint_segs_[lasti][0]][0][1],
                                 )
                             if not amp_flag_r:
                                 r = min(
                                     nint_segs_[-1][2] + self.interval_delta,
-                                    self.cns_intervals_by_chr[nint_segs_[-1][0]][-1][2],
+                                    self.cns.intervals_by_chr[nint_segs_[-1][0]][-1][2],
                                 )
                             else:
                                 r = min(
-                                    self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][2] + self.interval_delta,
-                                    self.cns_intervals_by_chr[nint_segs_[-1][0]][-1][2],
+                                    self.cns.intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][2] + self.interval_delta,
+                                    self.cns.intervals_by_chr[nint_segs_[-1][0]][-1][2],
                                 )
                             l = max(nint_segs_[lasti][2] - int(self.max_seq_len / 2), l)
                             r = min(nint_segs_[-1][2] + int(self.max_seq_len / 2), r)
                             if len(list(self.pos2cni(nint_segs_[lasti][0], l))) == 0:
-                                l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
+                                l = self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
                             if len(list(self.pos2cni(nint_segs_[lasti][0], r))) == 0:
-                                r = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[-1][1]][2]
+                                r = self.cns.intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[-1][1]][2]
                             new_intervals_refined.append([nint_segs_[lasti][0], l, r, -1])
                             new_intervals_connections.append([])
                             logger.debug(
@@ -1170,9 +1070,9 @@ class BamToBreakpointNanopore:
                     (
                         ai,
                         chr,
-                        self.cns_intervals_by_chr[chr][i][1],
-                        self.cns_intervals_by_chr[chr][i][2],
-                        self.cns_intervals_by_chr[chr][i + 1][2],
+                        self.cns.intervals_by_chr[chr][i][1],
+                        self.cns.intervals_by_chr[chr][i][2],
+                        self.cns.intervals_by_chr[chr][i + 1][2],
                     ),
                 )
         cb_del_list = []
@@ -1919,9 +1819,9 @@ def reconstruct_graph(
     b2bn.min_bp_cov_factor = min_bp_support
     logger.info("Opened LR bam files.")
 
-    b2bn.read_cns(cn_seg_file)
+    # b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
-    b2bn.fetch()
+    # b2bn.fetch()
     logger.info("Completed fetching reads containing breakpoints.")
     b2bn.hash_alignment_to_seg()
     b2bn.find_amplicon_intervals()
