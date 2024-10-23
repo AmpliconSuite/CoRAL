@@ -500,7 +500,7 @@ def cycle_decomposition(
                     total_weights,
                     node_order,
                     bb.longest_path_constraints[amplicon_idx][0],
-                    [cycles_init, cycle_weights_init, path_constraints_satisfied_init],
+                    datatypes.InitialSolution(cycles_init, cycle_weights_init, path_constraints_satisfied_init),
                     min(total_cycle_weights_init / total_weights * 0.9999, p_total_weight),
                     resolution,
                     num_threads,

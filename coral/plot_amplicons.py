@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import sys
@@ -24,6 +25,9 @@ from pylab import rcParams  # type: ignore[import-untyped]
 from coral import cycle2bed
 
 rcParams["pdf.fonttype"] = 42
+
+
+logger = logging.getLogger(__name__)
 
 
 # makes a gene object from parsed refGene data
@@ -56,8 +60,8 @@ class GraphViz:
     num_amplified_intervals = 0
     intervals_from_cycle: dict = field(default_factory=dict)
     discordant_edges: list[list] = field(default_factory=list)
-    cycles: dict[int, int] = field(default_factory=dict)
-    cycle_flag: dict[str, bool] = field(default_factory=dict)
+    cycles: dict[str, list] = field(default_factory=dict)
+    cycle_flags: dict[str, list] = field(default_factory=dict)
     genes: DefaultDict[str, IntervalTree] = field(default_factory=lambda: defaultdict(IntervalTree))
     plot_bounds: tuple[str, int, int] | None = None
 
@@ -148,10 +152,8 @@ class GraphViz:
             cycle_file = conv_cycle_fn
 
         elif not cycle_file.name.endswith(".bed"):
-            sys.stderr.write(cycle_file + "\n")
-            sys.stderr.write(
-                "Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n",
-            )
+            logger.error(cycle_file.name + "\n")
+            logger.error("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
             sys.exit(1)
 
         for line in cycle_file:
@@ -204,15 +206,15 @@ class GraphViz:
         """Derive amplified intervals from (selected) cycles"""
         self.num_amplified_intervals = 0
         if cycle_ids == None:
-            cycle_ids = [cycle_id for cycle_id in self.cycle_flags.keys()]
+            cycle_ids = [cycle_id for cycle_id in self.cycle_flags]
         if cycle_only:
-            cycle_ids = [cycle_id for cycle_id in self.cycle_flags.keys() if self.cycle_flags[cycle_id][0]]
+            cycle_ids = [cycle_id for cycle_id in self.cycle_flags if self.cycle_flags[cycle_id][0]]
 
         if graph_given:  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
                 for segment in self.cycles[cycle_id]:
                     for int_ in self.intervals_from_graph[segment[0]]:
-                        if interval_include(segment, [segment[0], int_[0], int_[1]]):
+                        if breakpoint_utilities.interval_include(segment, [segment[0], int_[0], int_[1]]):
                             if segment[0] not in self.intervals_from_cycle:
                                 self.intervals_from_cycle[segment[0]] = []
                             if int_ not in self.intervals_from_cycle[segment[0]]:
@@ -1257,7 +1259,7 @@ def plot_amplicons(
         )
 
     if plot_cycles:
-        g.parse_cycle_file(cycle_file, output_prefix, num_cycles)
+        g.parse_cycle_file(cycle_file, output_prefix, num_cycles)  # type: ignore[arg-type]
         cycle_ids_ = None
         cycle_only_ = False
         if num_cycles:

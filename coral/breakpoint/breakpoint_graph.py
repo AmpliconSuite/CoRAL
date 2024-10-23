@@ -10,6 +10,7 @@ import math
 import time
 import warnings
 from dataclasses import dataclass, field
+from typing import Any
 
 import cvxopt  # type: ignore[import-untyped]
 import cvxopt.modeling  # type: ignore[import-untyped]
@@ -68,11 +69,7 @@ def test_clustering(rc_list, partition, max_multiplicity=5):
         if not size_flag:
             continue
         sum_deviation_ = sum(
-            [
-                abs(m - np.average(rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc))
-                for m in range(2, multiplicity + 1)
-                if m in sizes
-            ],
+            [abs(m - np.average(rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc)) for m in range(2, multiplicity + 1) if m in sizes],
         )
         if sum_gap - sum_deviation_ > score:
             score = sum_gap - sum_deviation_
@@ -97,17 +94,17 @@ class BreakpointGraph:
     """A container object for the breakpoint graphs."""
 
     amplicon_intervals: list[types.AmpliconInterval] = field(default_factory=list)
-    sequence_edges: list[list] = field(default_factory=list)
-    concordant_edges: list[list[tuple[int, int]]] = field(default_factory=list)
-    discordant_edges: list[dict[int, str | int]] = field(default_factory=list)
-    source_edges: list[dict[int, str | int]] = field(default_factory=list)
+    sequence_edges: list[list[Any]] = field(default_factory=list)
+    concordant_edges: list[list[Any]] = field(default_factory=list)
+    discordant_edges: list[list[Any]] = field(default_factory=list)
+    source_edges: list[list[Any]] = field(default_factory=list)
 
     """
 	nodes: adjacent list - keys with format (chr, pos, orientation); 
 	vals = [[sequence edges], [concordant edges], [discordant edges], [source edges]]  
 	"""
-    nodes: dict[tuple[int, int, int], list[list]] = field(default_factory=dict)
-    endnodes: dict[tuple[int, int, int], list[list]] = field(default_factory=dict)
+    nodes: dict[tuple, list[list]] = field(default_factory=dict)
+    endnodes: dict[tuple, list[list]] = field(default_factory=dict)
     max_cn: float = 0.0
 
     @property
@@ -116,13 +113,7 @@ class BreakpointGraph:
 
     @property
     def num_edges(self) -> int:
-        return (
-            self.num_seq_edges
-            + self.num_conc_edges
-            + self.num_disc_edges
-            + 2 * self.num_src_edges
-            + 2 * len(self.endnodes)
-        )
+        return self.num_seq_edges + self.num_conc_edges + self.num_disc_edges + 2 * self.num_src_edges + 2 * len(self.endnodes)
 
     @property
     def num_seq_edges(self) -> int:
@@ -401,10 +392,7 @@ class BreakpointGraph:
         Reset adjacent list
         """
         self.sequence_edges.sort(key=lambda sseg: (CHR_TAG_TO_IDX[sseg[0]], sseg[1]))
-        self.concordant_edges = sorted(
-            self.concordant_edges,
-            key=lambda ce: (CHR_TAG_TO_IDX[ce[0]], ce[1]),
-        )
+        self.concordant_edges.sort(key=lambda ce: (CHR_TAG_TO_IDX[ce[0]], ce[1]))
 
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
@@ -447,9 +435,7 @@ class BreakpointGraph:
 
         wcn = [(normal_cov_sr * se[7] / sr_length + 0.5 * normal_cov_lr * se[7]) for se in self.sequence_edges]
         wcn += [normal_cov_sr * (sr_length - 1.0) / sr_length + normal_cov_lr for eci in range(lc)]
-        wcn += [
-            normal_cov_sr * (sr_length - 2 * min_sr_alignment_length) / sr_length + normal_cov_lr for edi in range(ld)
-        ]
+        wcn += [normal_cov_sr * (sr_length - 2 * min_sr_alignment_length) / sr_length + normal_cov_lr for edi in range(ld)]
         wcn += [normal_cov_sr * (sr_length - 2 * min_sr_alignment_length) / sr_length for srci in range(lsrc)]
         wlncn = []
         for se in self.sequence_edges:
@@ -501,11 +487,7 @@ class BreakpointGraph:
                 return 0, cvxopt.matrix(1.0, (nvariables, 1))
             if min(x) <= 0.0:
                 return None
-            f = (
-                cvxopt.modeling.dot(wlrseg, x**-1)
-                + cvxopt.modeling.dot(wcn, x)
-                - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
-            )
+            f = cvxopt.modeling.dot(wlrseg, x**-1) + cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
             Df = (wcn - cvxopt.mul(wlncn, x**-1) - cvxopt.mul(wlrseg, x**-2)).T
             if z is None:
                 return f, Df
@@ -640,11 +622,7 @@ class BreakpointGraph:
                 return 0, cvxopt.matrix(1.0, (nvariables, 1))
             if min(x) <= 0.0:
                 return None
-            f = (
-                cvxopt.modeling.dot(wlrseg, x**-1)
-                + cvxopt.modeling.dot(wcn, x)
-                - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
-            )
+            f = cvxopt.modeling.dot(wlrseg, x**-1) + cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
             Df = (wcn - cvxopt.mul(wlncn, x**-1) - cvxopt.mul(wlrseg, x**-2)).T
             if z is None:
                 return f, Df
@@ -891,8 +869,7 @@ def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
                 )
             else:
                 fp.write(
-                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n"
-                    % (se[0], se[1], se[0], se[2], se[-1], se[3], se[5], se[7]),
+                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n" % (se[0], se[1], se[0], se[2], se[-1], se[3], se[5], se[7]),
                 )
         fp.write(
             "BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads\n",
@@ -914,8 +891,7 @@ def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
                 )
             else:
                 fp.write(
-                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n"
-                    % (srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1], srce[6]),
+                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n" % (srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1], srce[6]),
                 )
         for ce in self.concordant_edges:
             if ce[7] == "d":
@@ -935,8 +911,7 @@ def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
                 )
             else:
                 fp.write(
-                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[6], ce[8]),
+                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n" % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[6], ce[8]),
                 )
         for de in self.discordant_edges:
             if de[7] == "d":
@@ -956,8 +931,7 @@ def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
                 )
             else:
                 fp.write(
-                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[6], de[9]),
+                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n" % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[6], de[9]),
                 )
 
 
@@ -969,8 +943,7 @@ def output_breakpoint_graph_lr(g, ogfile):
         )
         for se in g.sequence_edges:
             fp.write(
-                "sequence\t%s:%s-\t%s:%s+\t%f\t%f\t%d\t%d\n"
-                % (se[0], se[1], se[0], se[2], se[-1], se[6] * 1.0 / se[7], se[7], se[5]),
+                "sequence\t%s:%s-\t%s:%s+\t%f\t%f\t%d\t%d\n" % (se[0], se[1], se[0], se[2], se[-1], se[6] * 1.0 / se[7], se[7], se[5]),
             )
         fp.write("BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads\n")
         for srce in g.source_edges:
@@ -997,8 +970,7 @@ def output_breakpoint_info_sr_lr(g, obpfile, downsample_factor, new_bp_stats):
             de = g.discordant_edges[di]
             if di in bp_stats:
                 fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t-1\t%d\t%s\n"
-                    % (de[3], de[4], de[0], de[1], de[5], de[2], de[9], new_bp_stats[di]),
+                    "%s\t%s\t%s\t%s\t%s%s\t-1\t%d\t%s\n" % (de[3], de[4], de[0], de[1], de[5], de[2], de[9], new_bp_stats[di]),
                 )
             elif de[7] == "d":
                 fp.write(

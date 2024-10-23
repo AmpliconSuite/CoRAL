@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import pathlib
 import sys
 from typing import Any
@@ -28,6 +29,8 @@ mpl.rc("xtick", labelsize=25)
 mpl.rc("ytick", labelsize=25)
 
 from coral import cigar_parsing, cycle2bed
+
+logger = logging.getLogger(__name__)
 
 
 def fetch(lr_bamfh):
@@ -81,8 +84,8 @@ def locate_hsrs(
         cycle_filename = conv_cycle_fn
 
     elif not cycle_filename.endswith(".bed"):
-        sys.stderr.write(cycle_filename + "\n")
-        sys.stderr.write("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
+        logger.error(cycle_filename + "\n")
+        logger.error("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
         sys.exit(1)
 
     with open(cycle_filename, "r") as fp:
@@ -111,8 +114,8 @@ def locate_hsrs(
         elif cn_seg_file.name.endswith(".bed"):
             cn = float(s[3])
         else:
-            sys.stderr.write(cn_seg_file.name + "\n")
-            sys.stderr.write("Invalid cn_seg file format!\n")
+            logger.error(cn_seg_file.name + "\n")
+            logger.error("Invalid cn_seg file format!\n")
 
         try:
             cns_dict[s[0]].append([int(s[1]), int(s[2]), cn])  # type: ignore[possibly-undefined]

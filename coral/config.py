@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from typing import Dict
+
 import pydantic
 
 
@@ -15,7 +17,7 @@ class LoggingHandler(pydantic.BaseModel):
 
     @pydantic.field_validator("level")
     @classmethod
-    def validate_level(cls, v: str):
+    def validate_level(cls, v: str) -> str:
         if v not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
             raise ValueError(f"Invalid logging level: {v}")
         return v
@@ -27,7 +29,7 @@ class LoggingRoot(pydantic.BaseModel):
 
     @pydantic.field_validator("level")
     @classmethod
-    def validate_level(cls, v: str):
+    def validate_level(cls, v: str) -> str:
         if v not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
             raise ValueError(f"Invalid logging level: {v}")
         return v

@@ -21,6 +21,7 @@ import typer
 from coral import cigar_parsing
 from coral.breakpoint import breakpoint_graph, breakpoint_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.breakpoint_types import CNSSegData
 from coral.breakpoint.breakpoint_utilities import (
     alignment2bp,
     alignment2bp_l,
@@ -40,48 +41,11 @@ from coral.types import AmpliconInterval, CnsInterval
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import pysam
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class CNSSegData:
-    tree: intervaltree.IntervalTree
-    intervals: List[CnsInterval]
-    intervals_by_chr: Dict[str, List[List[int]]]
-    log2_cn: List[float]
-
-    @classmethod
-    def from_file(cls, file: io.TextIOWrapper) -> CNSSegData:
-        tree, log2_cns = {}, []
-        intervals = []
-        intervals_by_chr: Dict[str, List[List[Any]]] = {}
-        is_cns = file.name.endswith(".cns")
-
-        next(file)  # Skip header row
-        idx = 0
-        for line in file:
-            fields = line.strip().split()
-            chr_tag, start, end = fields[0], int(fields[1]), int(fields[2])
-            intervals.append([chr_tag, start, end - 1])
-            if chr_tag not in tree:
-                tree[chr_tag] = intervaltree.IntervalTree()
-                intervals_by_chr[chr_tag] = []
-                idx = 0
-            tree[chr_tag][start:end] = idx
-            idx += 1
-
-            # Calc log2 CN for .cns
-            log2_cn = float(fields[4]) if is_cns else np.log2(float(fields[3]) / 2.0)
-            raw_cn = 2 * (2**log2_cn) if is_cns else float(fields[3])
-
-            log2_cns.append(log2_cn)
-            intervals_by_chr[chr_tag].append([chr_tag, start, end - 1, raw_cn])
-
-        return cls(tree, intervals, intervals_by_chr, log2_cns)
 
 
 @dataclass
@@ -118,9 +82,7 @@ class BamToBreakpointNanopore:
     cns_intervals: list[CnsInterval] = field(default_factory=list)  # CN segments
     cns_intervals_by_chr: dict[str, list[CnsInterval]] = field(default_factory=dict)
     log2_cn: list[float] = field(default_factory=list)  # log2 CN for each CN segment
-    cns_tree: dict[str, intervaltree.IntervalTree] = field(
-        default_factory=dict
-    )  # Interval tree structure for each chromosome
+    cns_tree: dict[str, intervaltree.IntervalTree] = field(default_factory=dict)  # Interval tree structure for each chromosome
     normal_cov: float = 0.0  # Normal long read coverage - used for CN assignment
 
     ccid2id: dict[int, int] = field(default_factory=dict)
@@ -164,12 +126,8 @@ class BamToBreakpointNanopore:
             cns_intervals_median.append(self.cns_intervals[log2_cn_order[im - i]])
             log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
             log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-            total_int_len += (
-                self.cns_intervals[log2_cn_order[ip + i]][2] - self.cns_intervals[log2_cn_order[ip + i]][1] + 1
-            )
-            total_int_len += (
-                self.cns_intervals[log2_cn_order[im - i]][2] - self.cns_intervals[log2_cn_order[im - i]][1] + 1
-            )
+            total_int_len += self.cns_intervals[log2_cn_order[ip + i]][2] - self.cns_intervals[log2_cn_order[ip + i]][1] + 1
+            total_int_len += self.cns_intervals[log2_cn_order[im - i]][2] - self.cns_intervals[log2_cn_order[im - i]][1] + 1
             i += 1
         logger.debug(f"Use {len(cns_intervals_median)} LR copy number segments.")
         logger.debug(f"Total length of LR copy number segments: {total_int_len}.")
@@ -190,10 +148,7 @@ class BamToBreakpointNanopore:
             )
         self.normal_cov = nnc * 1.0 / total_int_len
         logger.info(f"LR normal cov ={self.normal_cov}, {nnc=}, {total_int_len=}.")
-        self.min_cluster_cutoff = max(
-            self.min_cluster_cutoff,
-            self.min_bp_cov_factor * self.normal_cov,
-        )
+        self.min_cluster_cutoff = max(self.min_cluster_cutoff, int(self.min_bp_cov_factor * self.normal_cov))
         logger.debug(f"Reset min_cluster_cutoff to {self.min_cluster_cutoff}.")
 
     def fetch(self):
@@ -355,8 +310,7 @@ class BamToBreakpointNanopore:
                         if amplicon_intervals_sorted[ai_][3] == ccid:
                             amplicon_intervals_sorted[ai_][3] = amplicon_intervals_sorted[int_range[0]][3]
                             logger.debug(
-                                "Reset ccid of amplicon interval %d to %d."
-                                % (ai_, amplicon_intervals_sorted[int_range[0]][3]),
+                                "Reset ccid of amplicon interval %d to %d." % (ai_, amplicon_intervals_sorted[int_range[0]][3]),
                             )
                             logger.debug(
                                 "Updated amplicon interval: %s" % amplicon_intervals_sorted[ai_],
@@ -380,17 +334,11 @@ class BamToBreakpointNanopore:
                         )
             for connection in connection_map:
                 if connection != connection_map[connection]:
-                    logger.debug(
-                        f"Reset connection between amplicon intervals {connection} to {connection_map[connection]}."
-                    )
+                    logger.debug(f"Reset connection between amplicon intervals {connection} to {connection_map[connection]}.")
                     if connection_map[connection] not in self.amplicon_interval_connections:
-                        self.amplicon_interval_connections[connection_map[connection]] = (
-                            self.amplicon_interval_connections[connection]
-                        )
+                        self.amplicon_interval_connections[connection_map[connection]] = self.amplicon_interval_connections[connection]
                     else:
-                        self.amplicon_interval_connections[connection_map[connection]] |= (
-                            self.amplicon_interval_connections[connection]
-                        )
+                        self.amplicon_interval_connections[connection_map[connection]] |= self.amplicon_interval_connections[connection]
                     del self.amplicon_interval_connections[connection]
                     if connection_map[connection][0] == connection_map[connection][1]:
                         del self.amplicon_interval_connections[connection_map[connection]]
@@ -816,13 +764,8 @@ class BamToBreakpointNanopore:
                                 or (not amp_flag and nil - lir > 2 * self.interval_delta)
                                 or (not amp_flag and nint_segs_[i + 1][2] - nint_segs_[i][2] > 3 * self.interval_delta)
                             ):
-                                amp_flag_l = (
-                                    self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3]
-                                    >= self.cn_gain
-                                )
-                                amp_flag_r = (
-                                    self.cns_intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][3] >= self.cn_gain
-                                )
+                                amp_flag_l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
+                                amp_flag_r = self.cns_intervals_by_chr[nint_segs_[i][0]][nint_segs_[i][1]][3] >= self.cn_gain
                                 if not amp_flag_l:
                                     l = max(
                                         nint_segs_[lasti][2] - self.interval_delta,
@@ -830,8 +773,7 @@ class BamToBreakpointNanopore:
                                     )
                                 else:
                                     l = max(
-                                        self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
-                                        - self.interval_delta,
+                                        self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
                                         self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1],
                                     )
                                 if not amp_flag_r:
@@ -860,12 +802,8 @@ class BamToBreakpointNanopore:
                                     "\t\tSkip breakpoints connected to the new interval.",
                                 )
                         if len(nint_segs_) > 0:
-                            amp_flag_l = (
-                                self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
-                            )
-                            amp_flag_r = (
-                                self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][3] >= self.cn_gain
-                            )
+                            amp_flag_l = self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][3] >= self.cn_gain
+                            amp_flag_r = self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][3] >= self.cn_gain
                             if not amp_flag_l:
                                 l = max(
                                     nint_segs_[lasti][2] - self.interval_delta,
@@ -873,8 +811,7 @@ class BamToBreakpointNanopore:
                                 )
                             else:
                                 l = max(
-                                    self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1]
-                                    - self.interval_delta,
+                                    self.cns_intervals_by_chr[nint_segs_[lasti][0]][nint_segs_[lasti][1]][1] - self.interval_delta,
                                     self.cns_intervals_by_chr[nint_segs_[lasti][0]][0][1],
                                 )
                             if not amp_flag_r:
@@ -884,8 +821,7 @@ class BamToBreakpointNanopore:
                                 )
                             else:
                                 r = min(
-                                    self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][2]
-                                    + self.interval_delta,
+                                    self.cns_intervals_by_chr[nint_segs_[-1][0]][nint_segs_[-1][1]][2] + self.interval_delta,
                                     self.cns_intervals_by_chr[nint_segs_[-1][0]][-1][2],
                                 )
                             l = max(nint_segs_[lasti][2] - int(self.max_seq_len / 2), l)
@@ -1244,9 +1180,7 @@ class BamToBreakpointNanopore:
             cb = cns_boundaries[cbi]
             for bpi in range(len(self.new_bp_list)):
                 bp = self.new_bp_list[bpi]
-                if (bp[0] == cb[1] and bp[1] - 6001 < cb[3] < bp[1] + 6000) or (
-                    bp[3] == cb[1] and bp[4] - 6001 < cb[3] < bp[4] + 6000
-                ):
+                if (bp[0] == cb[1] and bp[1] - 6001 < cb[3] < bp[1] + 6000) or (bp[3] == cb[1] and bp[4] - 6001 < cb[3] < bp[4] + 6000):
                     cb_del_list.append(cbi)
                     break
         for cbi in range(len(cns_boundaries)):
@@ -1399,8 +1333,7 @@ class BamToBreakpointNanopore:
 
         # Construct graphs with sequence and concordant edges
         logger.debug(
-            "Will split the following %d amplicon intervals into sequence edges and build breakpoint graphs."
-            % (len(split_int)),
+            "Will split the following %d amplicon intervals into sequence edges and build breakpoint graphs." % (len(split_int)),
         )
         amplicon_id = 1
         for sseg in self.amplicon_intervals:
@@ -1507,13 +1440,10 @@ class BamToBreakpointNanopore:
             amplicon_idx = self.ccid2id[self.amplicon_intervals[io1][3]] - 1
             if self.amplicon_intervals[io1][3] != bp_ccid:
                 logger.debug(
-                    "Reset the ccid for breakpoint %s at index %d from %d to %d."
-                    % (bp[:6], bpi, bp_ccid, self.amplicon_intervals[io1][3]),
+                    "Reset the ccid for breakpoint %s at index %d from %d to %d." % (bp[:6], bpi, bp_ccid, self.amplicon_intervals[io1][3]),
                 )
                 self.new_bp_ccids[bpi] = self.amplicon_intervals[io1][3]
-            self.lr_graph[amplicon_idx].add_discordant_edge(
-                bp[0], bp[1], bp[2], bp[3], bp[4], bp[5], lr_count=len(bp[-1]), reads=bp[-1]
-            )
+            self.lr_graph[amplicon_idx].add_discordant_edge(bp[0], bp[1], bp[2], bp[3], bp[4], bp[5], lr_count=len(bp[-1]), reads=bp[-1])
         for srci in range(len(self.source_edges)):
             srce = self.source_edges[srci]
             src_ccid = self.source_edge_ccids[srci]
@@ -1522,18 +1452,10 @@ class BamToBreakpointNanopore:
 
         # Print summary statistics for each amplicon
         for amplicon_idx in range(len(self.lr_graph)):
-            logger.debug(
-                f"Num sequence edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].sequence_edges)}."
-            )
-            logger.debug(
-                f"Num concordant edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].concordant_edges)}."
-            )
-            logger.debug(
-                f"Num discordant edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].discordant_edges)}."
-            )
-            logger.debug(
-                f"Num source edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].source_edges)}."
-            )
+            logger.debug(f"Num sequence edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].sequence_edges)}.")
+            logger.debug(f"Num concordant edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].concordant_edges)}.")
+            logger.debug(f"Num discordant edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].discordant_edges)}.")
+            logger.debug(f"Num source edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].source_edges)}.")
 
     def assign_cov(self):
         """Extract the long read coverage from bam file, if missing, for each sequence edge"""
@@ -1545,9 +1467,7 @@ class BamToBreakpointNanopore:
                     """
 					For long read, use the total number of nucleotides
 					"""
-                    rl_list = [
-                        read for read in self.lr_bamfh.fetch(seg[0], seg[1], seg[2] + 1) if read.infer_read_length()
-                    ]
+                    rl_list = [read for read in self.lr_bamfh.fetch(seg[0], seg[1], seg[2] + 1) if read.infer_read_length()]
                     self.lr_graph[amplicon_idx].sequence_edges[seqi][5] = len(rl_list)
                     self.lr_graph[amplicon_idx].sequence_edges[seqi][6] = sum(
                         [
@@ -1809,9 +1729,7 @@ class BamToBreakpointNanopore:
                             bp_list,
                         )
                         paths.append(path)
-                        logger.debug(
-                            f"\tAlignment intervals on reference = {rints_}; mapq = {rq}; bps = {bp_reads_rn_sdel}"
-                        )
+                        logger.debug(f"\tAlignment intervals on reference = {rints_}; mapq = {rq}; bps = {bp_reads_rn_sdel}")
                         logger.debug(f"Resulting subpath = {path}")
                 else:
                     rints = [aint[:4] for aint in self.chimeric_alignments[rn][1]]
@@ -1944,8 +1862,7 @@ class BamToBreakpointNanopore:
                     if rn not in self.large_indel_alignments and rn not in self.chimeric_alignments:
                         concordant_reads[rn] = amplicon_idx
             logger.debug(
-                "There are %d concordant reads within amplicon intervals in amplicon %d."
-                % (len(concordant_reads), amplicon_idx + 1)
+                "There are %d concordant reads within amplicon intervals in amplicon %d." % (len(concordant_reads), amplicon_idx + 1)
             )
             for aint in self.amplicon_intervals:
                 if amplicon_idx != self.ccid2id[aint[3]] - 1:
@@ -1969,9 +1886,7 @@ class BamToBreakpointNanopore:
                                 self.path_constraints[amplicon_idx][0].append(path)
                                 self.path_constraints[amplicon_idx][1].append(1)
                                 self.path_constraints[amplicon_idx][2].append(concordant_reads[rn])
-            logger.debug(
-                f"There are {len(self.path_constraints[amplicon_idx][0])} distinct subpaths in amplicon {amplicon_idx + 1}."
-            )
+            logger.debug(f"There are {len(self.path_constraints[amplicon_idx][0])} distinct subpaths in amplicon {amplicon_idx + 1}.")
 
     def closebam(self):
         """Close the short read and long read bam file"""
@@ -1998,9 +1913,7 @@ def reconstruct_graph(
     for interval in seed_intervals:
         logger.debug(f"Seed interval: {interval[:3]}")
 
-    b2bn = BamToBreakpointNanopore(
-        lr_bamfh=pysam.AlignmentFile(lr_bam_filename, "rb"), amplicon_intervals=seed_intervals
-    )
+    b2bn = BamToBreakpointNanopore(lr_bamfh=pysam.AlignmentFile(str(lr_bam_filename), "rb"), amplicon_intervals=seed_intervals)
     # if filter_bp_by_edit_distance:
     # b2bn.nm_filter = True
     b2bn.min_bp_cov_factor = min_bp_support
@@ -2051,12 +1964,10 @@ def reconstruct_graph(
             b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
         logger.info("Computed CN for all edges.")
         for gi in range(len(b2bn.lr_graph)):
-            breakpoint_graph.output_breakpoint_graph_lr(
-                b2bn.lr_graph[gi], output_prefix + "_amplicon" + str(gi + 1) + "_graph.txt"
-            )
+            breakpoint_graph.output_breakpoint_graph_lr(b2bn.lr_graph[gi], f"{output_prefix}/amplicon{gi+1}_graph.txt")
             file_prefix = output_prefix + "_amplicon" + str(gi + 1)
             with open(f"{file_prefix}_bp.graph", "wb") as file:  # TODO: merge this logic into above fn
                 pickle.dump(b2bn.lr_graph[gi], file)
-        logger.info(f"Wrote breakpoint graph for all complicons to {output_prefix}_amplicon*_graph.txt.")
+        logger.info(f"Wrote breakpoint graph for all complicons to {output_prefix}/amplicon*_graph.txt.")
 
     return b2bn

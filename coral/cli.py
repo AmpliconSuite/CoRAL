@@ -79,7 +79,7 @@ def reconstruct(
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
     logging.basicConfig(
-        filename=f"{output_prefix}/infer_breakpoint_graph.log" or "infer_breakpoint_graph.log",
+        filename=f"{output_prefix}/infer_breakpoint_graph.log",
         filemode="w",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -125,7 +125,7 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
-    bb = infer_breakpoint_graph.BamToBreakpointNanopore(None, [pickle.load(bp_graph)])
+    bb = infer_breakpoint_graph.BamToBreakpointNanopore(None, [pickle.load(bp_graph)])  # type: ignore[arg-type]
     cycle_decomposition.reconstruct_cycles(
         output_prefix,
         output_all_path_constraints,
@@ -205,7 +205,4 @@ def cycle2bed_mode(
     ] = False,
 ) -> None:
     print(f"Performing cycle to bed mode with options: {ctx.params}")
-    if rotate_to_min:
-        cycle2bed.convert_cycles_to_bed(cycle_file, output_file, True, num_cycles)
-    else:
-        cycle2bed.convert_cycles_to_bed(cycle_file, output_file, False, num_cycles)
+    cycle2bed.convert_cycles_to_bed(cycle_file, output_file, rotate_to_min, num_cycles)

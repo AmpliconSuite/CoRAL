@@ -38,10 +38,10 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
     """
     lseg = len(g.sequence_edges)
 
-    eulerian_cycle = []  # A cycle is edge - node list starting and ending with the same edge
+    eulerian_cycle: list[Any] = []  # A cycle is edge - node list starting and ending with the same edge
     # Since Eulerian, there could be subcycles in the middle of a cycle
-    eulerian_cycle_ = []  # Cycle in AA cycle format
-    best_cycle = []  # Cycle in AA cycle format
+    eulerian_cycle_: list[Any] = []  # Cycle in AA cycle format
+    best_cycle: list[Any] = []  # Cycle in AA cycle format
     valid = 0
     num_trials = 0
     l = len(path_constraints_next_cycle)
@@ -129,7 +129,7 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
                     del edges_cur[("e", last_seq_edge)]
         if valid == 1 and len(best_cycle) == 0:
             best_cycle = eulerian_cycle_
-        path_metric = [[], 0, 0]
+        path_metric: list[Any] = [[], 0, 0]
         # check if the remaining path constraints are satisfied
         for pathi in range(len(path_constraints_next_cycle)):
             path_ = path_constraints_next_cycle[pathi]
@@ -205,10 +205,10 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
     lseg = len(g.sequence_edges)
     endnode_list = [node for node in g.endnodes.keys()]
 
-    eulerian_path = []  # A path is edge - node list starting and ending with edges
+    eulerian_path: list[Any] = []  # A path is edge - node list starting and ending with edges
     # Since Eulerian, there could be subcycles in the middle of a path
-    eulerian_path_ = []  # Path in AA cycle format
-    best_path = []  # Path in AA cycle format
+    eulerian_path_: list[Any] = []  # Path in AA cycle format
+    best_path: list[Any] = []  # Path in AA cycle format
     valid = 0
     num_trials = 0
     l = len(path_constraints_next_path)

@@ -89,6 +89,8 @@ lint.ignore = [
   "FBT002",  # Boolean default positional arg
   "PLR0913", # > 5 args in function signature
   "T201",    # No prints
+  "TRY003",  # Long messages outside exception class
+  "EM102",   # f-string in exception
 ]
 line-length = 140
 

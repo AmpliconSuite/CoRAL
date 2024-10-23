@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
 import typer
 
 from coral.constants import CHR_SIZES, CNSIZE_MAX
+
+logger = logging.getLogger(__name__)
 
 
 def interval_overlap(int1, int2):
@@ -39,8 +42,8 @@ def run_seeding(cn_seg_file: typer.FileText, output_filename: str, gain: float, 
             elif cn_seg_file.name.endswith(".bed"):
                 cn = float(s[3])
             else:
-                sys.stderr.write(cn_seg_file.name + "\n")
-                sys.stderr.write("Invalid cn_seg file format!\n")
+                logger.error(cn_seg_file.name + "\n")
+                logger.error("Invalid cn_seg file format!\n")
             # Require absolute CN >= max(gain, cn_cutoff_chrarm)
             if cn >= gain and (int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]):  # type: ignore[possibly-undefined]
                 # assume input CN segments sorted by chr and pos
@@ -79,7 +82,7 @@ def run_seeding(cn_seg_file: typer.FileText, output_filename: str, gain: float, 
                     break
         chr_arms[chr].append([ccn_p, ccn_q])
 
-    OUTPUT_FN = cn_seg.replace(".cns", "CNV_SEEDS.bed")
+    OUTPUT_FN = cn_seg_file.name.replace(".cns", "CNV_SEEDS.bed")
     if output_filename:
         OUTPUT_FN = output_filename
     with open(OUTPUT_FN, "w") as fp:
