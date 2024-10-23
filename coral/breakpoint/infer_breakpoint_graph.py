@@ -1952,12 +1952,13 @@ def reconstruct_graph(
             breakpoint_graph.output_breakpoint_info_lr(b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i)
             with open(f"{file_prefix}_bp.graph", "wb") as file:
                 pickle.dump(b2bn.lr_graph[gi], file)
-        with open(f"{output_prefix}/full_bb.graph", "wb") as file:
-            pickle.dump(b2bn, file)
+        # Unable to dump full B2BN class until we write custom Cython `__reduce__` methods for pysam objects
+        # with open(f"{output_prefix}/full_bb.graph", "wb") as file:
+        #     pickle.dump(b2bn, file)
         logger.info(f"Wrote breakpoint information, for all amplicons, to {output_prefix}_amplicon*_breakpoints.txt.")
     else:
         # b2bn.find_cn_breakpoints()
-        # logger.info( "Completed finding breakpoints corresponding to CN changes.")
+        # logger.info("Completed finding breakpoints corresponding to CN changes.")
         b2bn.build_graph()
         logger.info("Breakpoint graph built for all amplicons.")
         b2bn.assign_cov()
@@ -1970,8 +1971,9 @@ def reconstruct_graph(
             file_prefix = f"{output_prefix}/amplicon{gi+1}"
             with open(f"{file_prefix}_bp.graph", "wb") as file:  # TODO: merge this logic into above fn
                 pickle.dump(b2bn.lr_graph[gi], file)
-        with open(f"{output_prefix}/full_bb.graph", "wb") as file:
-            pickle.dump(b2bn, file)
+        # Unable to dump full B2BN class until we write custom Cython `__reduce__` methods for pysam objects
+        # with open(f"{output_prefix}/full_bb.graph", "wb") as file:
+        #     pickle.dump(b2bn, file)
         logger.info(f"Wrote breakpoint graph for all complicons to {output_prefix}/amplicon*_graph.txt.")
 
     return b2bn

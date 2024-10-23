@@ -1,7 +1,6 @@
 """Functions used for cycle decomposition"""
 
 from __future__ import annotations
-
 import logging
 import math
 import os
@@ -563,4 +562,4 @@ def reconstruct_cycles(
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(f"Wrote cycles for all complicons to {output_prefix}_amplicon*_cycles.txt.")
-f
+

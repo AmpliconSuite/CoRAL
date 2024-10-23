@@ -16,6 +16,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
+
 def convert_pbmm2_to_bwa_mem(cigar_str):
     """
     Convert pbmm2 or "= X" cigar string to the format used by minimap2, bwa mem.
@@ -28,14 +29,14 @@ def convert_pbmm2_to_bwa_mem(cigar_str):
         updated cigar string in the *S*M format
     """
     # Regular expression to capture CIGAR elements (number + character)
-    cigar_elements = re.findall(r'(\d+)([A-Z=])', cigar_str)
+    cigar_elements = re.findall(r"(\d+)([A-Z=])", cigar_str)
 
     converted_cigar = []
     current_M_length = 0
 
     for length, op in cigar_elements:
         length = int(length)
-        if op == '=' or op == 'X':
+        if op == "=" or op == "X":
             # For = and X, treat them as matches (M in BWA-MEM)
             current_M_length += length
         else:
@@ -51,7 +52,7 @@ def convert_pbmm2_to_bwa_mem(cigar_str):
 
     # logging.debug("Original cigar: %s" %cigar_str)
     # logging.debug("Converted cigar: %s" %(''.join(converted_cigar)))
-    return ''.join(converted_cigar)
+    return "".join(converted_cigar)
 
 
 def query_ends_from_cigar(cigar_str, strand):
@@ -67,18 +68,18 @@ def query_ends_from_cigar(cigar_str, strand):
         the reference genome.
     """
     # Consumable ops on the reference genome (M, D, N, =, X)
-    ref_consumable_ops = {'M', 'D', 'N', '=', 'X'}
-    query_consumable_ops = {'M', 'I', '=', 'X'}  # Consumable ops on the query
+    ref_consumable_ops = {"M", "D", "N", "=", "X"}
+    query_consumable_ops = {"M", "I", "=", "X"}  # Consumable ops on the query
 
     query_start = 0
     query_consumed = 0
     ref_consumed = 0  # This will track the length on the reference genome
 
     # Parse the CIGAR string using regex to extract (length, operation) tuples
-    cigar = re.findall(r'(\d+)([A-Z=])', cigar_str)
+    cigar = re.findall(r"(\d+)([A-Z=])", cigar_str)
 
     # If the strand is negative, reverse the CIGAR operations
-    if strand == '-':
+    if strand == "-":
         cigar = cigar[::-1]
 
     # Process CIGAR to find query and reference alignment lengths
@@ -86,7 +87,7 @@ def query_ends_from_cigar(cigar_str, strand):
         length = int(length)  # Convert length to an integer
 
         # Handle soft/hard clipping which affects query_start but not reference
-        if cigar_op == 'S' or cigar_op == 'H':  # Soft/Hard clip
+        if cigar_op == "S" or cigar_op == "H":  # Soft/Hard clip
             if query_consumed == 0:  # Before any alignment operation
                 query_start += length
 
@@ -120,24 +121,28 @@ def alignment_from_satags(sa_list, read_length):
     """
     qint, rint, qual, nm = [], [], [], []
     for sa in sa_list:
-        t = sa.split(',')
-        if 'S' not in t[3] or ('M' not in t[3] and '=' not in t[3]):
+        t = sa.split(",")
+        if "S" not in t[3] or ("M" not in t[3] and "=" not in t[3]):
             # Require a chimeric alignment record having at least some (soft)clips and matches
             logger.warning("Found chimeric alignment without match or soft clips.")
-            #logging.warning("Read name: %s; Read length: %d." %(r, read_length))
-            logger.warning("All CIGAR strings: %s." %(sa_list))
+            # logging.warning("Read name: %s; Read length: %d." %(r, read_length))
+            logger.warning("All CIGAR strings: %s." % (sa_list))
             return ([], [], [])
         # op = ''.join(c for c in t[3] if not c.isdigit())
         # qs, qe, al = cigar2pos_ops[op](t[3], t[2], read_length)
         qs, qe, al = query_ends_from_cigar(t[3], t[2])
         qint.append([qs, qe])
-        if t[2] == '+':
-            rint.append([t[0], int(t[1]) - 1, int(t[1]) + al - 2, '+'])  # converted to 0 based coordinates
+        if t[2] == "+":
+            rint.append(
+                [t[0], int(t[1]) - 1, int(t[1]) + al - 2, "+"]
+            )  # converted to 0 based coordinates
         else:
-            rint.append([t[0], int(t[1]) + al - 2, int(t[1]) - 1, '-'])  # converted to 0 based coordinates
+            rint.append(
+                [t[0], int(t[1]) + al - 2, int(t[1]) - 1, "-"]
+            )  # converted to 0 based coordinates
         qual.append(int(t[4]))
         nm.append(float(t[-1]))
-    qint_ind = sorted(range(len(qint)), key = lambda i: (qint[i][0], qint[i][1]))
+    qint_ind = sorted(range(len(qint)), key=lambda i: (qint[i][0], qint[i][1]))
     qint = [qint[i] for i in qint_ind]
     rint = [rint[i] for i in qint_ind]
     qual = [qual[i] for i in qint_ind]

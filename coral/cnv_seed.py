@@ -13,14 +13,26 @@ logger = logging.getLogger(__name__)
 
 def interval_overlap(int1, int2):
     """Check if two intervals in the form of [chr, s, e] overlap"""
-    return int1[0] == int2[0] and int(int1[1]) <= int(int2[2]) and int(int2[1]) <= int(int1[2])
+    return (
+        int1[0] == int2[0]
+        and int(int1[1]) <= int(int2[2])
+        and int(int2[1]) <= int(int1[2])
+    )
 
 
-def run_seeding(cn_seg_file: typer.FileText, output_filename: str, gain: float, min_seed_size: float, max_seg_gap: float):
+def run_seeding(
+    cn_seg_file: typer.FileText,
+    output_filename: str,
+    gain: float,
+    min_seed_size: float,
+    max_seg_gap: float,
+):
     blocked_intervals = []
     chr_arms: dict[str, list[list]] = {}
 
-    __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    __location__ = os.path.realpath(
+        os.path.join(os.getcwd(), os.path.dirname(__file__))
+    )
     with open(os.path.join(__location__, "annotations", "GRCh38_centromere.bed")) as fp:
         for line in fp:
             s = line.strip().split()
@@ -45,9 +57,15 @@ def run_seeding(cn_seg_file: typer.FileText, output_filename: str, gain: float, 
                 logger.error(cn_seg_file.name + "\n")
                 logger.error("Invalid cn_seg file format!\n")
             # Require absolute CN >= max(gain, cn_cutoff_chrarm)
-            if cn >= gain and (int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]):  # type: ignore[possibly-undefined]
+            if cn >= gain and (
+                int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]
+            ):  # type: ignore[possibly-undefined]
                 # assume input CN segments sorted by chr and pos
-                if len(cur_seed) > 0 and s[0] == cur_seed[-1][0] and int(s[1]) - cur_seed[-1][2] <= max_seg_gap:
+                if (
+                    len(cur_seed) > 0
+                    and s[0] == cur_seed[-1][0]
+                    and int(s[1]) - cur_seed[-1][2] <= max_seg_gap
+                ):
                     cur_seed.append((s[0], int(s[1]), int(s[2]), cn))
                 elif len(cur_seed) == 0:
                     cur_seed = [(s[0], int(s[1]), int(s[2]), cn)]
@@ -111,7 +129,9 @@ def run_seeding(cn_seg_file: typer.FileText, output_filename: str, gain: float, 
                         lastseg = list(cns)
                         sum_seed_len += cns[2] - cns[1]
                     elif sum_seed_len >= min_seed_size:
-                        fp.write("%s\t%d\t%d\n" % (lastseg[0], lastseg[1], lastseg[2] - 1))
+                        fp.write(
+                            "%s\t%d\t%d\n" % (lastseg[0], lastseg[1], lastseg[2] - 1)
+                        )
                         sum_seed_len = 0
                         lastseg = list(cns)
                 if sum_seed_len >= min_seed_size:

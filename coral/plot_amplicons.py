@@ -62,14 +62,18 @@ class GraphViz:
     discordant_edges: list[list] = field(default_factory=list)
     cycles: dict[str, list] = field(default_factory=dict)
     cycle_flags: dict[str, list] = field(default_factory=dict)
-    genes: DefaultDict[str, IntervalTree] = field(default_factory=lambda: defaultdict(IntervalTree))
+    genes: DefaultDict[str, IntervalTree] = field(
+        default_factory=lambda: defaultdict(IntervalTree)
+    )
     plot_bounds: tuple[str, int, int] | None = None
 
     def open_bam(self, bam_fn):
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
 
     def parse_genes(self, ref, gene_subset_list=None, restrict_to_bushman=False):
-        __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+        __location__ = os.path.realpath(
+            os.path.join(os.getcwd(), os.path.dirname(__file__))
+        )
         if ref == "GRCh37" or ref == "hg19":
             refGene_name = "refGene_hg19.txt"
         elif ref == "GRCm38" or ref == "mm10":
@@ -81,7 +85,9 @@ class GraphViz:
         bushman_set = set()
         if restrict_to_bushman:
             with open(
-                os.path.join(__location__, "annotations", "Bushman_group_allOnco_May2018.tsv"),
+                os.path.join(
+                    __location__, "annotations", "Bushman_group_allOnco_May2018.tsv"
+                ),
             ) as infile:
                 _ = next(infile)
                 for line in infile:
@@ -94,14 +100,25 @@ class GraphViz:
             for line in infile:
                 fields = line.rsplit("\t")
                 currChrom = fields[2]
-                if (ref == "GRCh37" or ref == "GRCm38") and not currChrom.startswith("hpv"):
+                if (ref == "GRCh37" or ref == "GRCm38") and not currChrom.startswith(
+                    "hpv"
+                ):
                     currChrom = currChrom[3:]
 
                 tstart = int(fields[4])
                 tend = int(fields[5])
                 gname = fields[-4]
-                is_other_feature = gname.startswith("LOC") or gname.startswith("LINC") or gname.startswith("MIR")
-                if restrict_to_bushman and gname not in bushman_set or gene_subset_list and gname not in gene_subset_list:
+                is_other_feature = (
+                    gname.startswith("LOC")
+                    or gname.startswith("LINC")
+                    or gname.startswith("MIR")
+                )
+                if (
+                    restrict_to_bushman
+                    and gname not in bushman_set
+                    or gene_subset_list
+                    and gname not in gene_subset_list
+                ):
                     continue
 
                 if gname not in seenNames and not is_other_feature:
@@ -153,7 +170,9 @@ class GraphViz:
 
         elif not cycle_file.name.endswith(".bed"):
             logger.error(cycle_file.name + "\n")
-            logger.error("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
+            logger.error(
+                "Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n"
+            )
             sys.exit(1)
 
         for line in cycle_file:
@@ -202,19 +221,29 @@ class GraphViz:
 
         return merged
 
-    def cycle_amplified_intervals(self, cycle_ids=None, cycle_only=False, graph_given=False):
+    def cycle_amplified_intervals(
+        self, cycle_ids=None, cycle_only=False, graph_given=False
+    ):
         """Derive amplified intervals from (selected) cycles"""
         self.num_amplified_intervals = 0
         if cycle_ids == None:
             cycle_ids = [cycle_id for cycle_id in self.cycle_flags]
         if cycle_only:
-            cycle_ids = [cycle_id for cycle_id in self.cycle_flags if self.cycle_flags[cycle_id][0]]
+            cycle_ids = [
+                cycle_id
+                for cycle_id in self.cycle_flags
+                if self.cycle_flags[cycle_id][0]
+            ]
 
-        if graph_given:  # if the graph file is given, use this to set the amplified intervals
+        if (
+            graph_given
+        ):  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
                 for segment in self.cycles[cycle_id]:
                     for int_ in self.intervals_from_graph[segment[0]]:
-                        if breakpoint_utilities.interval_include(segment, [segment[0], int_[0], int_[1]]):
+                        if breakpoint_utilities.interval_include(
+                            segment, [segment[0], int_[0], int_[1]]
+                        ):
                             if segment[0] not in self.intervals_from_cycle:
                                 self.intervals_from_cycle[segment[0]] = []
                             if int_ not in self.intervals_from_cycle[segment[0]]:
@@ -307,8 +336,12 @@ class GraphViz:
         # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         zoom_factor = 1.0
         if self.plot_bounds:
-            zoom_factor = float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
-        sorted_chrs = breakpoint_utilities.sort_chrom_names(self.intervals_from_graph.keys())
+            zoom_factor = (
+                float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
+            )
+        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+            self.intervals_from_graph.keys()
+        )
         amplified_intervals_start = dict()
         ymax = 0
         x = margin_between_intervals
@@ -317,7 +350,8 @@ class GraphViz:
             amplified_intervals_start[chrom] = [x]
             for seq in self.sequence_edges_by_chr[chrom]:
                 if chrom not in self.intervals_from_graph or (
-                    interval_idx >= len(self.intervals_from_graph[chrom]) or seq[1] > self.intervals_from_graph[chrom][interval_idx][1]
+                    interval_idx >= len(self.intervals_from_graph[chrom])
+                    or seq[1] > self.intervals_from_graph[chrom][interval_idx][1]
                 ):
                     # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
@@ -330,7 +364,9 @@ class GraphViz:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
 
-                    if not (seq[2] >= self.plot_bounds[1] and seq[1] <= self.plot_bounds[2]):
+                    if not (
+                        seq[2] >= self.plot_bounds[1] and seq[1] <= self.plot_bounds[2]
+                    ):
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 y = seq[3]
@@ -345,20 +381,23 @@ class GraphViz:
             for chrom in amplified_intervals_start:
                 if chrom != sorted_chrs[0]:
                     ax.axvline(
-                        x=amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5,
+                        x=amplified_intervals_start[chrom][0]
+                        - margin_between_intervals * 0.5,
                         linestyle="--",
                         lw=2,
                         zorder=2,
                     )
                     ax3.axvline(
-                        x=amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5,
+                        x=amplified_intervals_start[chrom][0]
+                        - margin_between_intervals * 0.5,
                         linestyle="--",
                         lw=2,
                         zorder=2,
                     )
                 for i in range(1, len(amplified_intervals_start[chrom])):
                     ax.axvline(
-                        x=amplified_intervals_start[chrom][i] - margin_between_intervals * 0.5,
+                        x=amplified_intervals_start[chrom][i]
+                        - margin_between_intervals * 0.5,
                         linestyle=":",
                         lw=2,
                         zorder=2,
@@ -372,7 +411,11 @@ class GraphViz:
             "--": "teal",
             "interchromosomal": "blue",
         }
-        avg_bp_rc = sum([bp[7] for bp in self.discordant_edges]) * 1.0 / max(len(self.discordant_edges), 1)
+        avg_bp_rc = (
+            sum([bp[7] for bp in self.discordant_edges])
+            * 1.0
+            / max(len(self.discordant_edges), 1)
+        )
         for bp in self.discordant_edges:
             chr1 = bp[0]
             pos1 = bp[1]
@@ -384,15 +427,31 @@ class GraphViz:
             if chr1 in self.intervals_from_graph and chr2 in self.intervals_from_graph:
                 while pos1 > self.intervals_from_graph[chr1][int1][1]:
                     int1 += 1
-                bp_x1 = amplified_intervals_start[chr1][int1] + (pos1 - self.intervals_from_graph[chr1][int1][0]) * 100.0 / total_len_amp
+                bp_x1 = (
+                    amplified_intervals_start[chr1][int1]
+                    + (pos1 - self.intervals_from_graph[chr1][int1][0])
+                    * 100.0
+                    / total_len_amp
+                )
                 while pos2 > self.intervals_from_graph[chr2][int2][1]:
                     int2 += 1
-                bp_x2 = amplified_intervals_start[chr2][int2] + (pos2 - self.intervals_from_graph[chr2][int2][0]) * 100.0 / total_len_amp
+                bp_x2 = (
+                    amplified_intervals_start[chr2][int2]
+                    + (pos2 - self.intervals_from_graph[chr2][int2][0])
+                    * 100.0
+                    / total_len_amp
+                )
                 # check if either bp overlaps before plotting
                 if self.plot_bounds:
                     # Check if both breakpoints belong to the same chromosome as in plot bounds
-                    hit1 = chr1 == self.plot_bounds[0] and self.plot_bounds[1] <= pos1 <= self.plot_bounds[2]
-                    hit2 = chr2 == self.plot_bounds[0] and self.plot_bounds[1] <= pos2 <= self.plot_bounds[2]
+                    hit1 = (
+                        chr1 == self.plot_bounds[0]
+                        and self.plot_bounds[1] <= pos1 <= self.plot_bounds[2]
+                    )
+                    hit2 = (
+                        chr2 == self.plot_bounds[0]
+                        and self.plot_bounds[1] <= pos2 <= self.plot_bounds[2]
+                    )
                     if not hit1 and not hit2:
                         continue
 
@@ -425,7 +484,10 @@ class GraphViz:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
 
-                    if not (int_[1] >= self.plot_bounds[1] and int_[0] <= self.plot_bounds[2]):
+                    if not (
+                        int_[1] >= self.plot_bounds[1]
+                        and int_[0] <= self.plot_bounds[2]
+                    ):
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 window_size = 150
@@ -456,7 +518,10 @@ class GraphViz:
                         / window_size
                     )
                     max_cov = max(cov, max_cov)
-                    x = amplified_intervals_start[chrom][inti] + (w - int_[0]) * 100.0 / total_len_amp
+                    x = (
+                        amplified_intervals_start[chrom][inti]
+                        + (w - int_[0]) * 100.0 / total_len_amp
+                    )
                     rect = Rectangle(
                         (x, 0),
                         window_size * 100.0 / total_len_amp,
@@ -484,7 +549,10 @@ class GraphViz:
                         / window_size
                     )
                     max_cov = max(cov, max_cov)
-                    x = amplified_intervals_start[chrom][inti] + (w - int_[0]) * 100.0 / total_len_amp
+                    x = (
+                        amplified_intervals_start[chrom][inti]
+                        + (w - int_[0]) * 100.0 / total_len_amp
+                    )
                     rect = Rectangle(
                         (x, 0),
                         window_size * 100.0 / total_len_amp,
@@ -506,7 +574,10 @@ class GraphViz:
                         if chrom != self.plot_bounds[0]:
                             continue  # Skip if chromosome doesn't match plot bounds
 
-                        if not (int_[1] >= self.plot_bounds[1] and int_[0] <= self.plot_bounds[2]):
+                        if not (
+                            int_[1] >= self.plot_bounds[1]
+                            and int_[0] <= self.plot_bounds[2]
+                        ):
                             continue  # Skip if interval doesn't overlap with plot bounds
 
                     rel_genes = [x.data for x in self.genes[chrom][int_[0] : int_[1]]]
@@ -522,8 +593,14 @@ class GraphViz:
                         #     cut_gs = max(self.plot_bounds[1], cut_gs)
                         #     cut_ge = min(self.plot_bounds[2], cut_ge)
 
-                        gene_start = amplified_intervals_start[chrom][inti] + (cut_gs - int_[0]) * 100.0 / total_len_amp
-                        gene_end = amplified_intervals_start[chrom][inti] + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                        gene_start = (
+                            amplified_intervals_start[chrom][inti]
+                            + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                        )
+                        gene_end = (
+                            amplified_intervals_start[chrom][inti]
+                            + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                        )
                         ax3.hlines(
                             height,
                             gene_start,
@@ -532,13 +609,22 @@ class GraphViz:
                             lw=4.5,
                         )  # Draw horizontal bars for genes
                         if self.plot_bounds:
-                            if cut_ge < self.plot_bounds[1] or cut_gs > self.plot_bounds[2]:
+                            if (
+                                cut_ge < self.plot_bounds[1]
+                                or cut_gs > self.plot_bounds[2]
+                            ):
                                 continue
 
                             cut_gs = max(self.plot_bounds[1], cut_gs)
                             cut_ge = min(self.plot_bounds[2], cut_ge)
-                            gene_start = amplified_intervals_start[chrom][inti] + (cut_gs - int_[0]) * 100.0 / total_len_amp
-                            gene_end = amplified_intervals_start[chrom][inti] + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                            gene_start = (
+                                amplified_intervals_start[chrom][inti]
+                                + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                            )
+                            gene_end = (
+                                amplified_intervals_start[chrom][inti]
+                                + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                            )
 
                         ax3.text(
                             (gene_start + gene_end) / 2,
@@ -551,9 +637,21 @@ class GraphViz:
                         )
 
                         if gene_obj.strand == "+":
-                            ax3.plot(gene_start, height, marker=">", color="black", markersize=7)
+                            ax3.plot(
+                                gene_start,
+                                height,
+                                marker=">",
+                                color="black",
+                                markersize=7,
+                            )
                         elif gene_obj.strand == "-":
-                            ax3.plot(gene_end, height, marker="<", color="black", markersize=7)
+                            ax3.plot(
+                                gene_end,
+                                height,
+                                marker="<",
+                                color="black",
+                                markersize=7,
+                            )
 
                         for exon_start, exon_end in gene_obj.eposns:  # plot exon bars
                             if not exon_end > int_[0] or not exon_start < int_[1]:
@@ -565,35 +663,57 @@ class GraphViz:
                             #     cut_es = max(self.plot_bounds[1], cut_es)
                             #     cut_ee = min(self.plot_bounds[2], cut_ee)
                             #
-                            exon_start_pos = amplified_intervals_start[chrom][inti] + (cut_es - int_[0]) * 100.0 / total_len_amp
-                            exon_end_pos = amplified_intervals_start[chrom][inti] + (cut_ee - int_[0]) * 100.0 / total_len_amp
+                            exon_start_pos = (
+                                amplified_intervals_start[chrom][inti]
+                                + (cut_es - int_[0]) * 100.0 / total_len_amp
+                            )
+                            exon_end_pos = (
+                                amplified_intervals_start[chrom][inti]
+                                + (cut_ee - int_[0]) * 100.0 / total_len_amp
+                            )
 
-                            exon_min_width = 0.2 * zoom_factor  # Adjust the minimum width as needed
+                            exon_min_width = (
+                                0.2 * zoom_factor
+                            )  # Adjust the minimum width as needed
                             exon_width = exon_end_pos - exon_start_pos
                             if exon_width < exon_min_width:
                                 diff = (exon_min_width - exon_width) / 2
                                 exon_start_pos -= diff
                                 exon_end_pos += diff
 
-                            ax3.hlines(height, exon_start_pos, exon_end_pos, color="black", lw=7.5)
+                            ax3.hlines(
+                                height,
+                                exon_start_pos,
+                                exon_end_pos,
+                                color="black",
+                                lw=7.5,
+                            )
 
         # Ticks and labels
         xtickpos = []
         xticklabels = []
         if not self.plot_bounds:
-            ax.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
-            ax2.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
-            ax3.set_xlim(0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals)
+            ax.set_xlim(
+                0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals
+            )
+            ax2.set_xlim(
+                0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals
+            )
+            ax3.set_xlim(
+                0, 100 + (self.num_amplified_intervals + 1) * margin_between_intervals
+            )
             for chrom in sorted_chrs:
                 nint_chr = len(self.intervals_from_graph[chrom])
                 for inti in range(len(amplified_intervals_start[chrom])):
                     if inti > 0:
                         xtickpos.append(
-                            amplified_intervals_start[chrom][inti] - margin_between_intervals,
+                            amplified_intervals_start[chrom][inti]
+                            - margin_between_intervals,
                         )
                         if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2 + 1:
                             xtickpos.append(
-                                amplified_intervals_start[chrom][inti] - margin_between_intervals * 0.5,
+                                amplified_intervals_start[chrom][inti]
+                                - margin_between_intervals * 0.5,
                             )
                         xtickpos.append(amplified_intervals_start[chrom][inti])
                         if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
@@ -608,19 +728,33 @@ class GraphViz:
                     else:
                         if chrom != sorted_chrs[0]:
                             xtickpos.append(
-                                amplified_intervals_start[chrom][0] - margin_between_intervals,
+                                amplified_intervals_start[chrom][0]
+                                - margin_between_intervals,
                             )
                         xtickpos.append(amplified_intervals_start[chrom][0])
                         if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                             chri = sorted_chrs.index(chrom)
                             if chri == len(sorted_chrs) - 1:
-                                amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
+                                amplified_intervals_end = (
+                                    100
+                                    + self.num_amplified_intervals
+                                    * margin_between_intervals
+                                )
                             else:
-                                amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
+                                amplified_intervals_end = (
+                                    amplified_intervals_start[sorted_chrs[chri + 1]][0]
+                                    - margin_between_intervals
+                                )
                             xtickpos.append(
-                                (amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5,
+                                (
+                                    amplified_intervals_start[chrom][inti]
+                                    + amplified_intervals_end
+                                )
+                                * 0.5,
                             )
-            xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
+            xtickpos.append(
+                100 + self.num_amplified_intervals * margin_between_intervals
+            )
             for chrom in sorted_chrs:
                 nint_chr = len(self.intervals_from_graph[chrom])
                 for inti in range(nint_chr):
@@ -662,8 +796,14 @@ class GraphViz:
                 )
 
             else:
-                plot_start = amplified_intervals_start[pchrom][relint] + (pstart - rint_[0]) * 100.0 / total_len_amp
-                plot_end = amplified_intervals_start[pchrom][relint] + (pend - rint_[0]) * 100.0 / total_len_amp
+                plot_start = (
+                    amplified_intervals_start[pchrom][relint]
+                    + (pstart - rint_[0]) * 100.0 / total_len_amp
+                )
+                plot_end = (
+                    amplified_intervals_start[pchrom][relint]
+                    + (pend - rint_[0]) * 100.0 / total_len_amp
+                )
                 xtickpos.append(plot_start)
                 xtickpos.append(plot_end)
                 xticklabels.append(pchrom + ":" + str(pstart))
@@ -703,11 +843,17 @@ class GraphViz:
         width = max(15, 2 * self.num_amplified_intervals)
         cycles_to_plot = [cycle_id for cycle_id in self.cycles.keys()]
         if num_cycles > 0:
-            cycles_to_plot = [cycle_id for cycle_id in cycles_to_plot if int(cycle_id) <= num_cycles]
+            cycles_to_plot = [
+                cycle_id for cycle_id in cycles_to_plot if int(cycle_id) <= num_cycles
+            ]
         if cycle_only:
-            cycles_to_plot = [cycle_id for cycle_id in cycles_to_plot if self.cycle_flags[cycle_id][0]]
+            cycles_to_plot = [
+                cycle_id for cycle_id in cycles_to_plot if self.cycle_flags[cycle_id][0]
+            ]
         cycles_to_plot = sorted(cycles_to_plot)
-        height = sum([2 * len(self.cycles[cycle_id]) - 1 for cycle_id in cycles_to_plot]) + 6 * (len(cycles_to_plot) - 1)
+        height = sum(
+            [2 * len(self.cycles[cycle_id]) - 1 for cycle_id in cycles_to_plot]
+        ) + 6 * (len(cycles_to_plot) - 1)
         fig = plt.figure(figsize=(width, max(4, height * 0.25)))
         if not hide_genes:
             vrat = 50 / height
@@ -730,7 +876,9 @@ class GraphViz:
                 [int_[1] - int_[0] + 1 for int_ in self.intervals_from_cycle[chrom]],
             )
         # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
-        sorted_chrs = breakpoint_utilities.sort_chrom_names(self.intervals_from_cycle.keys())
+        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+            self.intervals_from_cycle.keys()
+        )
         amplified_intervals_start = dict()
         x = margin_between_intervals
         for chrom in sorted_chrs:
@@ -746,18 +894,21 @@ class GraphViz:
         for chrom in amplified_intervals_start:
             if chrom != sorted_chrs[0]:
                 ax.axvline(
-                    x=amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5,
+                    x=amplified_intervals_start[chrom][0]
+                    - margin_between_intervals * 0.5,
                     linestyle="--",
                     lw=2,
                 )
                 ax3.axvline(
-                    x=amplified_intervals_start[chrom][0] - margin_between_intervals * 0.5,
+                    x=amplified_intervals_start[chrom][0]
+                    - margin_between_intervals * 0.5,
                     linestyle="--",
                     lw=2,
                 )
             for i in range(1, len(amplified_intervals_start[chrom])):
                 ax.axvline(
-                    x=amplified_intervals_start[chrom][i] - margin_between_intervals * 0.5,
+                    x=amplified_intervals_start[chrom][i]
+                    - margin_between_intervals * 0.5,
                     linestyle=":",
                     lw=2,
                 )
@@ -779,7 +930,9 @@ class GraphViz:
                     interval_idx += 1
                 x1 = (
                     amplified_intervals_start[seg[0]][interval_idx]
-                    + (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                    + (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0])
+                    * 100.0
+                    / total_len_amp
                 )
                 cycle_min_x = min(x1, cycle_min_x)
                 xlen = (seg[2] - seg[1]) * 100.0 / total_len_amp
@@ -798,12 +951,21 @@ class GraphViz:
                 if i < len(self.cycles[cycle_id]) - 1:
                     nseg = self.cycles[cycle_id][i + 1]
                     interval_idx_n = 0
-                    while nseg[1] > self.intervals_from_cycle[nseg[0]][interval_idx_n][1]:
+                    while (
+                        nseg[1] > self.intervals_from_cycle[nseg[0]][interval_idx_n][1]
+                    ):
                         interval_idx_n += 1
                     if seg[3] == "+" and nseg[3] == "-":
                         x2 = x1 + xlen
                         x2n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x2n += (nseg[2] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x2n += (
+                            (
+                                nseg[2]
+                                - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]
+                            )
+                            * 100.0
+                            / total_len_amp
+                        )
                         ax.vlines(
                             x=max(x2, x2n) + extension,
                             ymin=y_cur + 0.5,
@@ -828,7 +990,14 @@ class GraphViz:
                         y_cur -= 2
                     elif seg[3] == "-" and nseg[3] == "+":
                         x1n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x1n += (nseg[1] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x1n += (
+                            (
+                                nseg[1]
+                                - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]
+                            )
+                            * 100.0
+                            / total_len_amp
+                        )
                         ax.vlines(
                             x=min(x1, x1n) - extension,
                             ymin=y_cur + 0.5,
@@ -854,9 +1023,18 @@ class GraphViz:
                     elif seg[3] == "+" and nseg[3] == "+":
                         x2 = x1 + xlen
                         x1n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x1n += (nseg[1] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x1n += (
+                            (
+                                nseg[1]
+                                - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]
+                            )
+                            * 100.0
+                            / total_len_amp
+                        )
                         if x2 <= x1n:
-                            ax.hlines(y=y_cur + 0.5, xmin=x2, xmax=x1n, colors="b", lw=2)
+                            ax.hlines(
+                                y=y_cur + 0.5, xmin=x2, xmax=x1n, colors="b", lw=2
+                            )
                         else:
                             ax.vlines(
                                 x=x2 + extension,
@@ -872,7 +1050,13 @@ class GraphViz:
                                 colors="b",
                                 lw=2,
                             )
-                            ax.hlines(y=y_cur + 0.5, xmin=x2, xmax=x2 + extension, colors="b", lw=2)
+                            ax.hlines(
+                                y=y_cur + 0.5,
+                                xmin=x2,
+                                xmax=x2 + extension,
+                                colors="b",
+                                lw=2,
+                            )
                             ax.hlines(
                                 y=y_cur - 0.5,
                                 xmin=x1n - extension,
@@ -890,9 +1074,18 @@ class GraphViz:
                             y_cur -= 2
                     else:  # seg[3] == '-' and nseg[3] == '-'
                         x2n = amplified_intervals_start[nseg[0]][interval_idx_n]
-                        x2n += (nseg[2] - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]) * 100.0 / total_len_amp
+                        x2n += (
+                            (
+                                nseg[2]
+                                - self.intervals_from_cycle[nseg[0]][interval_idx_n][0]
+                            )
+                            * 100.0
+                            / total_len_amp
+                        )
                         if x1 >= x2n:
-                            ax.hlines(y=y_cur + 0.5, xmin=x2n, xmax=x1, colors="b", lw=2)
+                            ax.hlines(
+                                y=y_cur + 0.5, xmin=x2n, xmax=x1, colors="b", lw=2
+                            )
                         else:
                             ax.vlines(
                                 x=x1 - extension,
@@ -908,7 +1101,13 @@ class GraphViz:
                                 colors="b",
                                 lw=2,
                             )
-                            ax.hlines(y=y_cur + 0.5, xmin=x1 - extension, xmax=x1, colors="b", lw=2)
+                            ax.hlines(
+                                y=y_cur + 0.5,
+                                xmin=x1 - extension,
+                                xmax=x1,
+                                colors="b",
+                                lw=2,
+                            )
                             ax.hlines(
                                 y=y_cur - 0.5,
                                 xmin=x1 - extension,
@@ -934,7 +1133,9 @@ class GraphViz:
                 if seg[3] == "+":
                     x1 = (
                         amplified_intervals_start[seg[0]][interval_idx]
-                        + (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                        + (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0])
+                        * 100.0
+                        / total_len_amp
                     )
                     ax.hlines(
                         y=ystart_cycle_id + 0.5,
@@ -946,7 +1147,9 @@ class GraphViz:
                 else:
                     x2 = (
                         amplified_intervals_start[seg[0]][interval_idx]
-                        + (seg[2] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
+                        + (seg[2] - self.intervals_from_cycle[seg[0]][interval_idx][0])
+                        * 100.0
+                        / total_len_amp
                     )
                     ax.hlines(
                         y=ystart_cycle_id + 0.5,
@@ -961,12 +1164,32 @@ class GraphViz:
                     interval_idx += 1
                 if seg[3] == "+":
                     x2 = amplified_intervals_start[seg[0]][interval_idx]
-                    x2 += (seg[2] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
-                    ax.hlines(y=y_cur + 0.5, xmin=x2, xmax=x2 + 2 * extension, colors="b", lw=2)
+                    x2 += (
+                        (seg[2] - self.intervals_from_cycle[seg[0]][interval_idx][0])
+                        * 100.0
+                        / total_len_amp
+                    )
+                    ax.hlines(
+                        y=y_cur + 0.5,
+                        xmin=x2,
+                        xmax=x2 + 2 * extension,
+                        colors="b",
+                        lw=2,
+                    )
                 else:
                     x1 = amplified_intervals_start[seg[0]][interval_idx]
-                    x1 += (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0]) * 100.0 / total_len_amp
-                    ax.hlines(y=y_cur + 0.5, xmin=x1 - 2 * extension, xmax=x1, colors="b", lw=2)
+                    x1 += (
+                        (seg[1] - self.intervals_from_cycle[seg[0]][interval_idx][0])
+                        * 100.0
+                        / total_len_amp
+                    )
+                    ax.hlines(
+                        y=y_cur + 0.5,
+                        xmin=x1 - 2 * extension,
+                        xmax=x1,
+                        colors="b",
+                        lw=2,
+                    )
             else:  # Cycles
                 # xmin_ = 0.5
                 xmin_ = cycle_min_x - extension
@@ -987,9 +1210,17 @@ class GraphViz:
                     interval_idx2 += 1
                 if seg1[3] == "-" and seg2[3] == "+":
                     x2 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x2 += (seg1[2] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x2 += (
+                        (seg1[2] - self.intervals_from_cycle[seg1[0]][interval_idx1][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     x2n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x2n += (seg2[2] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x2n += (
+                        (seg2[2] - self.intervals_from_cycle[seg2[0]][interval_idx2][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     ax.vlines(
                         x=xmax_,
                         ymin=y_cur + 0.5,
@@ -997,13 +1228,23 @@ class GraphViz:
                         colors="b",
                         lw=2,
                     )
-                    ax.hlines(y=ystart_cycle_id + 0.5, xmin=x2, xmax=xmax_, colors="b", lw=2)
+                    ax.hlines(
+                        y=ystart_cycle_id + 0.5, xmin=x2, xmax=xmax_, colors="b", lw=2
+                    )
                     ax.hlines(y=y_cur + 0.5, xmin=x2n, xmax=xmax_, colors="b", lw=2)
                 elif seg1[3] == "+" and seg2[3] == "-":
                     x1 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x1 += (seg1[1] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x1 += (
+                        (seg1[1] - self.intervals_from_cycle[seg1[0]][interval_idx1][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     x1n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x1n += (seg2[1] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x1n += (
+                        (seg2[1] - self.intervals_from_cycle[seg2[0]][interval_idx2][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     ax.vlines(
                         x=xmin_,
                         ymin=y_cur + 0.5,
@@ -1011,13 +1252,23 @@ class GraphViz:
                         colors="b",
                         lw=2,
                     )
-                    ax.hlines(y=ystart_cycle_id + 0.5, xmin=xmin_, xmax=x1, colors="b", lw=2)
+                    ax.hlines(
+                        y=ystart_cycle_id + 0.5, xmin=xmin_, xmax=x1, colors="b", lw=2
+                    )
                     ax.hlines(y=y_cur + 0.5, xmin=xmin_, xmax=x1n, colors="b", lw=2)
                 elif seg1[3] == "-" and seg2[3] == "-":
                     x2 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x2 += (seg1[2] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x2 += (
+                        (seg1[2] - self.intervals_from_cycle[seg1[0]][interval_idx1][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     x1n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x1n += (seg2[1] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x1n += (
+                        (seg2[1] - self.intervals_from_cycle[seg2[0]][interval_idx2][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     ax.vlines(
                         x=xmax_,
                         ymin=y_cur - 0.5,
@@ -1032,14 +1283,32 @@ class GraphViz:
                         colors="b",
                         lw=2,
                     )
-                    ax.hlines(y=ystart_cycle_id + 0.5, xmin=x2, xmax=xmax_, colors="b", lw=2)
-                    ax.hlines(y=y_cur + 0.5, xmin=x1n - extension, xmax=x1n, colors="b", lw=2)
-                    ax.hlines(y=y_cur - 0.5, xmin=x1n - extension, xmax=xmax_, colors="b", lw=2)
+                    ax.hlines(
+                        y=ystart_cycle_id + 0.5, xmin=x2, xmax=xmax_, colors="b", lw=2
+                    )
+                    ax.hlines(
+                        y=y_cur + 0.5, xmin=x1n - extension, xmax=x1n, colors="b", lw=2
+                    )
+                    ax.hlines(
+                        y=y_cur - 0.5,
+                        xmin=x1n - extension,
+                        xmax=xmax_,
+                        colors="b",
+                        lw=2,
+                    )
                 else:
                     x1 = amplified_intervals_start[seg1[0]][interval_idx1]
-                    x1 += (seg1[1] - self.intervals_from_cycle[seg1[0]][interval_idx1][0]) * 100.0 / total_len_amp
+                    x1 += (
+                        (seg1[1] - self.intervals_from_cycle[seg1[0]][interval_idx1][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     x2n = amplified_intervals_start[seg2[0]][interval_idx2]
-                    x2n += (seg2[2] - self.intervals_from_cycle[seg2[0]][interval_idx2][0]) * 100.0 / total_len_amp
+                    x2n += (
+                        (seg2[2] - self.intervals_from_cycle[seg2[0]][interval_idx2][0])
+                        * 100.0
+                        / total_len_amp
+                    )
                     ax.vlines(
                         x=xmin_,
                         ymin=y_cur - 0.5,
@@ -1054,25 +1323,42 @@ class GraphViz:
                         colors="b",
                         lw=2,
                     )
-                    ax.hlines(y=ystart_cycle_id + 0.5, xmin=xmin_, xmax=x1, colors="b", lw=2)
-                    ax.hlines(y=y_cur + 0.5, xmin=x2n, xmax=x2n + extension, colors="b", lw=2)
-                    ax.hlines(y=y_cur - 0.5, xmin=xmin_, xmax=x2n + extension, colors="b", lw=2)
+                    ax.hlines(
+                        y=ystart_cycle_id + 0.5, xmin=xmin_, xmax=x1, colors="b", lw=2
+                    )
+                    ax.hlines(
+                        y=y_cur + 0.5, xmin=x2n, xmax=x2n + extension, colors="b", lw=2
+                    )
+                    ax.hlines(
+                        y=y_cur - 0.5,
+                        xmin=xmin_,
+                        xmax=x2n + extension,
+                        colors="b",
+                        lw=2,
+                    )
 
             # Separators between cycles; ticks
             ax.hlines(
                 y=y_cur - 2,
                 xmin=-1,
-                xmax=101 + (self.num_amplified_intervals + 1) * margin_between_intervals,
+                xmax=101
+                + (self.num_amplified_intervals + 1) * margin_between_intervals,
                 colors="k",
             )
             cycleticks.append((y_cur + ystart_cycle_id) * 0.5)
             if self.cycle_flags[cycle_id][0]:
                 cycleticklabels.append(
-                    "cycle " + cycle_id + ":\nCN = " + str(round(self.cycle_flags[cycle_id][1], 2)),
+                    "cycle "
+                    + cycle_id
+                    + ":\nCN = "
+                    + str(round(self.cycle_flags[cycle_id][1], 2)),
                 )
             else:
                 cycleticklabels.append(
-                    "path " + cycle_id + ":\nCN = " + str(round(self.cycle_flags[cycle_id][1], 2)),
+                    "path "
+                    + cycle_id
+                    + ":\nCN = "
+                    + str(round(self.cycle_flags[cycle_id][1], 2)),
                 )
             y_cur -= 4
 
@@ -1089,8 +1375,14 @@ class GraphViz:
                         # print(gene_obj)
                         cut_gs = max(int_[0], gene_obj.gstart)
                         cut_ge = min(int_[1], gene_obj.gend)
-                        gene_start = amplified_intervals_start[chrom][inti] + (cut_gs - int_[0]) * 100.0 / total_len_amp
-                        gene_end = amplified_intervals_start[chrom][inti] + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                        gene_start = (
+                            amplified_intervals_start[chrom][inti]
+                            + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                        )
+                        gene_end = (
+                            amplified_intervals_start[chrom][inti]
+                            + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                        )
                         ax3.hlines(
                             height,
                             gene_start,
@@ -1110,9 +1402,21 @@ class GraphViz:
                         )
 
                         if gene_obj.strand == "+":
-                            ax3.plot(gene_start, height, marker=">", color="black", markersize=7)
+                            ax3.plot(
+                                gene_start,
+                                height,
+                                marker=">",
+                                color="black",
+                                markersize=7,
+                            )
                         elif gene_obj.strand == "-":
-                            ax3.plot(gene_end, height, marker="<", color="black", markersize=7)
+                            ax3.plot(
+                                gene_end,
+                                height,
+                                marker="<",
+                                color="black",
+                                markersize=7,
+                            )
 
                         for exon_start, exon_end in gene_obj.eposns:  # plot exon bars
                             if not exon_end > int_[0] or not exon_start < int_[1]:
@@ -1120,8 +1424,14 @@ class GraphViz:
 
                             cut_es = max(int_[0], exon_start)
                             cut_ee = min(int_[1], exon_end)
-                            exon_start_pos = amplified_intervals_start[chrom][inti] + (cut_es - int_[0]) * 100.0 / total_len_amp
-                            exon_end_pos = amplified_intervals_start[chrom][inti] + (cut_ee - int_[0]) * 100.0 / total_len_amp
+                            exon_start_pos = (
+                                amplified_intervals_start[chrom][inti]
+                                + (cut_es - int_[0]) * 100.0 / total_len_amp
+                            )
+                            exon_end_pos = (
+                                amplified_intervals_start[chrom][inti]
+                                + (cut_ee - int_[0]) * 100.0 / total_len_amp
+                            )
 
                             exon_min_width = 0.2  # Adjust the minimum width as needed
                             exon_width = exon_end_pos - exon_start_pos
@@ -1130,10 +1440,18 @@ class GraphViz:
                                 exon_start_pos -= diff
                                 exon_end_pos += diff
 
-                            ax3.hlines(height, exon_start_pos, exon_end_pos, color="black", lw=7.5)
+                            ax3.hlines(
+                                height,
+                                exon_start_pos,
+                                exon_end_pos,
+                                color="black",
+                                lw=7.5,
+                            )
 
         # Ticks an labels
-        ax.set_xlim(-1, 101 + (self.num_amplified_intervals + 1) * margin_between_intervals)
+        ax.set_xlim(
+            -1, 101 + (self.num_amplified_intervals + 1) * margin_between_intervals
+        )
         ax.set_ylim(y_cur + 2, 0)
         xtickpos = []
         for chrom in sorted_chrs:
@@ -1141,32 +1459,50 @@ class GraphViz:
             for inti in range(len(amplified_intervals_start[chrom])):
                 if inti > 0:
                     xtickpos.append(
-                        amplified_intervals_start[chrom][inti] - margin_between_intervals,
+                        amplified_intervals_start[chrom][inti]
+                        - margin_between_intervals,
                     )
                     if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2 + 1:
                         xtickpos.append(
-                            amplified_intervals_start[chrom][inti] - margin_between_intervals * 0.5,
+                            amplified_intervals_start[chrom][inti]
+                            - margin_between_intervals * 0.5,
                         )
                     xtickpos.append(amplified_intervals_start[chrom][inti])
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                         xtickpos.append(
-                            (amplified_intervals_start[chrom][inti] + amplified_intervals_start[chrom][inti + 1] - margin_between_intervals)
+                            (
+                                amplified_intervals_start[chrom][inti]
+                                + amplified_intervals_start[chrom][inti + 1]
+                                - margin_between_intervals
+                            )
                             * 0.5,
                         )
                 else:
                     if chrom != sorted_chrs[0]:
                         xtickpos.append(
-                            amplified_intervals_start[chrom][0] - margin_between_intervals,
+                            amplified_intervals_start[chrom][0]
+                            - margin_between_intervals,
                         )
                     xtickpos.append(amplified_intervals_start[chrom][0])
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                         chri = sorted_chrs.index(chrom)
                         if chri == len(sorted_chrs) - 1:
-                            amplified_intervals_end = 100 + self.num_amplified_intervals * margin_between_intervals
+                            amplified_intervals_end = (
+                                100
+                                + self.num_amplified_intervals
+                                * margin_between_intervals
+                            )
                         else:
-                            amplified_intervals_end = amplified_intervals_start[sorted_chrs[chri + 1]][0] - margin_between_intervals
+                            amplified_intervals_end = (
+                                amplified_intervals_start[sorted_chrs[chri + 1]][0]
+                                - margin_between_intervals
+                            )
                         xtickpos.append(
-                            (amplified_intervals_start[chrom][inti] + amplified_intervals_end) * 0.5,
+                            (
+                                amplified_intervals_start[chrom][inti]
+                                + amplified_intervals_end
+                            )
+                            * 0.5,
                         )
         xtickpos.append(100 + self.num_amplified_intervals * margin_between_intervals)
         xticklabels = []

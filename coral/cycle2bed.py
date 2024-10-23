@@ -8,7 +8,12 @@ import typer
 from coral.constants import CHR_TAG_TO_IDX, INVERT_STRAND_DIRECTION
 
 
-def convert_cycles_to_bed(cycle_file: typer.FileText, output_fn: str, rotate_to_min: bool = False, num_cycles: int | None = None):
+def convert_cycles_to_bed(
+    cycle_file: typer.FileText,
+    output_fn: str,
+    rotate_to_min: bool = False,
+    num_cycles: int | None = None,
+):
     all_segs: dict[str, list[str | int]] = dict()
     cycles: dict[int, list[Any]] = dict()
     for line in cycle_file:
@@ -53,12 +58,18 @@ def convert_cycles_to_bed(cycle_file: typer.FileText, output_fn: str, rotate_to_
                     else:
                         cycle.append(all_segs[segi] + [segdir])
             if (
-                cycle[-1][-1] == "+" and cycle[0][-1] == "+" and cycle[-1][0] == cycle[0][0] and cycle[-1][2] + 1 == cycle[0][1]  # type: ignore[operator]
+                cycle[-1][-1] == "+"
+                and cycle[0][-1] == "+"
+                and cycle[-1][0] == cycle[0][0]
+                and cycle[-1][2] + 1 == cycle[0][1]  # type: ignore[operator]
             ):
                 cycle[0][1] = cycle[-1][1]
                 del cycle[-1]
             if (
-                cycle[-1][-1] == "-" and cycle[0][-1] == "+" and cycle[-1][0] == cycle[0][0] and cycle[-1][1] - 1 == cycle[0][2]  # type: ignore[operator]
+                cycle[-1][-1] == "-"
+                and cycle[0][-1] == "+"
+                and cycle[-1][0] == cycle[0][0]
+                and cycle[-1][1] - 1 == cycle[0][2]  # type: ignore[operator]
             ):
                 cycle[0][2] = cycle[-1][2]
                 del cycle[-1]
@@ -70,11 +81,15 @@ def convert_cycles_to_bed(cycle_file: typer.FileText, output_fn: str, rotate_to_
                     if cycle[argmin_idx][-1] == "+":
                         cycle = cycle[argmin_idx:] + cycle[:argmin_idx]
                     else:
-                        cycle = cycle[: argmin_idx + 1][::-1] + cycle[argmin_idx + 1 :][::-1]
+                        cycle = (
+                            cycle[: argmin_idx + 1][::-1]
+                            + cycle[argmin_idx + 1 :][::-1]
+                        )
                         for idx in range(len(cycle)):
                             cycle[idx][-1] = INVERT_STRAND_DIRECTION(cycle[idx][-1])  # type: ignore[operator]
                 elif CHR_TAG_TO_IDX[cycle[-1][0]] < CHR_TAG_TO_IDX[cycle[0][0]] or (  # type: ignore[index]
-                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]] and cycle[-1][1] < cycle[-1][1]  # type: ignore[index, operator]
+                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]]
+                    and cycle[-1][1] < cycle[-1][1]  # type: ignore[index, operator]
                 ):
                     cycle = cycle[::-1]
                     if cycle[0][-1] == "-":
@@ -93,4 +108,6 @@ def convert_cycles_to_bed(cycle_file: typer.FileText, output_fn: str, rotate_to_
 
         for i in range(1, num_cycles + 1):
             for seg in cycles[i][2]:
-                fp.write(f"{seg[0]}\t{seg[1]}\t{seg[2]}\t{seg[3]}\t{i}\t{cycles[i][0]}\t{cycles[i][1]}\n")
+                fp.write(
+                    f"{seg[0]}\t{seg[1]}\t{seg[2]}\t{seg[3]}\t{i}\t{cycles[i][0]}\t{cycles[i][1]}\n"
+                )

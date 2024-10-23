@@ -5,38 +5,69 @@ import pathlib
 import pickle
 from typing import Annotated
 
+import pysam
 import typer
 
 from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
 from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
-import pysam
 from coral.datatypes import ReferenceGenome, Solver
 
-coral_app = typer.Typer(help="Long-read amplicon reconstruction pipeline and associated utilities.")
+coral_app = typer.Typer(
+    help="Long-read amplicon reconstruction pipeline and associated utilities."
+)
 
 
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     cns_filename = cns_file.name
     if cns_filename.endswith(".bed") or cns_filename.endswith(".cns"):
         return cns_file
-    raise typer.BadParameter("Invalid cn-seg file format! (Only .bed and .cns formats are supported.)")
+    raise typer.BadParameter(
+        "Invalid cn-seg file format! (Only .bed and .cns formats are supported.)"
+    )
 
 
 # Note: typer.Arguments are required, typer.Options are optional
-BamArg = Annotated[pathlib.Path, typer.Option(help="Sorted indexed (long read) bam file.")]
-CnvSeedArg = Annotated[typer.FileText, typer.Option(help="Bed file of CNV seed intervals.")]
+BamArg = Annotated[
+    pathlib.Path, typer.Option(help="Sorted indexed (long read) bam file.")
+]
+CnvSeedArg = Annotated[
+    typer.FileText, typer.Option(help="Bed file of CNV seed intervals.")
+]
 CnSegArg = Annotated[
     typer.FileText,
-    typer.Option(help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).", callback=validate_cns_file),
+    typer.Option(
+        help="Long read segmented whole genome CN calls (.bed or CNVkit .cns file).",
+        callback=validate_cns_file,
+    ),
 ]
 OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
-OutputPCFlag = Annotated[bool, typer.Option(help="If specified, output all path constraints in *.cycles file.")]
-PostProcessFlag = Annotated[bool, typer.Option(help="Postprocess the cycles/paths returned in greedy cycle extraction.")]
+OutputPCFlag = Annotated[
+    bool,
+    typer.Option(help="If specified, output all path constraints in *.cycles file."),
+]
+PostProcessFlag = Annotated[
+    bool,
+    typer.Option(
+        help="Postprocess the cycles/paths returned in greedy cycle extraction."
+    ),
+]
 SolverArg = Annotated[Solver, typer.Option(help="LP solver to use.")]
-ThreadsArg = Annotated[int, typer.Option(help="Number of threads reserved for integer program solvers.")]
-TimeLimitArg = Annotated[int, typer.Option(help="Maximum running time (in seconds) reserved for integer program solvers.")]
-AlphaArg = Annotated[float, typer.Option(help="Parameter used to balance CN weight and path constraints in greedy cycle extraction.")]
+ThreadsArg = Annotated[
+    int, typer.Option(help="Number of threads reserved for integer program solvers.")
+]
+TimeLimitArg = Annotated[
+    int,
+    typer.Option(
+        help="Maximum running time (in seconds) reserved for integer program solvers."
+    ),
+]
+AlphaArg = Annotated[
+    float,
+    typer.Option(
+        help="Parameter used to balance CN weight and path constraints in greedy cycle extraction."
+    ),
+]
 
 
 @coral_app.command(help="Filter and merge amplified intervals.")
@@ -44,9 +75,20 @@ def seed(
     ctx: typer.Context,
     cn_seg: CnSegArg,
     output_prefix: OutputPrefixArg,
-    gain: Annotated[float, typer.Option(help="CN gain threshold for interval to be considered as a seed.")] = 6.0,
-    min_seed_size: Annotated[float, typer.Option(help="Minimum size (in bp) for interval to be considered as a seed.")] = 100000,
-    max_seg_gap: Annotated[float, typer.Option(help="Maximum gap size (in bp) to merge two proximal intervals.")] = 300000,
+    gain: Annotated[
+        float,
+        typer.Option(help="CN gain threshold for interval to be considered as a seed."),
+    ] = 6.0,
+    min_seed_size: Annotated[
+        float,
+        typer.Option(
+            help="Minimum size (in bp) for interval to be considered as a seed."
+        ),
+    ] = 100000,
+    max_seg_gap: Annotated[
+        float,
+        typer.Option(help="Maximum gap size (in bp) to merge two proximal intervals."),
+    ] = 300000,
 ) -> None:
     print(f"Performing seeding mode with options: {ctx.params}")
     run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap)
@@ -66,7 +108,9 @@ def reconstruct(
     solver: SolverArg = Solver.GUROBI,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
-    output_bp: Annotated[bool, typer.Option(help="If specified, only output the list of breakpoints.")] = False,
+    output_bp: Annotated[
+        bool, typer.Option(help="If specified, only output the list of breakpoints.")
+    ] = False,
     skip_cycle_decomp: Annotated[
         bool,
         typer.Option(
@@ -75,7 +119,9 @@ def reconstruct(
     ] = False,
     min_bp_support: Annotated[
         float,
-        typer.Option(help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."),
+        typer.Option(
+            help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."
+        ),
     ] = 1.0,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
@@ -116,9 +162,13 @@ def reconstruct(
     print("\nCompleted reconstruction.")
 
 
-@coral_app.command(name="cycle", help="Pass existing breakpoint file directly to LP solver.")
+@coral_app.command(
+    name="cycle", help="Pass existing breakpoint file directly to LP solver."
+)
 def cycle_decomposition_mode(
-    bp_graph: Annotated[typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")],
+    bp_graph: Annotated[
+        typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")
+    ],
     output_prefix: OutputPrefixArg,
     lr_bam: BamArg,
     alpha: AlphaArg = 0.01,
@@ -128,7 +178,10 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
-    bb = infer_breakpoint_graph.BamToBreakpointNanopore(lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),lr_graph=[pickle.load(bp_graph)])  # type: ignore[arg-type]
+    bb = infer_breakpoint_graph.BamToBreakpointNanopore(
+        lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
+        lr_graph=[pickle.load(bp_graph)],
+    )  # type: ignore[arg-type]
     bb.fetch()
     cycle_decomposition.reconstruct_cycles(
         output_prefix,
@@ -142,40 +195,92 @@ def cycle_decomposition_mode(
     )
 
 
-@coral_app.command(name="hsr", help="Detect possible integration points of ecDNA HSR amplifications.")
+@coral_app.command(
+    name="hsr", help="Detect possible integration points of ecDNA HSR amplifications."
+)
 def hsr_mode(
     ctx: typer.Context,
     lr_bam: BamArg,
     cn_seg: CnSegArg,
     output_prefix: OutputPrefixArg,
-    cycles: Annotated[typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")],
+    cycles: Annotated[
+        typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")
+    ],
     normal_cov: Annotated[float, typer.Option(help="Estimated diploid coverage.")],
-    bp_match_cutoff: Annotated[int, typer.Option(help="Breakpoint matching cutoff.")] = 100,
-    bp_match_cutoff_clustering: Annotated[int, typer.Option(help="Crude breakpoint matching cutoff for clustering.")] = 2000,
+    bp_match_cutoff: Annotated[
+        int, typer.Option(help="Breakpoint matching cutoff.")
+    ] = 100,
+    bp_match_cutoff_clustering: Annotated[
+        int, typer.Option(help="Crude breakpoint matching cutoff for clustering.")
+    ] = 2000,
 ) -> None:
     print(f"Performing HSR mode with options: {ctx.params}")
-    hsr.locate_hsrs(lr_bam, cycles, cn_seg, output_prefix, normal_cov, bp_match_cutoff, bp_match_cutoff_clustering)
+    hsr.locate_hsrs(
+        lr_bam,
+        cycles,
+        cn_seg,
+        output_prefix,
+        normal_cov,
+        bp_match_cutoff,
+        bp_match_cutoff_clustering,
+    )
 
 
-@coral_app.command(name="plot", help="Generate plots of amplicon cycles and/or graph from AA-formatted output files")
+@coral_app.command(
+    name="plot",
+    help="Generate plots of amplicon cycles and/or graph from AA-formatted output files",
+)
 def plot_mode(
     ctx: typer.Context,
     ref: Annotated[ReferenceGenome, typer.Option(help="Reference genome.")],
-    graph: Annotated[typer.FileText | None, typer.Option(help="AmpliconSuite-formatted *.graph file.")],
-    cycle_file: Annotated[typer.FileText | None, typer.Option(help="AmpliconSuite-formatted cycles file.")],
+    graph: Annotated[
+        typer.FileText | None,
+        typer.Option(help="AmpliconSuite-formatted *.graph file."),
+    ],
+    cycle_file: Annotated[
+        typer.FileText | None, typer.Option(help="AmpliconSuite-formatted cycles file.")
+    ],
     bam: BamArg,
     output_prefix: OutputPrefixArg,
-    num_cycles: Annotated[int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")],
-    region: Annotated[str | None, typer.Option(help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'.")],
-    plot_graph: Annotated[bool, typer.Option(help="Visualize breakpoint graph.")] = False,
-    plot_cycles: Annotated[bool, typer.Option(help="Visualize (selected) cycles.")] = False,
-    only_cyclic_paths: Annotated[bool, typer.Option(help="Only plot cyclic paths from cycles file.")] = False,
-    max_coverage: Annotated[float, typer.Option(help="Limit the maximum visualized coverage in the graph.")] = float("inf"),
-    min_mapq: Annotated[float, typer.Option(help="Minimum mapping quality to count read in coverage plotting.")] = 0.0,
-    gene_subset_list: Annotated[list[str], typer.Option(help="List of genes to visualize (will show all by default).")] = [],
+    num_cycles: Annotated[
+        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+    ],
+    region: Annotated[
+        str | None,
+        typer.Option(
+            help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
+        ),
+    ],
+    plot_graph: Annotated[
+        bool, typer.Option(help="Visualize breakpoint graph.")
+    ] = False,
+    plot_cycles: Annotated[
+        bool, typer.Option(help="Visualize (selected) cycles.")
+    ] = False,
+    only_cyclic_paths: Annotated[
+        bool, typer.Option(help="Only plot cyclic paths from cycles file.")
+    ] = False,
+    max_coverage: Annotated[
+        float, typer.Option(help="Limit the maximum visualized coverage in the graph.")
+    ] = float("inf"),
+    min_mapq: Annotated[
+        float,
+        typer.Option(
+            help="Minimum mapping quality to count read in coverage plotting."
+        ),
+    ] = 0.0,
+    gene_subset_list: Annotated[
+        list[str],
+        typer.Option(help="List of genes to visualize (will show all by default)."),
+    ] = [],
     hide_genes: Annotated[bool, typer.Option(help="Do not show gene track.")] = False,
-    gene_fontsize: Annotated[float, typer.Option(help="Change size of gene font.")] = 12.0,
-    bushman_genes: Annotated[bool, typer.Option(help="Reduce gene set to the Bushman cancer-related gene set.")] = False,
+    gene_fontsize: Annotated[
+        float, typer.Option(help="Change size of gene font.")
+    ] = 12.0,
+    bushman_genes: Annotated[
+        bool,
+        typer.Option(help="Reduce gene set to the Bushman cancer-related gene set."),
+    ] = False,
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
     plot_amplicons.plot_amplicons(
@@ -198,14 +303,23 @@ def plot_mode(
     )
 
 
-@coral_app.command(name="cycle2bed", help="Convert cycle files in AA format to bed format.")
+@coral_app.command(
+    name="cycle2bed", help="Convert cycle files in AA format to bed format."
+)
 def cycle2bed_mode(
     ctx: typer.Context,
-    cycle_file: Annotated[typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")],
+    cycle_file: Annotated[
+        typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")
+    ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
-    num_cycles: Annotated[int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")],
+    num_cycles: Annotated[
+        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+    ],
     rotate_to_min: Annotated[
-        bool, typer.Option(help="Output cycles starting from the canonically smallest segment with positive strand.")
+        bool,
+        typer.Option(
+            help="Output cycles starting from the canonically smallest segment with positive strand."
+        ),
     ] = False,
 ) -> None:
     print(f"Performing cycle to bed mode with options: {ctx.params}")

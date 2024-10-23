@@ -56,7 +56,9 @@ def fetch(lr_bamfh):
             reads_wo_primary_alignment.append(r)
             continue
         rl = read_length[r]
-        chimeric_alignments[r] = cigar_parsing.alignment_from_satags(chimeric_alignments[r], rl)
+        chimeric_alignments[r] = cigar_parsing.alignment_from_satags(
+            chimeric_alignments[r], rl
+        )
     for r in reads_wo_primary_alignment:
         del chimeric_alignments[r]
     return read_length, chimeric_alignments
@@ -85,7 +87,9 @@ def locate_hsrs(
 
     elif not cycle_filename.endswith(".bed"):
         logger.error(cycle_filename + "\n")
-        logger.error("Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n")
+        logger.error(
+            "Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n"
+        )
         sys.exit(1)
 
     with open(cycle_filename, "r") as fp:
@@ -95,7 +99,9 @@ def locate_hsrs(
 
             s = line.strip().split()
             ecdna_intervals.append([s[0], int(s[1]), int(s[2])])
-            ecdna_intervals_ext.append([s[0], int(s[1]) - bp_match_cutoff, int(s[2]) + bp_match_cutoff])
+            ecdna_intervals_ext.append(
+                [s[0], int(s[1]) - bp_match_cutoff, int(s[2]) + bp_match_cutoff]
+            )
     print("ecDNA intervals:")
     for ival in ecdna_intervals:
         print(ival)
@@ -216,7 +222,9 @@ def locate_hsrs(
                         + [q_[ri - 1], q_[ri + 1]]
                     )
 
-    bp_clusters = cluster_bp_list(bp_list, float(normal_cov) * 0.5, bp_match_cutoff_clustering)
+    bp_clusters = cluster_bp_list(
+        bp_list, float(normal_cov) * 0.5, bp_match_cutoff_clustering
+    )
     bp_refined: list[Any] = []
     bp_stats = []
     for c in bp_clusters:

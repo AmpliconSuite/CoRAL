@@ -1,7 +1,6 @@
 .idea/
 __pycache__/
 tmp/
-poetry.lock
 .dmypy.json
 .vscode/
 configs/
