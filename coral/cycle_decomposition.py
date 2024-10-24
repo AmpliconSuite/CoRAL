@@ -23,7 +23,7 @@ import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 from coral import constants, datatypes, models
 from coral.breakpoint import infer_breakpoint_graph
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.models import output, utils
 from coral.models.concrete import CycleLPModel

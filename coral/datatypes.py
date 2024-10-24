@@ -7,7 +7,7 @@ import pyomo.core
 import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.graph import BreakpointGraph
 
 
 @dataclass

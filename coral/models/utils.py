@@ -5,7 +5,9 @@ import math
 import os
 import random
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, NamedTuple, Optional
+
+import pysam
 
 import pyomo
 import pyomo.contrib.appsi
@@ -18,7 +20,7 @@ import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 from coral import datatypes
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.graph import BreakpointGraph
 from coral.datatypes import EdgeToCN, ParsedLPSolution
 
 logger = logging.getLogger(__name__)

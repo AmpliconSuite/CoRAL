@@ -1,4 +1,6 @@
-from typing import Any, List
+from typing import Any, List, Literal, NamedTuple
 
 AmpliconInterval = List[Any]  # tuple[str, int, int, int]
-CnsInterval = Any  # tuple[str, int, int]
+
+
+Strand = Literal["+", "-"]

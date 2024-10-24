@@ -5,15 +5,13 @@ import pyomo.core
 import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.graph import BreakpointGraph
 from coral.datatypes import EdgeToCN
 
 logger = logging.getLogger(__name__)
 
 
-def get_total_weight_constraint(
-    model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph, weight_threshold: float
-) -> pyo.Constraint:
+def get_total_weight_constraint(model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph, weight_threshold: float) -> pyo.Constraint:
     total_weight_expr = 0.0
     for i in range(k):
         for seqi in range(bp_graph.num_seq_edges):
@@ -44,9 +42,7 @@ def get_eulerian_node_constraints(model: pyo.ConcreteModel, k: int, bp_graph: Br
         if node in endnode_list:
             for i in range(k):
                 edge_idx = bp_graph.num_nonsrc_edges + 2 * bp_graph.num_src_edges + 2 * endnode_list.index(node)
-                eulerian_node_constraints.append(
-                    model.x[edge_idx, i] + model.x[edge_idx + 1, i] == model.x[bp_graph.nodes[node][0][0], i]
-                )
+                eulerian_node_constraints.append(model.x[edge_idx, i] + model.x[edge_idx + 1, i] == model.x[bp_graph.nodes[node][0][0], i])
         else:
             for i in range(k):
                 ec_expr = 0.0
@@ -64,9 +60,7 @@ def get_eulerian_node_constraints(model: pyo.ConcreteModel, k: int, bp_graph: Br
 
 
 # Same base/post/greedy
-def get_spanning_tree_constraints(
-    model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph, node_order
-) -> List[pyo.Constraint]:
+def get_spanning_tree_constraints(model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph, node_order) -> List[pyo.Constraint]:
     constraints = []
     endnode_list = list(bp_graph.endnodes.keys())
     for i in range(k):
@@ -112,9 +106,7 @@ def get_spanning_tree_constraints(
             idx_offset = bp_graph.num_nonsrc_edges + 2 * srci
             t_expr_x += model.x[idx_offset + 1, i]
             t_expr_y += model.y1[idx_offset + 1, i]
-            t_expr_yd += model.y1[idx_offset + 1, i] * (
-                model.dt[i] - model.d[node_order[(srce[3], srce[4], srce[5])], i]
-            )
+            t_expr_yd += model.y1[idx_offset + 1, i] * (model.dt[i] - model.d[node_order[(srce[3], srce[4], srce[5])], i])
         constraints.append(t_expr_x * (bp_graph.num_nodes + 2) >= model.dt[i])
         constraints.append(t_expr_y <= 1.0)
         constraints.append(t_expr_y * bp_graph.num_edges * k >= t_expr_x)
@@ -175,14 +167,10 @@ def get_spanning_tree_constraints__non_endnode(
                     expr_xc += model.x[idx_offset, i] * model.c[node_order[node], i]
                     if node_order[node_] <= node_order[node]:
                         expr_y += model.y1[idx_offset, i]
-                        expr_yd += model.y1[idx_offset, i] * (
-                            model.d[node_order[node], i] - model.d[node_order[node_], i]
-                        )
+                        expr_yd += model.y1[idx_offset, i] * (model.d[node_order[node], i] - model.d[node_order[node_], i])
                     else:
                         expr_y += model.y2[idx_offset, i]
-                        expr_yd += model.y2[idx_offset, i] * (
-                            model.d[node_order[node], i] - model.d[node_order[node_], i]
-                        )
+                        expr_yd += model.y2[idx_offset, i] * (model.d[node_order[node], i] - model.d[node_order[node_], i])
                 for srci in bp_graph.nodes[node][3]:
                     idx_offset = bp_graph.num_seq_edges + bp_graph.num_conc_edges + bp_graph.num_disc_edges + srci * 2
                     expr_x += model.x[idx_offset, i]
@@ -200,9 +188,7 @@ def get_spanning_tree_constraints__non_endnode(
 
 
 # Consistent across `minimize_cycles` and `minimize_cycles_post`
-def get_shared_subpath_edge_constraints(
-    model: pyo.ConcreteModel, k: int, pc_list: List, bp_graph: BreakpointGraph
-) -> List[pyo.Constraint]:
+def get_shared_subpath_edge_constraints(model: pyo.ConcreteModel, k: int, pc_list: List, bp_graph: BreakpointGraph) -> List[pyo.Constraint]:
     subpath_constraints = []
     for pi, path_constraint_ in enumerate(pc_list):
         for edge in path_constraint_:
@@ -210,13 +196,10 @@ def get_shared_subpath_edge_constraints(
                 if edge[0] == "s":
                     subpath_constraints.append(model.x[edge[1], i] >= model.r[pi, i] * path_constraint_[edge])
                 elif edge[0] == "c":
-                    subpath_constraints.append(
-                        model.x[(bp_graph.num_seq_edges + edge[1]), i] >= model.r[pi, i] * path_constraint_[edge]
-                    )
+                    subpath_constraints.append(model.x[(bp_graph.num_seq_edges + edge[1]), i] >= model.r[pi, i] * path_constraint_[edge])
                 else:
                     subpath_constraints.append(
-                        model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + edge[1]), i]
-                        >= model.r[pi, i] * path_constraint_[edge]
+                        model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + edge[1]), i] >= model.r[pi, i] * path_constraint_[edge]
                     )
 
     return subpath_constraints
@@ -255,11 +238,7 @@ def set_copy_number_constraints(
     model.ConstraintCNSource = pyo.Constraint(
         model.src_edge_idx,
         rule=lambda model, srci: sum(
-            model.w[i]
-            * (
-                model.x[(bp_graph.num_nonsrc_edges + 2 * srci), i]
-                + model.x[(bp_graph.num_nonsrc_edges + 2 * srci) + 1, i]
-            )
+            model.w[i] * (model.x[(bp_graph.num_nonsrc_edges + 2 * srci), i] + model.x[(bp_graph.num_nonsrc_edges + 2 * srci) + 1, i])
             for i in range(k)
         )
         <= edge_to_cn.source[srci],
@@ -270,32 +249,25 @@ def set_copy_number_constraints(
     )
     model.ConstraintCNConcordant = pyo.Constraint(
         model.conc_edge_idx,
-        rule=lambda model, ci: sum(model.w[i] * model.x[(bp_graph.num_seq_edges + ci), i] for i in range(k))
-        <= edge_to_cn.concordant[ci],
+        rule=lambda model, ci: sum(model.w[i] * model.x[(bp_graph.num_seq_edges + ci), i] for i in range(k)) <= edge_to_cn.concordant[ci],
     )
     model.ConstraintCNDiscordant = pyo.Constraint(
         model.disc_edge_idx,
-        rule=lambda model, di: sum(
-            model.w[i] * model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), i] for i in range(k)
-        )
+        rule=lambda model, di: sum(model.w[i] * model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), i] for i in range(k))
         <= edge_to_cn.discordant[di],
     )
     if not is_post and not is_greedy:
         # Base minimize cycles model has an additional constraint
         model.ConstraintCNDiscordantNonPost = pyo.Constraint(
             model.disc_edge_idx,
-            rule=lambda model, di: sum(
-                model.w[i] * model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), i] for i in range(k)
-            )
+            rule=lambda model, di: sum(model.w[i] * model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), i] for i in range(k))
             >= p_bp_cn * edge_to_cn.discordant[di],  # type: ignore[operator]
         )
     if is_greedy:
         model.ConstraintDiscordantGreedy = pyo.ConstraintList()
         for di in range(bp_graph.num_disc_edges):
             logger.debug(f"Ignored discordant edge {di} in greedy model")
-            model.ConstraintDiscordantGreedy.add(
-                model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di)] == 0.0
-            )
+            model.ConstraintDiscordantGreedy.add(model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di)] == 0.0)
 
 
 def get_bp_occurrence_constraint(model: pyo.ConcreteModel, bp_graph: BreakpointGraph) -> pyo.Constraint:
@@ -315,8 +287,7 @@ def get_cycle_weight_constraint(model: pyo.Model, bp_graph: BreakpointGraph) -> 
         cycle_expr = 0.0
         cycle_expr += sum(model.c[ni, i] for ni in range(bp_graph.num_nodes))
         cycle_expr += sum(
-            model.x[(bp_graph.num_nonsrc_edges + 2 * bp_graph.num_src_edges + 2 * enodei), i]
-            for enodei in range(len(bp_graph.endnodes))
+            model.x[(bp_graph.num_nonsrc_edges + 2 * bp_graph.num_src_edges + 2 * enodei), i] for enodei in range(len(bp_graph.endnodes))
         )  # (s, v)
         cycle_expr += sum(model.x[(bp_graph.num_nonsrc_edges + 2 * srci), i] for srci in range(bp_graph.num_src_edges))
         return cycle_expr <= 1.0
@@ -337,9 +308,7 @@ def get_single_bp_edge_constraint(model: pyo.Model, bp_graph: BreakpointGraph, n
                 expr_xc += model.c[node_order[node], i] * model.x[(bp_graph.num_seq_edges + ci), i]
                 should_skip = False
             for di in set(bp_graph.nodes[node][2]):
-                expr_xc += (
-                    model.c[node_order[node], i] * model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), i]
-                )
+                expr_xc += model.c[node_order[node], i] * model.x[(bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), i]
                 should_skip = False
         # Skip trivial constraints when all components have 0 coeff
         return expr_xc <= 1.0 if not should_skip else pyo.Constraint.Skip
@@ -350,9 +319,7 @@ def get_single_bp_edge_constraint(model: pyo.Model, bp_graph: BreakpointGraph, n
 # Constraint identical for base + post
 def set_cycle_tree_constraints(model: pyo.Model, bp_graph: BreakpointGraph) -> None:
     # Relationship between c and d
-    model.ConstraintCD1 = pyo.Constraint(
-        model.k, model.node_idx, rule=lambda model, i, ni: model.d[ni, i] >= model.c[ni, i]
-    )
+    model.ConstraintCD1 = pyo.Constraint(model.k, model.node_idx, rule=lambda model, i, ni: model.d[ni, i] >= model.c[ni, i])
     model.ConstraintCD2 = pyo.Constraint(
         model.k, rule=lambda model, i: (sum(model.c[ni, i] for ni in range(bp_graph.num_nodes)) + model.ds[i]) <= 1.0
     )

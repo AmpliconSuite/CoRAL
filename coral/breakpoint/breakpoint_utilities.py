@@ -5,6 +5,7 @@ Utilities for breakpoint graph inference.
 from __future__ import annotations
 
 import io
+import logging
 import math
 from collections import Counter
 from dataclasses import dataclass, field
@@ -13,10 +14,14 @@ from typing import Any, Dict, List, Tuple
 import click
 import intervaltree
 import numpy as np
+import pysam
 
 from coral import constants
+from coral.breakpoint.breakpoint_types import logger
 from coral.constants import CHR_TAG_TO_IDX
-from coral.types import CnsInterval
+from coral.parsing.cns_types import CNSegIntervals, CnsInterval, RawCNInterval
+
+logger = logging.getLogger(__name__)
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:
@@ -525,10 +530,7 @@ def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
                 bpcim = -1
                 for bpci in range(len(bp_clusters_)):
                     for lbp in bp_clusters_[bpci]:
-                        if (
-                            abs(int(bp[1]) - int(lbp[1])) < bp_distance_cutoff
-                            and abs(int(bp[4]) - int(lbp[4])) < bp_distance_cutoff
-                        ):
+                        if abs(int(bp[1]) - int(lbp[1])) < bp_distance_cutoff and abs(int(bp[4]) - int(lbp[4])) < bp_distance_cutoff:
                             bpcim = bpci
                             break
                     if bpcim >= 0:
@@ -547,9 +549,7 @@ def interval2bp(R1, R2, r=(), rgap=0):
     """
     Convert split/chimeric alignment to breakpoint
     """
-    if (CHR_TAG_TO_IDX[R2[0]] < CHR_TAG_TO_IDX[R1[0]]) or (
-        CHR_TAG_TO_IDX[R2[0]] == CHR_TAG_TO_IDX[R1[0]] and R2[1] < R1[2]
-    ):
+    if (CHR_TAG_TO_IDX[R2[0]] < CHR_TAG_TO_IDX[R1[0]]) or (CHR_TAG_TO_IDX[R2[0]] == CHR_TAG_TO_IDX[R1[0]] and R2[1] < R1[2]):
         return [
             R1[0],
             R1[2],
@@ -675,10 +675,7 @@ def bp_match(bp1, bp2, rgap, bp_distance_cutoff):
     """
     if bp1[0] == bp2[0] and bp1[3] == bp2[3] and bp1[2] == bp2[2] and bp1[5] == bp2[5]:
         if rgap <= 0:
-            return (
-                abs(int(bp1[1]) - int(bp2[1])) < bp_distance_cutoff[0]
-                and abs(int(bp1[4]) - int(bp2[4])) < bp_distance_cutoff[1]
-            )
+            return abs(int(bp1[1]) - int(bp2[1])) < bp_distance_cutoff[0] and abs(int(bp1[4]) - int(bp2[4])) < bp_distance_cutoff[1]
         rgap_ = rgap
         consume_rgap = [0, 0]
         if bp1[2] == "+" and int(bp1[1]) <= int(bp2[1]) - bp_distance_cutoff[0]:
@@ -722,3 +719,44 @@ def get_interval_from_bed(file_row: Tuple[str, str, str]) -> List:
 
 def get_interval_from_cns(file_row: Tuple[str, str, str]) -> List:
     return [file_row[0], int(file_row[1]), int(file_row[2]), -1]
+
+
+def get_normal_lr_coverage(cns: CNSegIntervals, bam_file: pysam.AlignmentFile) -> float:
+    """Estimate the normal long read coverage using parsed LR cns intervals + BAM file."""
+
+    logger.debug(f"Total num LR copy number segments:{len(cns.log2_cn)}.")
+    log2_cn_order = np.argsort(cns.log2_cn)
+    cns_intervals_median: list[RawCNInterval] = []
+    log2_cn_median = []
+    im = int(len(log2_cn_order) / 2.4)
+    ip = im + 1
+    total_int_len = 0
+    cns_intervals_median.append(cns.intervals[log2_cn_order[ip]])
+    cns_intervals_median.append(cns.intervals[log2_cn_order[im]])
+    log2_cn_median.append(cns.log2_cn[log2_cn_order[ip]])
+    log2_cn_median.append(cns.log2_cn[log2_cn_order[im]])
+    total_int_len += cns.intervals[log2_cn_order[ip]][2] - cns.intervals[log2_cn_order[ip]][1] + 1
+    total_int_len += cns.intervals[log2_cn_order[im]][2] - cns.intervals[log2_cn_order[im]][1] + 1
+    i = 1
+    while total_int_len < 10_000_000:
+        cns_intervals_median.append(cns.intervals[log2_cn_order[ip + i]])
+        cns_intervals_median.append(cns.intervals[log2_cn_order[im - i]])
+        log2_cn_median.append(cns.log2_cn[log2_cn_order[ip]])
+        log2_cn_median.append(cns.log2_cn[log2_cn_order[im]])
+        total_int_len += cns.intervals[log2_cn_order[ip + i]][2] - cns.intervals[log2_cn_order[ip + i]][1] + 1
+        total_int_len += cns.intervals[log2_cn_order[im - i]][2] - cns.intervals[log2_cn_order[im - i]][1] + 1
+        i += 1
+    logger.debug(f"Use {len(cns_intervals_median)} LR copy number segments.")
+    logger.debug(f"Total length of LR copy number segments: {total_int_len}.")
+    logger.debug(f"Average LR copy number: {np.average(log2_cn_median)}.")
+    nnc = 0
+    for interval in cns_intervals_median:
+        nnc += sum(
+            sum(nc)
+            for nc in bam_file.count_coverage(
+                interval.chr_tag, interval.start, interval.end + 1, quality_threshold=0, read_callback="nofilter"
+            )
+        )
+    normal_cov = nnc * 1.0 / total_int_len
+    logger.info(f"LR normal cov ={normal_cov}, {nnc=}, {total_int_len=}.")
+    return normal_cov

@@ -5,7 +5,7 @@ from typing import List, Optional, cast
 import pyomo.environ as pyo
 import pyomo.opt
 import pyomo.util.infeasible
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.graph import BreakpointGraph
 from coral.datatypes import EdgeToCN
 from coral.models import constraints
 
@@ -25,9 +25,7 @@ def get_minimize_objective(
     return pyo.Objective(sense=pyo.minimize, expr=obj_value)
 
 
-def get_greedy_objective(
-    model: pyo.Model, bp_graph: BreakpointGraph, pc_list: List, unsatisfied_pc: List[int], pp: float
-) -> pyo.Objective:
+def get_greedy_objective(model: pyo.Model, bp_graph: BreakpointGraph, pc_list: List, unsatisfied_pc: List[int], pp: float) -> pyo.Objective:
     obj_value = 0.0
     for seqi in range(bp_graph.num_seq_edges):
         obj_value += model.x[seqi, 0] * model.w[0] * bp_graph.sequence_edges[seqi][-2]
@@ -109,9 +107,7 @@ def get_model(
     model.ConstraintWZ = pyo.Constraint(model.k, rule=lambda model, i: model.w[i] <= model.z[i] * bp_graph.max_cn)
 
     if is_post or is_greedy:
-        model.ConstraintWZResolution = pyo.Constraint(
-            model.k, rule=lambda model, i: model.w[i] >= model.z[i] * resolution
-        )
+        model.ConstraintWZResolution = pyo.Constraint(model.k, rule=lambda model, i: model.w[i] >= model.z[i] * resolution)
 
     if not is_greedy:
         model.ObjectiveMinCycles = get_minimize_objective(model, bp_graph, k, total_weights, pc_list, is_post)
@@ -120,9 +116,7 @@ def get_model(
 
     # Must include at least 0.9 * total CN weights (bilinear constraint)
     if not is_greedy:
-        model.ConstraintTotalWeights = constraints.get_total_weight_constraint(
-            model, k, bp_graph, p_total_weight * total_weights
-        )
+        model.ConstraintTotalWeights = constraints.get_total_weight_constraint(model, k, bp_graph, p_total_weight * total_weights)
 
     model.ConstraintEulerianPath = pyo.Constraint(model.k, rule=constraints.get_eulerian_path_constraint(bp_graph))
     model.ConstraintEulerianNodes = pyo.ConstraintList()
@@ -142,9 +136,7 @@ def get_model(
     model.ConstraintY2Z = pyo.Constraint(model.k, model.edge_idx, rule=lambda model, i, j: model.y2[j, i] <= model.z[i])
 
     # Relationship between x, y and d
-    model.ConstraintXY = pyo.Constraint(
-        model.k, model.edge_idx, rule=lambda model, i, j: model.y1[j, i] + model.y2[j, i] <= model.x[j, i]
-    )
+    model.ConstraintXY = pyo.Constraint(model.k, model.edge_idx, rule=lambda model, i, j: model.y1[j, i] + model.y2[j, i] <= model.x[j, i])
     model.ConstraintXY1D = pyo.ConstraintList()
     model.ConstraintXY2D = pyo.ConstraintList()
     for i in range(k):
@@ -166,9 +158,7 @@ def get_model(
 
     if pc_list and not is_greedy:
         model.ConstraintSubpathEdgesAddtl = pyo.ConstraintList()
-        for constraint in constraints.get_addtl_subpath_edge_constraints(
-            model, k, pc_list, is_post, p_path_constraints
-        ):
+        for constraint in constraints.get_addtl_subpath_edge_constraints(model, k, pc_list, is_post, p_path_constraints):
             model.ConstraintSubpathEdgesAddtl.add(constraint)
 
     return model

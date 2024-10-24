@@ -91,6 +91,7 @@ lint.ignore = [
   "T201",    # No prints
   "TRY003",  # Long messages outside exception class
   "EM102",   # f-string in exception
+  "ERA001",  # Commented-out code
 ]
 line-length = 140
 

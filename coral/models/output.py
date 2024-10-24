@@ -14,7 +14,7 @@ import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 from coral import constants
 from coral.breakpoint import infer_breakpoint_graph
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint.graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.models import utils
 from coral.models.path_constraints import longest_path_dict

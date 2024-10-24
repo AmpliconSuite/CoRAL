@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, Literal, NamedTuple
+from typing import Callable, Dict, NamedTuple
+
+from coral.types import Strand
 
 logger = logging.getLogger(__name__)
-
-Strand = Literal["+", "-"]
 
 
 class AlignmentPos(NamedTuple):
@@ -228,7 +228,7 @@ def cigar2posSMIS(cigar: str, strand: Strand, read_length: int) -> AlignmentPos:
 
 
 # Dict indicating which cigar2pos operation will be called
-cigar2pos_ops: Dict = {
+CIGAR2POS_OPS: Dict[str, Callable[[str, Strand, int], AlignmentPos]] = {
     "SM": cigar2posSM,
     "MS": cigar2posMS,
     "SMS": cigar2posSMS,
@@ -241,7 +241,7 @@ cigar2pos_ops: Dict = {
 }
 
 
-def alignment_from_satags(sa_list, read_length):
+def alignment_from_satags(sa_list: list[str], read_length: int):
     """Convert "SA:Z" a list of strings into a new chimeric alignment.
     Require at least one (soft) clip and one match for each canonical alignment record in a chimeric alignment
             If not, trigger a warning message in logger
@@ -260,19 +260,15 @@ def alignment_from_satags(sa_list, read_length):
         if "S" not in t[3] or "M" not in t[3]:
             # Require a chimeric alignment record having at least some (soft)clips and matches
             logger.warning("Found chimeric alignment without match or soft clips.")
-            logger.warning("\tAll CIGAR strings: %s." % (sa_list))
+            logger.warning(f"\tAll CIGAR strings: {sa_list}")
             return ([], [], [])
         op = "".join(c for c in t[3] if not c.isdigit())
-        qs, qe, al = cigar2pos_ops[op](t[3], t[2], read_length)
+        qs, qe, al = CIGAR2POS_OPS[op](t[3], t[2], read_length)  # type: ignore
         qint.append([qs, qe])
         if t[2] == "+":
-            rint.append(
-                [t[0], int(t[1]) - 1, int(t[1]) + al - 2, "+"],
-            )  # converted to 0 based coordinates
+            rint.append([t[0], int(t[1]) - 1, int(t[1]) + al - 2, "+"])  # converted to 0 based coordinates
         else:
-            rint.append(
-                [t[0], int(t[1]) + al - 2, int(t[1]) - 1, "-"],
-            )  # converted to 0 based coordinates
+            rint.append([t[0], int(t[1]) + al - 2, int(t[1]) - 1, "-"])  # converted to 0 based coordinates
         qual.append(int(t[4]))
         nm.append(float(t[-1]))
     qint_ind = sorted(range(len(qint)), key=lambda i: (qint[i][0], qint[i][1]))

@@ -6,18 +6,21 @@ import logging
 import math
 import pathlib
 import pickle
+from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, DefaultDict, List, Optional, Tuple
 
 import intervaltree  # type: ignore[import-untyped]
 import numpy as np
 import pysam
+import scipy.stats
 import typer
 
-from coral import cigar_parsing
-from coral.breakpoint import breakpoint_graph, breakpoint_types, breakpoint_utilities
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.breakpoint.breakpoint_types import RawCNData
+import coral
+import coral.parsing.cns_types
+from coral import parsing
+from coral.breakpoint import breakpoint_types as bp_types
+from coral.breakpoint import breakpoint_utilities, graph
 from coral.breakpoint.breakpoint_utilities import (
     alignment2bp,
     alignment2bp_l,
@@ -30,9 +33,13 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_overlap,
     interval_overlap_l,
 )
+from coral.breakpoint.graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.models import path_constraints
-from coral.types import AmpliconInterval, CnsInterval
+from coral.parsing.cns_types import CnsInterval
+from coral.parsing.sam_types import ChimericBamData
+from coral.parsing.sam_utils import ChimericAlignment
+from coral.types import AmpliconInterval
 
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
@@ -47,13 +54,15 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BamToBreakpointNanopore:
     lr_bamfh: pysam.AlignmentFile  # Long read bam file
-    coverage_info: breakpoint_types.CoverageInfo
+    cns: coral.parsing.cns_types.CNSegIntervals  # CN segments
+    # coverage_info: breakpoint_types.CoverageInfo
 
     lr_graph: list[BreakpointGraph] = field(default_factory=list)  # Breakpoint graph
 
     max_seq_len: int = 2000000
     min_bp_cov_factor: float = 1.0
     min_bp_match_cutoff_: int = 100
+    normal_cov: float = 0.0
 
     interval_delta: int = 100000
     min_cluster_cutoff: int = 3  # Hard cutoff for considering a long read breakpoint cluster
@@ -61,11 +70,9 @@ class BamToBreakpointNanopore:
     min_del_len: int = 600  # The minimum length of all +- (deletion) breakpoints returned by AA
     # small_del_cutoff = 10000 # +- breakpoints (small deletions) with the two ends less than this cutoff are treated specially
 
-    read_length: dict[str, int] = field(default_factory=dict)  # Map read name -> read length
-
     # Map read name -> chimeric alignments (two or more records for one read)
-    chimeric_alignments: dict[str, list[pysam.AlignedSegment]] = field(default_factory=dict)
-    chimeric_alignments_seg: dict[str, list[pysam.AlignedSegment]] = field(default_factory=dict)
+    chimeric_alignments_by_read_name: dict[str, ChimericAlignment] = field(default_factory=dict)
+    cn_seg_to_chimeric_reads: dict[str, dict[int, list[str]]] = field(default_factory=dict)
 
     # Map read name -> alignments with one record per read but large indels showing in CIGAR string
     large_indel_alignments: dict[str, list[pysam.AlignedSegment]] = field(default_factory=dict)
@@ -91,43 +98,13 @@ class BamToBreakpointNanopore:
     def pos2cni(self, chr, pos):
         return self.cns.tree[chr][pos]
 
-    def hash_alignment_to_seg(self):
-        """Speed up amplified interval search by hashing chimeric alignments from each long read to CN segments"""
-        for read in self.chimeric_alignments.keys():
-            for ri in range(len(self.chimeric_alignments[read][1])):
-                rint = self.chimeric_alignments[read][1][ri]
-                if rint[0] in self.cns.tree:
-                    lcni_ = self.pos2cni(rint[0], min(rint[1], rint[2]))
-                    rcni_ = self.pos2cni(rint[0], max(rint[1], rint[2]))
-                    assert len(lcni_) <= 1 and len(rcni_) <= 1
-                    lcni, rcni = -1, -1
-                    if len(lcni_) == 1:
-                        lcni = list(lcni_)[0].data
-                    if len(rcni_) == 1:
-                        rcni = list(rcni_)[0].data
-                    cniset = set([lcni, rcni])
-                    if len(cniset) > 1 and -1 in cniset:
-                        cniset.remove(-1)
-                    self.chimeric_alignments[read][1][ri].append(cniset)
-                    if rint[0] not in self.chimeric_alignments_seg:
-                        self.chimeric_alignments_seg[rint[0]] = dict()
-                    for cni in cniset:
-                        if cni != -1:
-                            try:
-                                self.chimeric_alignments_seg[rint[0]][cni].append(read)
-                            except:
-                                self.chimeric_alignments_seg[rint[0]][cni] = [read]
-                else:
-                    self.chimeric_alignments[read][1][ri].append(set([-1]))
-        logger.info("Completed hashing chimeric reads to CN segments.")
-
     def find_amplicon_intervals(self):
         # Reset seed intervals
         logger.debug("Updating seed amplicon intervals according to CN segments.")
         for ai in range(len(self.amplicon_intervals)):
             chr = self.amplicon_intervals[ai][0]
-            lcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][1]))[0].data
-            rcni = list(self.pos2cni(chr, self.amplicon_intervals[ai][2]))[0].data
+            lcni = self.cns.get_cn_idx(chr, self.amplicon_intervals[ai[1]])
+            rcni = self.cns.get_cn_idx(chr, self.amplicon_intervals[ai[2]])
             self.amplicon_intervals[ai][1] = self.cns.intervals_by_chr[chr][lcni][1]
             if (
                 len(
@@ -135,8 +112,8 @@ class BamToBreakpointNanopore:
                         self.pos2cni(
                             chr,
                             self.cns.intervals_by_chr[chr][lcni][1] - self.interval_delta,
-                        ),
-                    ),
+                        )
+                    )
                 )
                 > 0
             ):
@@ -163,9 +140,7 @@ class BamToBreakpointNanopore:
                 logger.debug(f"\tAmplicon interval {self.amplicon_intervals[ai]}")
                 self.find_interval_i(ai, ccid)
                 ccid += 1
-        logger.debug(
-            f"Identified {len(self.amplicon_intervals)} amplicon intervals in total.",
-        )
+        logger.debug(f"Identified {len(self.amplicon_intervals)} amplicon intervals in total.")
         sorted_ai_indices = sorted(
             range(len(self.amplicon_intervals)),
             key=lambda i: (CHR_TAG_TO_IDX[self.amplicon_intervals[i][0]], self.amplicon_intervals[i][1]),
@@ -228,10 +203,7 @@ class BamToBreakpointNanopore:
                     if ai_unsorted == connection_map[connection][1]:
                         connection_map[connection] = (connection_map[connection][0], ai_unsorted_)
                     if connection_map[connection][1] < connection_map[connection][0]:
-                        connection_map[connection] = (
-                            connection_map[connection][1],
-                            connection_map[connection][0],
-                        )
+                        connection_map[connection] = (connection_map[connection][1], connection_map[connection][0])
             for connection in connection_map:
                 if connection != connection_map[connection]:
                     logger.debug(f"Reset connection between amplicon intervals {connection} to {connection_map[connection]}.")
@@ -253,10 +225,7 @@ class BamToBreakpointNanopore:
         self.amplicon_intervals = [amplicon_intervals_sorted[ai] for ai in range(len(amplicon_intervals_sorted))]
         ind_map = {sorted_ai_indices[i]: i for i in range(len(sorted_ai_indices))}
         connection_map = {
-            connection: (
-                min(ind_map[connection[0]], ind_map[connection[1]]),
-                max(ind_map[connection[0]], ind_map[connection[1]]),
-            )
+            connection: (min(ind_map[connection[0]], ind_map[connection[1]]), max(ind_map[connection[0]], ind_map[connection[1]]))
             for connection in self.amplicon_interval_connections.keys()
         }
         self.amplicon_interval_connections = {
@@ -336,9 +305,9 @@ class BamToBreakpointNanopore:
 
             d1_segs = dict()  # All CN segments which share a chimeric alignment to the given interval
             for i in range(si, ei + 1):
-                if i in self.chimeric_alignments_seg[chr]:
-                    for r in self.chimeric_alignments_seg[chr][i]:
-                        rint = self.chimeric_alignments[r][1]
+                if i in self.cn_seg_to_chimeric_reads[chr]:
+                    for r in self.cn_seg_to_chimeric_reads[chr][i]:
+                        rint = self.chimeric_alignments_by_read_name[r][1]
                         for int_ in rint:
                             for i_ in int_[-1]:
                                 if (int_[0] != chr) or (i_ <= si or i_ >= ei):
@@ -400,7 +369,7 @@ class BamToBreakpointNanopore:
                         for r in nint_[-1]:
                             new_bp_list += alignment2bp_nm(
                                 r,
-                                self.chimeric_alignments[r],
+                                self.chimeric_alignments_by_read_name[r],
                                 self.min_bp_match_cutoff_,
                                 20,
                                 self.nm_stats[0] + 3 * self.nm_stats[1],
@@ -411,7 +380,7 @@ class BamToBreakpointNanopore:
                         for r in nint_[-1]:
                             new_bp_list += alignment2bp(
                                 r,
-                                self.chimeric_alignments[r],
+                                self.chimeric_alignments_by_read_name[r],
                                 self.min_bp_match_cutoff_,
                                 20,
                                 [nint_[0], ns, ne],
@@ -815,10 +784,10 @@ class BamToBreakpointNanopore:
         """
         new_bp_list_ = []
         if self.nm_filter:
-            for r in self.chimeric_alignments.keys():
+            for r in self.chimeric_alignments_by_read_name.keys():
                 new_bp_list_ += alignment2bp_nm_l(
                     r,
-                    self.chimeric_alignments[r],
+                    self.chimeric_alignments_by_read_name[r],
                     self.min_bp_match_cutoff_,
                     20,
                     self.nm_stats[0] + 3 * self.nm_stats[1],
@@ -826,10 +795,10 @@ class BamToBreakpointNanopore:
                     self.amplicon_intervals,
                 )
         else:
-            for r in self.chimeric_alignments.keys():
+            for r in self.chimeric_alignments_by_read_name.keys():
                 new_bp_list_ += alignment2bp_l(
                     r,
-                    self.chimeric_alignments[r],
+                    self.chimeric_alignments_by_read_name[r],
                     self.min_bp_match_cutoff_,
                     20,
                     100,
@@ -1004,11 +973,9 @@ class BamToBreakpointNanopore:
             self.min_cluster_cutoff,
             self.max_breakpoint_distance_cutoff,
         )
-        logger.debug(
-            "These reads formed %d clusters." % (len(new_bp_clusters)),
-        )
+        logger.debug(f"These reads formed {len(new_bp_clusters)} clusters.")
         for c in new_bp_clusters:
-            logger.debug("New cluster of size %d." % (len(c)))
+            logger.debug(f"New cluster of size {len(c)}.")
             if len(c) >= self.min_cluster_cutoff:
                 num_subcluster = 0
                 bp_cluster_r = c
@@ -1017,18 +984,10 @@ class BamToBreakpointNanopore:
                         bp_cluster_r,
                         self.min_bp_match_cutoff_,
                     )
-                    logger.debug(
-                        "\tSubcluster %d" % (num_subcluster),
-                    )
-                    logger.debug(
-                        "\tbp = %s" % (bp),
-                    )
-                    logger.debug(
-                        "\tNum long read support = %d" % (len(set(bpr))),
-                    )
-                    logger.debug(
-                        "\tbp_stats = %s" % (bp_stats_),
-                    )
+                    logger.debug(f"\tSubcluster {num_subcluster}")
+                    logger.debug(f"\tbp = {bp}")
+                    logger.debug(f"\tNum long read support = {len(set(bpr))}")
+                    logger.debug(f"\tbp_stats = {bp_stats_}")
                     if (num_subcluster == 0 and len(set(bpr)) >= self.min_cluster_cutoff) or (
                         len(set(bpr)) >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)
                     ):
@@ -1056,7 +1015,7 @@ class BamToBreakpointNanopore:
                     "\tDiscarded the cluster.",
                 )
 
-    def find_cn_breakpoints(self, b=300, n=50):
+    def find_cn_breakpoints(self, b: int = 300, n: int = 50) -> None:
         """Search for breakpoints corresponding to CN boundaries"""
         cns_boundaries = []
         for ai in range(len(self.amplicon_intervals)):
@@ -1125,9 +1084,9 @@ class BamToBreakpointNanopore:
                         cb_refined[0] = i
                         cb_refined[1] = dmu
                 pval = 1.0
-                cov_profile_split = [cov_profile[: cb_refined[0]], cov_profile[cb_refined[0] :]]
+                cov_profile_split = [cov_profile[: cb_refined[0]], cov_profile[cb_refined[0] :]]  # type: ignore
                 if len(cov_profile_split[0]) > 1 and len(cov_profile_split[1]) > 1:
-                    pval = pysam.stats.ttest_ind(
+                    pval = scipy.stats.ttest_ind(
                         cov_profile_split[0],
                         cov_profile_split[1],
                         equal_var=False,
@@ -1136,26 +1095,16 @@ class BamToBreakpointNanopore:
                     zscore = abs(cov_profile_split[0][0] - np.mean(cov_profile)) / np.std(
                         cov_profile,
                     )
-                    pval = pysam.stats.norm.sf(zscore)
+                    pval = scipy.stats.norm.sf(zscore)
                 elif len(cov_profile_split[1]) == 1:
                     zscore = abs(cov_profile_split[1][0] - np.mean(cov_profile)) / np.std(
                         cov_profile,
                     )
-                    pval = pysam.stats.norm.sf(zscore)
+                    pval = scipy.stats.norm.sf(zscore)
                 # only keep obvious cn boundaries
                 if pval <= 0.01 and abs(cb_refined[1]) >= 3 * self.normal_cov:
                     if cb_refined[0] < nl:
-                        self.source_edges.append(
-                            [
-                                "source",
-                                -1,
-                                "-",
-                                cb[1],
-                                cb[3] - (nl - cb_refined[0]) * b,
-                                "+",
-                                abs(cb_refined[1]),
-                            ],
-                        )
+                        self.source_edges.append(["source", -1, "-", cb[1], cb[3] - (nl - cb_refined[0]) * b, "+", abs(cb_refined[1])])
                     else:
                         self.source_edges.append(
                             [
@@ -1173,38 +1122,26 @@ class BamToBreakpointNanopore:
                         self.source_edges[-1][5] = "-"
                     self.source_edge_ccids.append(self.amplicon_intervals[cb[0]][3])
 
-    def build_graph(self):
+    def build_graphs(self) -> None:
         """Organize the identified discordant edges into a list of breakpoint graphs, stored in lr_graph
         Each graph represent a connected component of amplified intervals, i.e., amplicon
         """
         # Split amplified intervals according to discordant edges
-        split_int = dict()
+        split_interval = defaultdict(list)
         for bpi in range(len(self.new_bp_list)):
             bp = self.new_bp_list[bpi]
             for ai in range(len(self.amplicon_intervals)):
                 seg = self.amplicon_intervals[ai]
                 if bp[0] == seg[0] and seg[1] < bp[1] < seg[2]:
                     if bp[2] == "+":
-                        try:
-                            split_int[ai].append((bp[1], bp[1] + 1, bpi, 1, "+"))
-                        except:
-                            split_int[ai] = [(bp[1], bp[1] + 1, bpi, 1, "+")]
+                        split_interval[ai].append((bp[1], bp[1] + 1, bpi, 1, "+"))
                     if bp[2] == "-":
-                        try:
-                            split_int[ai].append((bp[1] - 1, bp[1], bpi, 1, "-"))
-                        except:
-                            split_int[ai] = [(bp[1] - 1, bp[1], bpi, 1, "-")]
+                        split_interval[ai].append((bp[1] - 1, bp[1], bpi, 1, "-"))
                 if bp[3] == seg[0] and seg[1] < bp[4] < seg[2]:
                     if bp[5] == "+":
-                        try:
-                            split_int[ai].append((bp[4], bp[4] + 1, bpi, 4, "+"))
-                        except:
-                            split_int[ai] = [(bp[4], bp[4] + 1, bpi, 4, "+")]
+                        split_interval[ai].append((bp[4], bp[4] + 1, bpi, 4, "+"))
                     if bp[5] == "-":
-                        try:
-                            split_int[ai].append((bp[4] - 1, bp[4], bpi, 4, "-"))
-                        except:
-                            split_int[ai] = [(bp[4] - 1, bp[4], bpi, 4, "-")]
+                        split_interval[ai].append((bp[4] - 1, bp[4], bpi, 4, "-"))
 
         # Split amplified intervals according to source edges
         for srci in range(len(self.source_edges)):
@@ -1213,28 +1150,16 @@ class BamToBreakpointNanopore:
                 seg = self.amplicon_intervals[ai]
                 if srce[3] == seg[0] and seg[1] < srce[4] < seg[2]:
                     if srce[5] == "+":
-                        try:
-                            split_int[ai].append(
-                                (srce[4], srce[4] + 1, len(self.new_bp_list) + srci, 4, "+"),
-                            )
-                        except:
-                            split_int[ai] = [
-                                (srce[4], srce[4] + 1, len(self.new_bp_list) + srci, 4, "+"),
-                            ]
+                        split_interval[ai].append(
+                            (srce[4], srce[4] + 1, len(self.new_bp_list) + srci, 4, "+"),
+                        )
                     if srce[5] == "-":
-                        try:
-                            split_int[ai].append(
-                                (srce[4] - 1, srce[4], len(self.new_bp_list) + srci, 4, "-"),
-                            )
-                        except:
-                            split_int[ai] = [
-                                (srce[4] - 1, srce[4], len(self.new_bp_list) + srci, 4, "-"),
-                            ]
+                        split_interval[ai].append(
+                            (srce[4] - 1, srce[4], len(self.new_bp_list) + srci, 4, "-"),
+                        )
 
         # Construct graphs with sequence and concordant edges
-        logger.debug(
-            "Will split the following %d amplicon intervals into sequence edges and build breakpoint graphs." % (len(split_int)),
-        )
+        logger.debug(f"Will split the following {len(split_interval)} amplicon intervals into sequence edges and build breakpoint graphs.")
         amplicon_id = 1
         for sseg in self.amplicon_intervals:
             if sseg[3] not in self.ccid2id:
@@ -1243,69 +1168,53 @@ class BamToBreakpointNanopore:
         for cci in range(len(self.ccid2id)):
             # Initialize breakpoint graph objects
             self.lr_graph.append(BreakpointGraph())
-        for ai in split_int:
-            logger.debug("Will split the amplicon interval at index %d." % (ai))
-            logger.debug("\tSplit interval at %s." % (split_int[ai]))
-        for ai in split_int:
-            split_int[ai].sort(key=lambda item: item[0])
+        for ai in split_interval:
+            logger.debug(f"Will split the amplicon interval at index {ai}.")
+            logger.debug(f"\tSplit interval at {(split_interval[ai])}.")
+            split_interval[ai].sort(key=lambda item: item[0])
             # Trim amplified intervals if possible
-            """
-			if self.amplicon_intervals[ai][2] - self.amplicon_intervals[ai][1] > self.max_seq_len:
-				if split_int[ai][0][0] - self.amplicon_intervals[ai][1] > self.interval_delta:
-					logger.debug( \
-							"Modified the start coordinate of interval at index %d." %(ai))
-					logger.debug( "\t%s:%d->%d." %(self.amplicon_intervals[ai][0],
-							self.amplicon_intervals[ai][1], split_int[ai][0][0] - self.interval_delta))
-					self.amplicon_intervals[ai][1] = split_int[ai][0][0] - self.interval_delta
-				if self.amplicon_intervals[ai][2] - split_int[ai][-1][1] > self.interval_delta:
-					logger.debug( \
-							"Modified the end coordinate of interval at index %d." %(ai))
-					logger.debug( "\t%s:%d->%d." %(self.amplicon_intervals[ai][0],
-							self.amplicon_intervals[ai][2], split_int[ai][-1][1] + self.interval_delta))
-					self.amplicon_intervals[ai][2] = split_int[ai][-1][1] + self.interval_delta
-			"""
             sseg = self.amplicon_intervals[ai]
             amplicon_idx = self.ccid2id[sseg[3]] - 1
-            for ssi in range(len(split_int[ai])):
+            for ssi in range(len(split_interval[ai])):
                 if ssi == 0:
                     self.lr_graph[amplicon_idx].add_node((sseg[0], sseg[1], "-"))
-                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_int[ai][ssi][0], "+"))
-                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_int[ai][ssi][1], "-"))
+                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_interval[ai][ssi][0], "+"))
+                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_interval[ai][ssi][1], "-"))
                     self.lr_graph[amplicon_idx].add_sequence_edge(
                         sseg[0],
                         sseg[1],
-                        split_int[ai][ssi][0],
+                        split_interval[ai][ssi][0],
                     )
                     self.lr_graph[amplicon_idx].add_concordant_edge(
                         sseg[0],
-                        split_int[ai][ssi][0],
+                        split_interval[ai][ssi][0],
                         "+",
                         sseg[0],
-                        split_int[ai][ssi][1],
+                        split_interval[ai][ssi][1],
                         "-",
                     )
-                elif split_int[ai][ssi][0] > split_int[ai][ssi - 1][0]:
-                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_int[ai][ssi - 1][1], "-"))
-                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_int[ai][ssi][0], "+"))
-                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_int[ai][ssi][1], "-"))
+                elif split_interval[ai][ssi][0] > split_interval[ai][ssi - 1][0]:
+                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_interval[ai][ssi - 1][1], "-"))
+                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_interval[ai][ssi][0], "+"))
+                    self.lr_graph[amplicon_idx].add_node((sseg[0], split_interval[ai][ssi][1], "-"))
                     self.lr_graph[amplicon_idx].add_sequence_edge(
                         sseg[0],
-                        split_int[ai][ssi - 1][1],
-                        split_int[ai][ssi][0],
+                        split_interval[ai][ssi - 1][1],
+                        split_interval[ai][ssi][0],
                     )
                     self.lr_graph[amplicon_idx].add_concordant_edge(
                         sseg[0],
-                        split_int[ai][ssi][0],
+                        split_interval[ai][ssi][0],
                         "+",
                         sseg[0],
-                        split_int[ai][ssi][1],
+                        split_interval[ai][ssi][1],
                         "-",
                     )
-            self.lr_graph[amplicon_idx].add_node((sseg[0], split_int[ai][-1][1], "-"))
+            self.lr_graph[amplicon_idx].add_node((sseg[0], split_interval[ai][-1][1], "-"))
             self.lr_graph[amplicon_idx].add_node((sseg[0], sseg[2], "+"))
-            self.lr_graph[amplicon_idx].add_sequence_edge(sseg[0], split_int[ai][-1][1], sseg[2])
+            self.lr_graph[amplicon_idx].add_sequence_edge(sseg[0], split_interval[ai][-1][1], sseg[2])
         for ai in range(len(self.amplicon_intervals)):
-            if ai not in split_int:
+            if ai not in split_interval:
                 sseg = self.amplicon_intervals[ai]
                 amplicon_idx = self.ccid2id[sseg[3]] - 1
                 self.lr_graph[amplicon_idx].add_node((sseg[0], sseg[1], "-"))
@@ -1357,7 +1266,7 @@ class BamToBreakpointNanopore:
             logger.debug(f"Num discordant edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].discordant_edges)}.")
             logger.debug(f"Num source edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].source_edges)}.")
 
-    def assign_cov(self):
+    def assign_cov(self) -> None:
         """Extract the long read coverage from bam file, if missing, for each sequence edge"""
         for amplicon_idx in range(len(self.lr_graph)):
             for seqi in range(len(self.lr_graph[amplicon_idx].sequence_edges)):
@@ -1389,33 +1298,25 @@ class BamToBreakpointNanopore:
             for eci in range(len(self.lr_graph[amplicon_idx].concordant_edges)):
                 ec = self.lr_graph[amplicon_idx].concordant_edges[eci]
                 logger.debug(f"Finding cov for concordant edge {ec[:6]}.")
-                rls = set(
-                    [read.query_name for read in self.lr_bamfh.fetch(contig=ec[0], start=ec[1], stop=ec[1] + 1)],
-                )
-                rrs = set(
-                    [read.query_name for read in self.lr_bamfh.fetch(contig=ec[3], start=ec[4], stop=ec[4] + 1)],
-                )
-                rls1 = set(
-                    [
-                        read.query_name
-                        for read in self.lr_bamfh.fetch(
-                            contig=ec[0],
-                            start=ec[1] - self.min_bp_match_cutoff_ - 1,
-                            stop=ec[1] - self.min_bp_match_cutoff_,
-                        )
-                    ],
-                )
-                rrs1 = set(
-                    [
-                        read.query_name
-                        for read in self.lr_bamfh.fetch(
-                            contig=ec[3],
-                            start=ec[4] + self.min_bp_match_cutoff_,
-                            stop=ec[4] + self.min_bp_match_cutoff_ + 1,
-                        )
-                    ],
-                )
-                rbps = set([])
+                rls = {read.query_name for read in self.lr_bamfh.fetch(contig=ec[0], start=ec[1], stop=ec[1] + 1)}
+                rrs = {read.query_name for read in self.lr_bamfh.fetch(contig=ec[3], start=ec[4], stop=ec[4] + 1)}
+                rls1 = {
+                    read.query_name
+                    for read in self.lr_bamfh.fetch(
+                        contig=ec[0],
+                        start=ec[1] - self.min_bp_match_cutoff_ - 1,
+                        stop=ec[1] - self.min_bp_match_cutoff_,
+                    )
+                }
+                rrs1 = {
+                    read.query_name
+                    for read in self.lr_bamfh.fetch(
+                        contig=ec[3],
+                        start=ec[4] + self.min_bp_match_cutoff_,
+                        stop=ec[4] + self.min_bp_match_cutoff_ + 1,
+                    )
+                }
+                rbps = set()
                 for bpi in self.lr_graph[amplicon_idx].nodes[(ec[0], ec[1], ec[2])][2]:
                     for r in self.lr_graph[amplicon_idx].discordant_edges[bpi][10]:
                         rbps.add(r[0])
@@ -1423,9 +1324,7 @@ class BamToBreakpointNanopore:
                     for r in self.lr_graph[amplicon_idx].discordant_edges[bpi][10]:
                         rbps.add(r[0])
                 self.lr_graph[amplicon_idx].concordant_edges[eci][9] = rls | rrs
-                self.lr_graph[amplicon_idx].concordant_edges[eci][8] = len(
-                    (rls & rrs & rls1 & rrs1) - rbps,
-                )
+                self.lr_graph[amplicon_idx].concordant_edges[eci][8] = len((rls & rrs & rls1 & rrs1) - rbps)
                 logger.debug(f"LR cov assigned for concordant edge {ec[:6]}.")
 
     def compute_path_constraints(self):
@@ -1454,13 +1353,13 @@ class BamToBreakpointNanopore:
                 bp_reads_rn_sdel = bp_reads[rn][1]
                 paths = []
                 if len(bp_reads_rn) == 1 and len(bp_reads_rn_sdel) == 0:
-                    rints = [aint[:4] for aint in self.chimeric_alignments[rn][1]]
+                    rints = [aint[:4] for aint in self.chimeric_alignments_by_read_name[rn][1]]
                     ai1 = bp_reads_rn[0][0]
                     ai2 = bp_reads_rn[0][1]
                     bpi = bp_reads_rn[0][2]
                     logger.debug(f"Read {rn} covers a single breakpoint.")
                     logger.debug(
-                        f"Alignment intervals on reference = {rints}; mapq = {self.chimeric_alignments[rn][2]}; bp = ({ai1}, {ai2}, {bpi})"
+                        f"Alignment intervals on reference = {rints}; mapq = {self.chimeric_alignments_by_read_name[rn][2]}; bp = ({ai1}, {ai2}, {bpi})"
                     )
                     path = path_constraints.chimeric_alignment_to_path_i(
                         self.lr_graph[amplicon_idx],
@@ -1483,7 +1382,7 @@ class BamToBreakpointNanopore:
                         last_ai = max(bp_reads_rn[i][0], bp_reads_rn[i][1])
                     logger.debug(f"Read {rn} covers multiple breakpoints.")
                     logger.debug(f"Blocks of local alignments: {bp_reads_rn_split}")
-                    qints = self.chimeric_alignments[rn][0]
+                    qints = self.chimeric_alignments_by_read_name[rn][0]
                     skip = 0
                     for qi in range(len(qints) - 1):
                         if qints[qi + 1][0] - qints[qi][1] < -self.min_bp_match_cutoff_:
@@ -1492,12 +1391,12 @@ class BamToBreakpointNanopore:
                     if skip == 1:
                         logger.debug("Discarded the read due to overlapping local alignments.")
                         logger.debug(
-                            f"Alignment intervals on reference = {self.chimeric_alignments[rn][1]}; mapq = {self.chimeric_alignments[rn][2]}."
+                            f"Alignment intervals on reference = {self.chimeric_alignments_by_read_name[rn][1]}; mapq = {self.chimeric_alignments_by_read_name[rn][2]}."
                         )
                         logger.debug(f"Alignment intervals on the read = {qints}.")
                         continue
                     for ai_block in bp_reads_rn_split:
-                        rints = [aint[:4] for aint in self.chimeric_alignments[rn][1]]
+                        rints = [aint[:4] for aint in self.chimeric_alignments_by_read_name[rn][1]]
                         ai_list = [bp_reads_rn[bi][:2] for bi in ai_block]
                         bp_list = [bp_reads_rn[bi][2] for bi in ai_block]
                         if len(set(bp_list)) < len(bp_list):
@@ -1517,7 +1416,7 @@ class BamToBreakpointNanopore:
                         paths.append(path)
                         logger.debug(
                             "\tAlignment intervals on reference = %s; mapq = %s; bps = %s"
-                            % (rints, self.chimeric_alignments[rn][2], bp_reads_rn),
+                            % (rints, self.chimeric_alignments_by_read_name[rn][2], bp_reads_rn),
                         )
                         logger.debug(
                             "\tResulting subpath = %s" % path,
@@ -1632,13 +1531,13 @@ class BamToBreakpointNanopore:
                         logger.debug(f"\tAlignment intervals on reference = {rints_}; mapq = {rq}; bps = {bp_reads_rn_sdel}")
                         logger.debug(f"Resulting subpath = {path}")
                 else:
-                    rints = [aint[:4] for aint in self.chimeric_alignments[rn][1]]
+                    rints = [aint[:4] for aint in self.chimeric_alignments_by_read_name[rn][1]]
                     rints_ = self.large_indel_alignments[rn]
                     rint_split = []
                     skip = 0
                     logger.debug(f"Read {rn} covers breakpoints and small del breakpoints.")
                     logger.debug(
-                        "\tAlignment intervals on reference = %s; mapq = %s" % (rints, self.chimeric_alignments[rn][2]),
+                        "\tAlignment intervals on reference = %s; mapq = %s" % (rints, self.chimeric_alignments_by_read_name[rn][2]),
                     )
                     logger.debug(
                         "\tSmall del alignment intervals on reference = %s" % rints_,
@@ -1694,7 +1593,7 @@ class BamToBreakpointNanopore:
                     logger.debug(
                         "\tBlocks of local alignments: %s" % bp_reads_rn_split,
                     )
-                    qints = self.chimeric_alignments[rn][0]
+                    qints = self.chimeric_alignments_by_read_name[rn][0]
                     skip = 0
                     for qi in range(len(qints) - 1):
                         if qints[qi + 1][0] - qints[qi][1] < -self.min_bp_match_cutoff_:
@@ -1706,7 +1605,7 @@ class BamToBreakpointNanopore:
                         )
                         logger.debug(
                             "\tAlignment intervals on reference = %s; mapq = %s."
-                            % (self.chimeric_alignments[rn][1], self.chimeric_alignments[rn][2]),
+                            % (self.chimeric_alignments_by_read_name[rn][1], self.chimeric_alignments_by_read_name[rn][2]),
                         )
                         logger.debug(
                             "\tAlignment intervals on the read = %s." % qints,
@@ -1732,7 +1631,7 @@ class BamToBreakpointNanopore:
                         paths.append(path)
                         logger.debug(
                             "\tAlignment intervals on reference = %s; mapq (unsplit) = %s; bps = %s"
-                            % (rints, self.chimeric_alignments[rn][2], bp_reads_rn),
+                            % (rints, self.chimeric_alignments_by_read_name[rn][2], bp_reads_rn),
                         )
                         logger.debug(
                             "\tResulting subpath = %s" % path,
@@ -1759,7 +1658,7 @@ class BamToBreakpointNanopore:
             lc = len(self.lr_graph[amplicon_idx].concordant_edges)
             for ci in range(lc):
                 for rn in self.lr_graph[amplicon_idx].concordant_edges[ci][9]:
-                    if rn not in self.large_indel_alignments and rn not in self.chimeric_alignments:
+                    if rn not in self.large_indel_alignments and rn not in self.chimeric_alignments_by_read_name:
                         concordant_reads[rn] = amplicon_idx
             logger.debug(
                 "There are %d concordant reads within amplicon intervals in amplicon %d." % (len(concordant_reads), amplicon_idx + 1)
@@ -1813,17 +1712,32 @@ def reconstruct_graph(
     for interval in seed_intervals:
         logger.debug(f"Seed interval: {interval[:3]}")
 
-    b2bn = BamToBreakpointNanopore(lr_bamfh=pysam.AlignmentFile(str(lr_bam_filename), "rb"), amplicon_intervals=seed_intervals)
-    # if filter_bp_by_edit_distance:
-    # b2bn.nm_filter = True
-    b2bn.min_bp_cov_factor = min_bp_support
+    cns_intervals = coral.parsing.cns_types.CNSegIntervals.from_file(cn_seg_file)
+    logger.info("Completed parsing CN segment files.")
+
+    bam_file = pysam.AlignmentFile(str(lr_bam_filename), "rb")
     logger.info("Opened LR bam files.")
 
+    normal_cov = breakpoint_utilities.get_normal_lr_coverage(cns_intervals, bam_file)
+    min_cluster_cutoff = max(3, int(min_bp_support * normal_cov))
+    logger.debug(f"Reset min_cluster_cutoff to {min_cluster_cutoff}.")
+    # min_cluster_cutoff: int = 3,
+    # min_bp_cov_factor: float = 1.0,
     # b2bn.read_cns(cn_seg_file)
-    logger.info("Completed parsing CN segment files.")
     # b2bn.fetch()
+    raw_chimeric_data = ChimericBamData.from_bam(bam_file)
     logger.info("Completed fetching reads containing breakpoints.")
-    b2bn.hash_alignment_to_seg()
+
+    cn_seg_to_chimeric_reads = parsing.sam_utils.map_alignment_hash_to_cn_seg(raw_chimeric_data.chimeric_alignments_by_name, cns_intervals)
+
+    b2bn = BamToBreakpointNanopore(
+        bam_file,
+        cns=cns_intervals,
+        cn_seg_to_chimeric_reads=cn_seg_to_chimeric_reads,
+        amplicon_intervals=seed_intervals,
+        min_bp_cov_factor=min_bp_support,
+    )
+
     b2bn.find_amplicon_intervals()
     logger.info("Completed finding amplicon intervals.")
     b2bn.find_smalldel_breakpoints()
@@ -1831,7 +1745,7 @@ def reconstruct_graph(
     b2bn.find_breakpoints()
     logger.info("Completed finding all discordant breakpoints.")
     if output_bp:
-        b2bn.build_graph()
+        b2bn.build_graphs()
         logger.info("Breakpoint graph built for all amplicons.")
         for gi in range(len(b2bn.lr_graph)):
             bp_stats_i = []
@@ -1849,14 +1763,14 @@ def reconstruct_graph(
                         bp_stats_i.append(b2bn.new_bp_stats[bpi])
                         break
             file_prefix = output_prefix + "_amplicon" + str(gi + 1)
-            breakpoint_graph.output_breakpoint_info_lr(b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i)
+            graph.output_breakpoint_info_lr(b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i)
             with open(f"{file_prefix}_bp.graph", "wb") as file:
                 pickle.dump(b2bn.lr_graph[gi], file)
         logger.info(f"Wrote breakpoint information, for all amplicons, to {output_prefix}_amplicon*_breakpoints.txt.")
     else:
         # b2bn.find_cn_breakpoints()
         # logger.info( "Completed finding breakpoints corresponding to CN changes.")
-        b2bn.build_graph()
+        b2bn.build_graphs()
         logger.info("Breakpoint graph built for all amplicons.")
         b2bn.assign_cov()
         logger.info("Fetched read coverage for all sequence and concordant edges.")
@@ -1864,7 +1778,7 @@ def reconstruct_graph(
             b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
         logger.info("Computed CN for all edges.")
         for gi in range(len(b2bn.lr_graph)):
-            breakpoint_graph.output_breakpoint_graph_lr(b2bn.lr_graph[gi], f"{output_prefix}/amplicon{gi+1}_graph.txt")
+            graph.output_breakpoint_graph_lr(b2bn.lr_graph[gi], f"{output_prefix}/amplicon{gi+1}_graph.txt")
             file_prefix = output_prefix + "_amplicon" + str(gi + 1)
             with open(f"{file_prefix}_bp.graph", "wb") as file:  # TODO: merge this logic into above fn
                 pickle.dump(b2bn.lr_graph[gi], file)

@@ -9,3 +9,4 @@ configs/
 *.txt
 *.log
 *.lp
+*.ipynb
