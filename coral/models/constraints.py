@@ -225,19 +225,21 @@ def get_shared_subpath_edge_constraints(
 def get_addtl_subpath_edge_constraints(
     model: pyo.ConcreteModel, k: int, pc_list: List, is_post: bool = False, p_path_constraints: Optional[float] = None
 ) -> List[pyo.Constraint]:
-    if not is_post:
-        return [pyo.Constraint(model.pc_idx, rule=lambda model, pi: sum(model.r[pi, i] for i in range(k)) >= 1.0)]
-    assert p_path_constraints, f"Need to pass p_path_constraints when generating post-processing model"
     constraints = []
+    if not is_post:
+        for pi in range(len(pc_list)):
+            constraints.append(sum(model.r[pi, i] for i in range(k)) >= 1.0)
+        return constraints
+    assert p_path_constraints, f"Need to pass p_path_constraints when generating post-processing model"
     sum_R = 0.0
     for pi in range(len(pc_list)):
         sum_R += model.R[pi]
         sum_r = 0.0
         for i in range(k):
-            sum_r += model.r[i]
-            constraints.append(pyo.Constraint(model.R[pi] >= model.r[i]))
-        constraints.append(pyo.Constraint(sum_r >= model.R[pi]))
-    constraints.append(pyo.Constraint(sum_R >= p_path_constraints * len(pc_list)))
+            sum_r += model.r[pi, i]
+            constraints.append(model.R[pi] >= model.r[pi, i])
+        constraints.append(sum_r >= model.R[pi])
+    constraints.append(sum_R >= p_path_constraints * len(pc_list))
     return constraints
 
 

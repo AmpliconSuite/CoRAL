@@ -116,14 +116,14 @@ def minimize_cycles_post(
     bp_graph: BreakpointGraph,
     total_weights: float,
     node_order: Dict[tuple[Any, Any, Any], int],
-    pc_list,
+    pc_list: list,
     init_sol: datatypes.InitialSolution,
-    p_total_weight=0.9,
-    resolution=0.1,
-    num_threads=-1,
-    time_limit=7200,
-    model_prefix="pyomo",
-    solver_to_use="gurobi",
+    p_total_weight: float=0.9,
+    resolution: float=0.1,
+    num_threads: int=-1,
+    time_limit: int=7200,
+    model_prefix: str ="pyomo",
+    solver_to_use: datatypes.Solver =datatypes.Solver.GUROBI,
 ):
     """Cycle decomposition by postprocessing the greedy solution
 
@@ -241,8 +241,8 @@ def maximize_weights_greedy(
     num_threads: int = -1,
     postprocess: int = 0,
     time_limit: int = 7200,
-    model_prefix="pyomo",
-    solver_to_use="gurobi",
+    model_prefix: str ="pyomo",
+    solver_to_use: datatypes.Solver = datatypes.Solver.GUROBI,
 ):
     # Essentially can consider base model with k = 1
 
@@ -366,6 +366,7 @@ def cycle_decomposition(
                     postprocess=postprocess,
                     time_limit=time_limit,
                     model_prefix=model_prefix,
+                    solver_to_use=solver_to_use,
                 )
                 logger.info("Completed greedy cycle decomposition.")
                 logger.info(f"Num cycles = {len(cycles_init[0])}; num paths = {len(cycles_init[1])}.")
@@ -393,6 +394,7 @@ def cycle_decomposition(
                         num_threads,
                         time_limit,
                         model_prefix,
+                        solver_to_use,
                     )
                     logger.info("Completed postprocessing of the greedy solution.")
                     logger.info(f"Num cycles = {len(cycles_post[0])}; num paths = {len(cycles_post[1])}.")
@@ -506,6 +508,7 @@ def cycle_decomposition(
                     num_threads,
                     time_limit,
                     model_prefix,
+                    solver_to_use,
                 )
                 logger.info("Completed postprocessing of the greedy solution.")
                 logger.info(

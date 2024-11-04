@@ -43,7 +43,7 @@ def process_cycle_edge(
     if edge_idx < bp_graph.num_seq_edges:
         cycle[("e", edge_idx)] = edge_count
         if remaining_cn:
-            remaining_cn.sequence[edge_idx] -= edge_count * model.w[0]
+            remaining_cn.sequence[edge_idx] -= edge_count * model.w[0].value
             if remaining_cn.sequence[edge_idx] < resolution:
                 remaining_cn.sequence[edge_idx] = 0.0
     # Is concordant edge
@@ -51,7 +51,7 @@ def process_cycle_edge(
         conc_edge_idx = edge_idx - bp_graph.num_seq_edges
         cycle[("c", conc_edge_idx)] = edge_count
         if remaining_cn:
-            remaining_cn.concordant[conc_edge_idx] -= edge_count * model.w[0]
+            remaining_cn.concordant[conc_edge_idx] -= edge_count * model.w[0].value
             if remaining_cn.concordant[conc_edge_idx] < resolution:
                 remaining_cn.concordant[conc_edge_idx] = 0.0
     # Is discordant edge
@@ -59,7 +59,7 @@ def process_cycle_edge(
         disc_edge_idx = edge_idx - bp_graph.num_seq_edges - bp_graph.num_conc_edges
         cycle[("d", disc_edge_idx)] = edge_count
         if remaining_cn:
-            remaining_cn.discordant[disc_edge_idx] -= edge_count * model.w[0]
+            remaining_cn.discordant[disc_edge_idx] -= edge_count * model.w[0].value
             if remaining_cn.discordant[disc_edge_idx] < resolution:
                 remaining_cn.discordant[disc_edge_idx] = 0.0
     # Is source edge
@@ -70,14 +70,14 @@ def process_cycle_edge(
             s_edge_idx = src_edge_idx // 2
             cycle[("s", s_edge_idx)] = 1  # source edge connected to s
             if remaining_cn:
-                remaining_cn.source[s_edge_idx] -= edge_count * model.w[0]
+                remaining_cn.source[s_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[s_edge_idx] < resolution:
                     remaining_cn.source[s_edge_idx] = 0.0
         else:
             t_edge_idx = (src_edge_idx - 1) // 2
             cycle[("t", t_edge_idx)] = 1  # source edge connected to t
             if remaining_cn:
-                remaining_cn.source[t_edge_idx] -= edge_count * model.w[0]
+                remaining_cn.source[t_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[t_edge_idx] < resolution:
                     remaining_cn.source[t_edge_idx] = 0.0
     else:
@@ -123,7 +123,7 @@ def parse_lp_solution(
                     found_cycle = True
                     break
             if not found_cycle:
-                cycle: Dict = {}
+                cycle: dict = {}
                 for edge_idx in range(nedges):
                     if (edge_count := model.x[edge_idx, i].value) >= 0.9:
                         edge_count = round(edge_count)
@@ -152,14 +152,14 @@ def parse_lp_solution(
                             logger.debug("Aborted.")
                             os.abort()
                 for pi in range(len(pc_list)):
-                    if model.r[pi, i] >= 0.9:
+                    if model.r[pi, i].value >= 0.9:
                         path_constraints_s.append(pi)
                         # Only used for greedy
                         if unsatisfied_pc:
                             unsatisfied_pc[pi] = -1
-                if model.w[i].value > 0.0:
+                if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.cycles[0].append(cycle)
-                    parsed_sol.cycle_weights[0].append(model.w[i].value)
+                    parsed_sol.cycle_weights[0].append(walk_weight)
                     parsed_sol.path_constraints_satisfied[0].append(path_constraints_s)
                     parsed_sol.path_constraints_satisfied_set |= set(path_constraints_s)
             for seqi in range(lseg):
@@ -171,14 +171,14 @@ def parse_lp_solution(
 
 
 def get_solver(solver_type: datatypes.Solver, num_threads: int, time_limit_s: int) -> pyomo.solvers.plugins.solvers:
+    solver = pyo.SolverFactory(solver_type.value)
     if solver_type == datatypes.Solver.GUROBI:
-        solver = pyo.SolverFactory(solver_type.value, solver_io="python")
+        solver = pyo.SolverFactory(solver_type.value)
         if num_threads > 0:
             solver.options["threads"] = num_threads
         solver.options["NonConvex"] = 2
         solver.options["timelimit"] = time_limit_s
     elif solver_type == datatypes.Solver.SCIP:
-        solver = pyo.SolverFactory(solver_type.value)
         solver.options["lp/threads"] = num_threads
         solver.options["propagating/nlobbt/nlptimelimit"] = time_limit_s
     else:
