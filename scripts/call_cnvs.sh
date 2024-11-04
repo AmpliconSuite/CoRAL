@@ -2,11 +2,12 @@
 ## Basic script employing cnvkit.py to call CNVs from alignments.
 
 ## USAGE
-## call_cnvs.sh $BAM $REFERENCE_CNN $OUTPUT_DIR
+## call_cnvs.sh $BAM $REFERENCE_CNN $OUTPUT_DIR $THREADS
 
 BAM=$1
 REFERENCE_CNN=$2
 OUTPUT_DIR=$3
+THREADS=$4
 
 
 cnvkit.py batch $BAM \
@@ -15,3 +16,4 @@ cnvkit.py batch $BAM \
     --reference $REFERENCE_CNN \
     --scatter --diagram \
     -d $OUTPUT_DIR \
+    -p $THREADS \
