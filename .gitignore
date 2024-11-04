@@ -2,3 +2,10 @@
 __pycache__/
 tmp/
 poetry.lock
+.dmypy.json
+.vscode/
+configs/
+*.graph
+*.txt
+*.log
+*.lp
