@@ -92,6 +92,8 @@ def process_cycle_edge(
 
 
 def parse_lp_solution(
+    solver_status: str,
+    solver_termination_condition: pyo.TerminationCondition,
     model: pyo.Model,
     bp_graph: BreakpointGraph,
     k: int,
@@ -101,7 +103,7 @@ def parse_lp_solution(
     resolution: float = 0.0,
     unsatisfied_pc: Optional[List] = None,
 ) -> ParsedLPSolution:
-    parsed_sol = ParsedLPSolution()
+    parsed_sol = ParsedLPSolution(solver_status, solver_termination_condition)
 
     lseg = len(bp_graph.sequence_edges)
     lc = len(bp_graph.concordant_edges)
@@ -180,7 +182,9 @@ def get_solver(solver_type: datatypes.Solver, num_threads: int, time_limit_s: in
         solver.options["timelimit"] = time_limit_s
     elif solver_type == datatypes.Solver.SCIP:
         solver.options["lp/threads"] = num_threads
+        solver.options["parallel/maxnthreads"] = num_threads
+        solver.options["alg/concurrent"] = 1
+        solver.options["display/freq"] = 1
+        solver.options["display/lpinfo"] = True
         solver.options["propagating/nlobbt/nlptimelimit"] = time_limit_s
-    else:
-        solver = pyo.SolverFactory(solver_type.value)
     return solver

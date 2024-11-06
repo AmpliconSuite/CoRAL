@@ -29,6 +29,8 @@ class EdgeToCN:
 
 @dataclass
 class ParsedLPSolution:
+    solver_status: str
+    termination_condition: pyo.TerminationCondition
     total_weights_included: float = 0.0
     cycles: List[List[Any]] = field(default_factory=lambda: [[], []])  # cycles, paths
     cycle_weights: List[List[Any]] = field(default_factory=lambda: [[], []])  # cycles, paths

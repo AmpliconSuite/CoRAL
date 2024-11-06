@@ -100,15 +100,7 @@ def minimize_cycles(
     if results.solver.termination_condition == pyo.TerminationCondition.infeasible:
         pyomo.util.infeasible.log_infeasible_constraints(model, log_expression=True, log_variables=True)
 
-    parsed_sol = utils.parse_lp_solution(model, bp_graph, k, pc_list, total_weights)
-    return (
-        results.solver.status,
-        parsed_sol.total_weights_included,  # TODO: just return parsed sol
-        len(parsed_sol.path_constraints_satisfied_set),
-        parsed_sol.cycles,
-        parsed_sol.cycle_weights,
-        parsed_sol.path_constraints_satisfied,
-    )
+    return utils.parse_lp_solution(results.solver.status, results.solver.termination_condition, model, bp_graph, k, pc_list, total_weights)
 
 
 def minimize_cycles_post(
@@ -185,7 +177,6 @@ def initialize_post_processing_solver(model: CycleLPModel, init_sol: datatypes.I
     bp_graph: breakpoint graph (object)
     init_sol: initial solution returned by maximize_weights_greedy
     """
-    # TODO: fix post initialization from Pyomo rather than Guorbi
     for i in range(len(init_sol.cycles[0])):
         model.z[i] = 1
         model.w[i] = init_sol.cycle_weights[0][i]
@@ -306,6 +297,7 @@ def cycle_decomposition(
     time_limit: int = 7200,
     model_prefix: str = "pyomo",
     solver_to_use: datatypes.Solver = datatypes.Solver.GUROBI,
+    output_all_path_constraints: bool = False,
 ):
     """Caller for cycle decomposition functions"""
     for amplicon_idx in range(len(bb.lr_graph)):
@@ -411,14 +403,7 @@ def cycle_decomposition(
                     bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init
                 sol_flag = 1
                 break
-            (
-                status_,
-                total_cycle_weights_,
-                total_path_satisfied_,
-                cycles_,
-                cycle_weights_,
-                path_constraints_satisfied_,
-            ) = minimize_cycles(
+            lp_solution = minimize_cycles(
                 amplicon_idx + 1,
                 bb.lr_graph[amplicon_idx],
                 k,
@@ -432,22 +417,21 @@ def cycle_decomposition(
                 model_prefix,
                 solver_to_use,
             )
-            # TODO: fix, need to pass termination condition rather than status
-            if status_ == pyo.TerminationCondition.infeasible:
+            if lp_solution.termination_condition == pyo.TerminationCondition.infeasible:
                 logger.info("Cycle decomposition is infeasible.")
                 logger.info(f"Doubling k from {k} to {k * 2}.")
                 k *= 2
             else:
                 logger.info(f"Completed cycle decomposition with k = {k}.")
-                logger.info(f"Num cycles = {len(cycles_[0])}; num paths = {len(cycles_[1])}.")
-                logger.info(f"Total length weighted CN = {total_cycle_weights_}/{total_weights}.")
+                logger.info(f"Num cycles = {len(lp_solution.cycles[0])}; num paths = {len(lp_solution.cycles[1])}.")
+                logger.info(f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}.")
                 logger.info(
-                    f"Total num subpath constraints satisfied = {total_path_satisfied_}/{len(bb.longest_path_constraints[amplicon_idx][0])}."
+                    f"Total num subpath constraints satisfied = {len(lp_solution.path_constraints_satisfied_set)}/{len(bb.longest_path_constraints[amplicon_idx][0])}."
                 )
 
-                bb.cycles[amplicon_idx] = cycles_
-                bb.cycle_weights[amplicon_idx] = cycle_weights_
-                bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_
+                bb.cycles[amplicon_idx] = lp_solution.cycles
+                bb.cycle_weights[amplicon_idx] = lp_solution.cycle_weights
+                bb.path_constraints_satisfied[amplicon_idx] = lp_solution.path_constraints_satisfied
                 sol_flag = 1
                 break
         if sol_flag == 0:
@@ -531,6 +515,9 @@ def cycle_decomposition(
                 bb.cycles[amplicon_idx] = cycles_init
                 bb.cycle_weights[amplicon_idx] = cycle_weights_init
                 bb.path_constraints_satisfied[amplicon_idx] = path_constraints_satisfied_init
+        else:
+            output.output_amplicon_cycles(amplicon_idx, bb, model_prefix, output_all_path_constraints)
+
 
 
 def reconstruct_cycles(
@@ -572,10 +559,8 @@ def reconstruct_cycles(
         time_limit=time_limit_,
         model_prefix=output_prefix,
         solver_to_use=solver_to_use,
+        output_all_path_constraints=output_all_path_constraints,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
-    if output_all_path_constraints:
-        output.output_cycles(bb, output_prefix, output_all_paths=True)
-    else:
-        output.output_cycles(bb, output_prefix)
     logger.info(f"Wrote cycles for all complicons to {output_prefix}_amplicon*_cycles.txt.")
+f

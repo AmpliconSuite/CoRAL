@@ -1948,10 +1948,12 @@ def reconstruct_graph(
                     ):
                         bp_stats_i.append(b2bn.new_bp_stats[bpi])
                         break
-            file_prefix = output_prefix + "_amplicon" + str(gi + 1)
+            file_prefix = f"{output_prefix}/amplicon{gi+1}"
             breakpoint_graph.output_breakpoint_info_lr(b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i)
             with open(f"{file_prefix}_bp.graph", "wb") as file:
                 pickle.dump(b2bn.lr_graph[gi], file)
+        with open(f"{output_prefix}/full_bb.graph", "wb") as file:
+            pickle.dump(b2bn, file)
         logger.info(f"Wrote breakpoint information, for all amplicons, to {output_prefix}_amplicon*_breakpoints.txt.")
     else:
         # b2bn.find_cn_breakpoints()
@@ -1965,9 +1967,11 @@ def reconstruct_graph(
         logger.info("Computed CN for all edges.")
         for gi in range(len(b2bn.lr_graph)):
             breakpoint_graph.output_breakpoint_graph_lr(b2bn.lr_graph[gi], f"{output_prefix}/amplicon{gi+1}_graph.txt")
-            file_prefix = output_prefix + "_amplicon" + str(gi + 1)
+            file_prefix = f"{output_prefix}/amplicon{gi+1}"
             with open(f"{file_prefix}_bp.graph", "wb") as file:  # TODO: merge this logic into above fn
                 pickle.dump(b2bn.lr_graph[gi], file)
+        with open(f"{output_prefix}/full_bb.graph", "wb") as file:
+            pickle.dump(b2bn, file)
         logger.info(f"Wrote breakpoint graph for all complicons to {output_prefix}/amplicon*_graph.txt.")
 
     return b2bn

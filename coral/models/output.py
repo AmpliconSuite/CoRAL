@@ -376,169 +376,174 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
     return best_path
 
 
-def output_cycles(bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths=False) -> None:
+def output_all_cycles(bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths: bool = False) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     for amplicon_idx in range(len(bb.lr_graph)):
-        logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
-        cycle_path = f"{cycle_file_prefix}/amplicon{amplicon_idx + 1}_cycles.txt"
-        fp = open(cycle_path, "w")
-        interval_num = 1
-        ai_amplicon = [ai for ai in bb.amplicon_intervals if bb.ccid2id[ai[3]] == amplicon_idx + 1]
-        ai_amplicon = sorted(ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai[0]], ai[1]))
-        for ai in ai_amplicon:
-            fp.write(f"Interval\t{interval_num}\t{ai[0]}\t{ai[1]}\t{ai[2]}\n")
-            interval_num += 1
-        fp.write("List of cycle segments\n")
-        for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
-            sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
-            fp.write(f"Segment\t{seqi + 1}\t{sseg[0]}\t{sseg[1]}\t{sseg[2]}\n")
-        if output_all_paths:
-            fp.write("List of all subpath constraints\n")
-            for pathi in range(len(bb.path_constraints[amplicon_idx][0])):
-                fp.write("Path constraint\t%d\t" % (pathi + 1))
-                path_ = bb.path_constraints[amplicon_idx][0][pathi]
-                if path_[0][1] > path_[-1][1]:
-                    path_ = path_[::-1]
-                for i in range(len(path_)):
-                    if i % 4 == 0:
-                        if i < len(path_) - 1:
-                            if path_[i + 1][2] == "+":
-                                fp.write("%d+," % (path_[i][1] + 1))
-                            else:
-                                fp.write("%d-," % (path_[i][1] + 1))
-                        elif path_[i - 1][2] == "+":
-                            fp.write("%d-\t" % (path_[i][1] + 1))
-                        else:
-                            fp.write("%d+\t" % (path_[i][1] + 1))
-                fp.write("Support=%d\n" % (bb.path_constraints[amplicon_idx][1][pathi]))
-        else:
-            fp.write("List of longest subpath constraints\n")
-            path_constraint_indices_ = []
-            for paths in bb.path_constraints_satisfied[amplicon_idx][0] + bb.path_constraints_satisfied[amplicon_idx][1]:
-                for pathi in paths:
-                    if pathi not in path_constraint_indices_:
-                        path_constraint_indices_.append(pathi)
-            for constraint_i in range(len(bb.longest_path_constraints[amplicon_idx][1])):
-                fp.write("Path constraint\t%d\t" % (constraint_i + 1))
-                pathi = bb.longest_path_constraints[amplicon_idx][1][constraint_i]
-                path_ = bb.path_constraints[amplicon_idx][0][pathi]
-                if path_[0][1] > path_[-1][1]:
-                    path_ = path_[::-1]
-                for i in range(len(path_)):
-                    if i % 4 == 0:
-                        if i < len(path_) - 1:
-                            if path_[i + 1][2] == "+":
-                                fp.write("%d+," % (path_[i][1] + 1))
-                            else:
-                                fp.write("%d-," % (path_[i][1] + 1))
-                        elif path_[i - 1][2] == "+":
-                            fp.write("%d-\t" % (path_[i][1] + 1))
-                        else:
-                            fp.write("%d+\t" % (path_[i][1] + 1))
-                fp.write(
-                    "Support=%d\t" % (bb.longest_path_constraints[amplicon_idx][2][constraint_i]),
-                )
-                if constraint_i in path_constraint_indices_:
-                    fp.write("Satisfied\n")
-                else:
-                    fp.write("Unsatisfied\n")
+        output_amplicon_cycles(amplicon_idx, bb, cycle_file_prefix, output_all_paths)
 
-        # sort cycles according to weights
-        cycle_indices = sorted(
-            [(0, i) for i in range(len(bb.cycle_weights[amplicon_idx][0]))]
-            + [(1, i) for i in range(len(bb.cycle_weights[amplicon_idx][1]))],
-            key=lambda item: bb.cycle_weights[amplicon_idx][item[0]][item[1]],
-            reverse=True,
-        )
 
-        print(cycle_indices)
-        for cycle_i in cycle_indices:
-            cycle_edge_list: list = []
-            if cycle_i[0] == 0:  # cycles
-                logger.debug(f"Traversing next cycle, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}")
-                path_constraints_satisfied_cycle = []
-                path_constraints_support_cycle = []
-                for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
-                    pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
-                    path_constraints_satisfied_cycle.append(
-                        bb.path_constraints[amplicon_idx][0][pathi_],
-                    )
-                    path_constraints_support_cycle.append(
-                        bb.longest_path_constraints[amplicon_idx][2][pathi],
-                    )
-                cycle_seg_list = eulerian_cycle_t(
-                    bb.lr_graph[amplicon_idx],
-                    bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]],
-                    path_constraints_satisfied_cycle,
-                    path_constraints_support_cycle,
-                )
-                assert cycle_seg_list[0] == cycle_seg_list[-1]
-                fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
-                fp.write(
-                    "Copy_count=%s;" % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
-                )
-                fp.write("Segments=")
-                for segi in range(len(cycle_seg_list) - 2):
-                    fp.write(f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]}")
-                fp.write("%d%s" % (int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
-                if not output_all_paths:
-                    fp.write(";Path_constraints_satisfied=")
-                    for pathi in range(
-                        len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1,
-                    ):
-                        fp.write(
-                            "%d," % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1),
-                        )
-                    if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
-                        fp.write(
-                            "%d\n" % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1),
-                        )
+def output_amplicon_cycles(
+    amplicon_idx: int, bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths: bool = False
+) -> None:
+    """Write the result from cycle decomposition into *.cycles files"""
+    logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
+    cycle_path = f"{cycle_file_prefix}/amplicon{amplicon_idx + 1}_cycles.txt"
+    fp = open(cycle_path, "w")
+    interval_num = 1
+    ai_amplicon = [ai for ai in bb.amplicon_intervals if bb.ccid2id[ai[3]] == amplicon_idx + 1]
+    ai_amplicon = sorted(ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai[0]], ai[1]))
+    for ai in ai_amplicon:
+        fp.write(f"Interval\t{interval_num}\t{ai[0]}\t{ai[1]}\t{ai[2]}\n")
+        interval_num += 1
+    fp.write("List of cycle segments\n")
+    for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
+        sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
+        fp.write(f"Segment\t{seqi + 1}\t{sseg[0]}\t{sseg[1]}\t{sseg[2]}\n")
+    if output_all_paths:
+        fp.write("List of all subpath constraints\n")
+        for pathi in range(len(bb.path_constraints[amplicon_idx][0])):
+            fp.write("Path constraint\t%d\t" % (pathi + 1))
+            path_ = bb.path_constraints[amplicon_idx][0][pathi]
+            if path_[0][1] > path_[-1][1]:
+                path_ = path_[::-1]
+            for i in range(len(path_)):
+                if i % 4 == 0:
+                    if i < len(path_) - 1:
+                        if path_[i + 1][2] == "+":
+                            fp.write("%d+," % (path_[i][1] + 1))
+                        else:
+                            fp.write("%d-," % (path_[i][1] + 1))
+                    elif path_[i - 1][2] == "+":
+                        fp.write("%d-\t" % (path_[i][1] + 1))
                     else:
-                        fp.write("\n")
+                        fp.write("%d+\t" % (path_[i][1] + 1))
+            fp.write("Support=%d\n" % (bb.path_constraints[amplicon_idx][1][pathi]))
+    else:
+        fp.write("List of longest subpath constraints\n")
+        path_constraint_indices_ = []
+        for paths in bb.path_constraints_satisfied[amplicon_idx][0] + bb.path_constraints_satisfied[amplicon_idx][1]:
+            for pathi in paths:
+                if pathi not in path_constraint_indices_:
+                    path_constraint_indices_.append(pathi)
+        for constraint_i in range(len(bb.longest_path_constraints[amplicon_idx][1])):
+            fp.write("Path constraint\t%d\t" % (constraint_i + 1))
+            pathi = bb.longest_path_constraints[amplicon_idx][1][constraint_i]
+            path_ = bb.path_constraints[amplicon_idx][0][pathi]
+            if path_[0][1] > path_[-1][1]:
+                path_ = path_[::-1]
+            for i in range(len(path_)):
+                if i % 4 == 0:
+                    if i < len(path_) - 1:
+                        if path_[i + 1][2] == "+":
+                            fp.write("%d+," % (path_[i][1] + 1))
+                        else:
+                            fp.write("%d-," % (path_[i][1] + 1))
+                    elif path_[i - 1][2] == "+":
+                        fp.write("%d-\t" % (path_[i][1] + 1))
+                    else:
+                        fp.write("%d+\t" % (path_[i][1] + 1))
+            fp.write(
+                "Support=%d\t" % (bb.longest_path_constraints[amplicon_idx][2][constraint_i]),
+            )
+            if constraint_i in path_constraint_indices_:
+                fp.write("Satisfied\n")
+            else:
+                fp.write("Unsatisfied\n")
+
+    # sort cycles according to weights
+    cycle_indices = sorted(
+        [(0, i) for i in range(len(bb.cycle_weights[amplicon_idx][0]))] + [(1, i) for i in range(len(bb.cycle_weights[amplicon_idx][1]))],
+        key=lambda item: bb.cycle_weights[amplicon_idx][item[0]][item[1]],
+        reverse=True,
+    )
+
+    print(cycle_indices)
+    for cycle_i in cycle_indices:
+        if cycle_i[0] == 0:  # cycles
+            logger.debug(f"Traversing next cycle, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}")
+            path_constraints_satisfied_cycle = []
+            path_constraints_support_cycle = []
+            for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
+                pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
+                path_constraints_satisfied_cycle.append(
+                    bb.path_constraints[amplicon_idx][0][pathi_],
+                )
+                path_constraints_support_cycle.append(
+                    bb.longest_path_constraints[amplicon_idx][2][pathi],
+                )
+            cycle_seg_list = eulerian_cycle_t(
+                bb.lr_graph[amplicon_idx],
+                bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]],
+                path_constraints_satisfied_cycle,
+                path_constraints_support_cycle,
+            )
+            assert cycle_seg_list[0] == cycle_seg_list[-1]
+            fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
+            fp.write(
+                "Copy_count=%s;" % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+            )
+            fp.write("Segments=")
+            for segi in range(len(cycle_seg_list) - 2):
+                fp.write(f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]}")
+            fp.write("%d%s" % (int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
+            if not output_all_paths:
+                fp.write(";Path_constraints_satisfied=")
+                for pathi in range(
+                    len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1,
+                ):
+                    fp.write(
+                        "%d," % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1),
+                    )
+                if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+                    fp.write(
+                        "%d\n" % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1),
+                    )
                 else:
                     fp.write("\n")
-            else:  # paths
-                logger.debug(f"Traversing next path, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}")
-                path_constraints_satisfied_path = []
-                path_constraints_support_path = []
-                for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
-                    pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
-                    path_constraints_satisfied_path.append(
-                        bb.path_constraints[amplicon_idx][0][pathi_],
-                    )
-                    path_constraints_support_path.append(
-                        bb.longest_path_constraints[amplicon_idx][2][pathi],
-                    )
-                cycle_seg_list = eulerian_path_t(
-                    bb.lr_graph[amplicon_idx],
-                    bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]],
-                    path_constraints_satisfied_path,
-                    path_constraints_support_path,
+            else:
+                fp.write("\n")
+        else:  # paths
+            logger.debug(f"Traversing next path, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}")
+            path_constraints_satisfied_path = []
+            path_constraints_support_path = []
+            for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
+                pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
+                path_constraints_satisfied_path.append(
+                    bb.path_constraints[amplicon_idx][0][pathi_],
                 )
-                print(cycle_seg_list, bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]])
-                fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
-                fp.write(
-                    "Copy_count=%s;" % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+                path_constraints_support_path.append(
+                    bb.longest_path_constraints[amplicon_idx][2][pathi],
                 )
-                fp.write("Segments=0+,")
-                for segi in range(len(cycle_seg_list) - 1):
-                    fp.write("%d%s," % (int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
+            cycle_seg_list = eulerian_path_t(
+                bb.lr_graph[amplicon_idx],
+                bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]],
+                path_constraints_satisfied_path,
+                path_constraints_support_path,
+            )
+            print(cycle_seg_list, bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]])
+            fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
+            fp.write(
+                "Copy_count=%s;" % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+            )
+            fp.write("Segments=0+,")
+            for segi in range(len(cycle_seg_list) - 1):
+                fp.write("%d%s," % (int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
 
-                fp.write("%d%s,0-" % (int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
-                if not output_all_paths:
-                    fp.write(";Path_constraints_satisfied=")
-                    for pathi in range(
-                        len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1,
-                    ):
-                        fp.write(
-                            "%d," % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1),
-                        )
-                    if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
-                        fp.write(
-                            "%d\n" % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1),
-                        )
-                    else:
-                        fp.write("\n")
+            fp.write("%d%s,0-" % (int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
+            if not output_all_paths:
+                fp.write(";Path_constraints_satisfied=")
+                for pathi in range(
+                    len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1,
+                ):
+                    fp.write(
+                        "%d," % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1),
+                    )
+                if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+                    fp.write(
+                        "%d\n" % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1),
+                    )
                 else:
                     fp.write("\n")
-        fp.close()
+            else:
+                fp.write("\n")
+    fp.close()

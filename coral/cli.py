@@ -10,6 +10,7 @@ import typer
 from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
 from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
+import pysam
 from coral.datatypes import ReferenceGenome, Solver
 
 coral_app = typer.Typer(help="Long-read amplicon reconstruction pipeline and associated utilities.")
@@ -84,6 +85,7 @@ def reconstruct(
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
+    logging.getLogger("pyomo").setLevel(logging.INFO)
     b2bn = infer_breakpoint_graph.reconstruct_graph(
         lr_bam,
         cnv_seed,
@@ -118,6 +120,7 @@ def reconstruct(
 def cycle_decomposition_mode(
     bp_graph: Annotated[typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")],
     output_prefix: OutputPrefixArg,
+    lr_bam: BamArg,
     alpha: AlphaArg = 0.01,
     time_limit_s: TimeLimitArg = 7200,
     threads: ThreadsArg = -1,
@@ -125,7 +128,8 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
-    bb = infer_breakpoint_graph.BamToBreakpointNanopore(None, [pickle.load(bp_graph)])  # type: ignore[arg-type]
+    bb = infer_breakpoint_graph.BamToBreakpointNanopore(lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),lr_graph=[pickle.load(bp_graph)])  # type: ignore[arg-type]
+    bb.fetch()
     cycle_decomposition.reconstruct_cycles(
         output_prefix,
         output_all_path_constraints,
