@@ -185,7 +185,7 @@ class BamToBreakpointNanopore:
         for r in reads_wo_primary_alignment:
             del self.chimeric_alignments[r]
         logger.info(
-            "Computed alignment intervals on all chimeric reads.",
+            f"Computed alignment intervals on all {len(self.chimeric_alignments)} chimeric reads.",
         )
 
     def pos2cni(self, chr, pos):
