@@ -1,12 +1,9 @@
 import enum
-import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, NamedTuple, Optional, Set, cast
+from typing import Any, Dict, List, NamedTuple, Set
 
-import pyomo.core
 import pyomo.environ as pyo
-import pyomo.opt
-import pyomo.util.infeasible
+
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 

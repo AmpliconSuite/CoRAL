@@ -11,7 +11,7 @@ import typer
 from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
 from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
-from coral.datatypes import ReferenceGenome, Solver
+from coral.datatypes import Solver
 
 coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities."
@@ -41,6 +41,7 @@ CnSegArg = Annotated[
         callback=validate_cns_file,
     ),
 ]
+OutputDirArg = Annotated[str, typer.Option(help="Directory of output files.")]
 OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
 OutputPCFlag = Annotated[
     bool,
@@ -97,7 +98,7 @@ def seed(
 @coral_app.command(help="Reconstruct focal amplifications")
 def reconstruct(
     ctx: typer.Context,
-    output_prefix: OutputPrefixArg,
+    output_dir: OutputDirArg,
     lr_bam: BamArg,
     cnv_seed: CnvSeedArg,
     cn_seg: CnSegArg,
@@ -126,7 +127,7 @@ def reconstruct(
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
     logging.basicConfig(
-        filename=f"{output_prefix}/infer_breakpoint_graph.log",
+        filename=f"{output_dir}/infer_breakpoint_graph.log",
         filemode="w",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -136,7 +137,7 @@ def reconstruct(
         lr_bam,
         cnv_seed,
         cn_seg,
-        output_prefix,
+        output_dir,
         output_bp,
         skip_cycle_decomp,
         output_all_path_constraints,
@@ -149,7 +150,7 @@ def reconstruct(
     )
     if not (output_bp or skip_cycle_decomp):
         cycle_decomposition.reconstruct_cycles(
-            output_prefix,
+            output_dir,
             output_all_path_constraints,
             cycle_decomp_alpha,
             cycle_decomp_time_limit,
@@ -169,7 +170,7 @@ def cycle_decomposition_mode(
     bp_graph: Annotated[
         typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")
     ],
-    output_prefix: OutputPrefixArg,
+    output_dir: OutputDirArg,
     lr_bam: BamArg,
     alpha: AlphaArg = 0.01,
     time_limit_s: TimeLimitArg = 7200,
@@ -178,13 +179,13 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
-    bb = infer_breakpoint_graph.BamToBreakpointNanopore(
+    bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
         lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
         lr_graph=[pickle.load(bp_graph)],
     )  # type: ignore[arg-type]
     bb.fetch()
     cycle_decomposition.reconstruct_cycles(
-        output_prefix,
+        output_dir,
         output_all_path_constraints,
         alpha,
         time_limit_s,
@@ -232,7 +233,7 @@ def hsr_mode(
 )
 def plot_mode(
     ctx: typer.Context,
-    ref: Annotated[ReferenceGenome, typer.Option(help="Reference genome.")],
+    ref: Annotated[str, typer.Option(help="Reference genome.")],
     graph: Annotated[
         typer.FileText | None,
         typer.Option(help="AmpliconSuite-formatted *.graph file."),

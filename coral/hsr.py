@@ -51,7 +51,7 @@ def fetch(lr_bamfh):
         except:
             pass
     reads_wo_primary_alignment = []
-    for r in chimeric_alignments.keys():
+    for r in chimeric_alignments:
         if r not in read_length:
             reads_wo_primary_alignment.append(r)
             continue
@@ -92,7 +92,7 @@ def locate_hsrs(
         )
         sys.exit(1)
 
-    with open(cycle_filename, "r") as fp:
+    with open(cycle_filename) as fp:
         for line in fp:
             if line.startswith("#"):
                 continue
@@ -154,18 +154,7 @@ def locate_hsrs(
                     and q_[ri + 1] >= 20
                     and interval_overlap_l(rr_int[ri], ecdna_intervals) == -1
                     and interval_overlap_l(rr_int[ri + 1], ecdna_intervals) >= 0
-                ):
-                    bp_list.append(
-                        interval2bp(
-                            rr_int[ri],
-                            rr_int[ri + 1],
-                            (r, ri, ri + 1),
-                            int(r_int[ri + 1][0]) - int(r_int[ri][1]),
-                        )
-                        + [q_[ri], q_[ri + 1]]
-                    )
-                    bassigned[ri] = 1
-                elif (
+                ) or (
                     q_[ri] >= 20
                     and q_[ri + 1] >= 20
                     and interval_overlap_l(rr_int[ri], ecdna_intervals) >= 0
@@ -193,17 +182,7 @@ def locate_hsrs(
                     and q_[ri + 1] >= 20
                     and interval_overlap_l(rr_int[ri - 1], ecdna_intervals) == -1
                     and interval_overlap(rr_int[ri + 1], ecdna_intervals) >= 0  # type: ignore[arg-type]
-                ):
-                    bp_list.append(
-                        interval2bp(
-                            rr_int[ri - 1],
-                            rr_int[ri + 1],
-                            (r, ri - 1, ri + 1),
-                            int(r_int[ri + 1][0]) - int(r_int[ri - 1][1]),
-                        )
-                        + [q_[ri - 1], q_[ri + 1]]
-                    )
-                elif (
+                ) or (
                     bassigned[ri - 1] == 0
                     and bassigned[ri] == 0
                     and q_[ri] < 10
@@ -274,7 +253,7 @@ def locate_hsrs(
             interval_overlap_l([bp[0], bp[1], bp[1]], ecdna_intervals_ext) >= 0
             and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext) < 0
         ):
-            if bp[3] in starting_pos.keys():
+            if bp[3] in starting_pos:
                 cn = 0.0
                 for seg in cns_dict[bp[3]]:
                     if bp[4] > seg[0] and bp[4] < seg[1]:
@@ -289,7 +268,7 @@ def locate_hsrs(
             interval_overlap_l([bp[0], bp[1], bp[1]], ecdna_intervals_ext) < 0
             and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext) >= 0
         ):
-            if bp[0] in starting_pos.keys():
+            if bp[0] in starting_pos:
                 cn = 0.0
                 for seg in cns_dict[bp[0]]:
                     if bp[1] > seg[0] and bp[1] < seg[1]:

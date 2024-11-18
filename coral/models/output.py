@@ -2,22 +2,12 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Set
+from typing import Any
 
-import pyomo.contrib.appsi
-import pyomo.opt
-import pyomo.solvers
-import pyomo.solvers.plugins
-import pyomo.solvers.plugins.solvers
-import pyomo.solvers.plugins.solvers.GUROBI
-import pyomo.util.infeasible
 from coral import constants
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
-from coral.models import utils
-from coral.models.path_constraints import longest_path_dict
 
 logger = logging.getLogger(__name__)
 
@@ -376,14 +366,14 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
     return best_path
 
 
-def output_all_cycles(bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths: bool = False) -> None:
+def output_all_cycles(bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata, cycle_file_prefix: str, output_all_paths: bool = False) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     for amplicon_idx in range(len(bb.lr_graph)):
         output_amplicon_cycles(amplicon_idx, bb, cycle_file_prefix, output_all_paths)
 
 
 def output_amplicon_cycles(
-    amplicon_idx: int, bb: infer_breakpoint_graph.BamToBreakpointNanopore, cycle_file_prefix: str, output_all_paths: bool = False
+    amplicon_idx: int, bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata, cycle_file_prefix: str, output_all_paths: bool = False
 ) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")

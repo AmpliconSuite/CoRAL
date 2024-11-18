@@ -6,8 +6,6 @@ from a given sequencing file.
 from __future__ import annotations
 
 import logging
-import math
-import time
 import warnings
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,76 +15,10 @@ import cvxopt.modeling  # type: ignore[import-untyped]
 import numpy as np
 
 from coral import types
+from coral.breakpoint.breakpoint_utilities import check_valid_partition, enumerate_partitions
 from coral.constants import CHR_TAG_TO_IDX
 
 logger = logging.getLogger(__name__)
-
-
-def test_clustering(rc_list, partition, max_multiplicity=5):
-    if partition[0] == partition[1]:
-        return (True, partition[0], 0.0)
-    rc_list_p = rc_list[partition[0] : partition[1] + 1]
-    if rc_list_p[-1] < rc_list_p[0] * 2.0:
-        return (True, partition[1], 0.0)
-    base_ri = 0
-    while base_ri < len(rc_list_p) and rc_list_p[base_ri] < rc_list_p[0] * 2.0:
-        base_ri += 1
-    base_avg_rc = np.average(rc_list_p[:base_ri])
-    if rc_list_p[-1] / base_avg_rc >= max_multiplicity + 0.5:
-        return (False, None, None)
-    score = -10.0
-    best_ri = base_ri
-    sum_deviation = 1.0
-    for base_ri_ in range(base_ri, 0, -1):
-        base_avg_rc = np.average(rc_list_p[:base_ri_])
-        base_size = len(rc_list_p[:base_ri_])
-        sizes = dict()
-        # Cluster breakpoints with higher multiplicities
-        li = base_ri_
-        multiplicity = 2
-        if rc_list_p[base_ri_] / base_avg_rc < multiplicity - 0.5:
-            continue
-        while rc_list_p[base_ri_] / base_avg_rc >= multiplicity + 0.5:
-            multiplicity += 1
-        sum_gap = math.log2(rc_list_p[base_ri_]) - math.log2(rc_list_p[base_ri_ - 1])
-        # Note: sometimes int(round()) will convert 1.5 to 1
-        # The following procedure works well
-        for i in range(base_ri_, len(rc_list_p)):
-            if rc_list_p[i] / base_avg_rc >= multiplicity + 0.5:
-                sum_gap += math.log2(rc_list_p[i]) - math.log2(rc_list_p[i - 1])
-                sizes[multiplicity] = [li, i - 1]
-                li = i
-                while rc_list_p[i] / base_avg_rc >= multiplicity + 0.5:
-                    multiplicity += 1
-        sizes[multiplicity] = [li, len(rc_list_p) - 1]
-        if multiplicity > max_multiplicity:
-            continue
-        size_flag = True
-        for m in range(2, multiplicity + 1):
-            if m in sizes and sizes[m][1] - sizes[m][0] >= base_size:
-                size_flag = False
-                break
-        if not size_flag:
-            continue
-        sum_deviation_ = sum(
-            [abs(m - np.average(rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc)) for m in range(2, multiplicity + 1) if m in sizes],
-        )
-        if sum_gap - sum_deviation_ > score:
-            score = sum_gap - sum_deviation_
-            sum_deviation = sum_deviation_
-            best_ri = base_ri_
-    if sum_deviation < 1.0:
-        return (True, best_ri + partition[0] - 1, score)
-    return (False, None, None)
-
-
-def enumerate_partitions(k, start, end):
-    if k == 0:
-        yield [[start, end]]
-    else:
-        for i in range(1, end - start - k + 2):
-            for res in enumerate_partitions(k - 1, start + i, end):
-                yield [[start, start + i - 1]] + res
 
 
 @dataclass
@@ -722,7 +654,7 @@ class BreakpointGraph:
             return []
         rc_indices = np.argsort(rc_list)
         rc_list = sorted(rc_list)
-        if math.log2(rc_list[-1]) - math.log2(rc_list[0]) < 1.0:
+        if np.log2(rc_list[-1]) - np.log2(rc_list[0]) < 1.0:
             return [1 for i in rc_indices]
         # Minimize clusters, with maximum sum gap - sum deviations from multiplicities
         num_clusters = 1
@@ -738,7 +670,7 @@ class BreakpointGraph:
                 distinct = []
                 for pi in range(len(partitions)):
                     partition = partitions[pi]
-                    valid, base_ri, score = test_clustering(
+                    valid, base_ri, score = check_valid_partition(
                         rc_list,
                         partition,
                         max_multiplicity,
@@ -749,7 +681,7 @@ class BreakpointGraph:
                     score_all += score
                     distinct.append([partitions[pi][0], base_ri])
                     if pi > 0:
-                        score_all += math.log2(rc_list[partitions[pi][0]]) - math.log2(
+                        score_all += np.log2(rc_list[partitions[pi][0]]) - np.log2(
                             rc_list[partitions[pi - 1][1]],
                         )
                 if valid_partition:
@@ -846,158 +778,3 @@ class BreakpointGraph:
         return cl
 
 
-def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
-    """Write a breakpoint graph to file in AA graph format with short read and long read information"""
-    with open(ogfile, "w") as fp:
-        fp.write(
-            "SequenceEdge: StartPosition, EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads, Size\n",
-        )
-        for se in g.sequence_edges:
-            if se[4] == "d":
-                fp.write(
-                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n"
-                    % (
-                        se[0],
-                        se[1],
-                        se[0],
-                        se[2],
-                        se[-1],
-                        int(math.round(se[3] * downsample_factor)),
-                        se[5],
-                        se[7],
-                    ),
-                )
-            else:
-                fp.write(
-                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n" % (se[0], se[1], se[0], se[2], se[-1], se[3], se[5], se[7]),
-                )
-        fp.write(
-            "BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads\n",
-        )
-        for srce in g.source_edges:
-            if srce[7] == "d":
-                fp.write(
-                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n"
-                    % (
-                        srce[0],
-                        srce[1],
-                        srce[2],
-                        srce[3],
-                        srce[4],
-                        srce[5],
-                        srce[-1],
-                        int(math.round(srce[6] * downsample_factor)),
-                    ),
-                )
-            else:
-                fp.write(
-                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n" % (srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1], srce[6]),
-                )
-        for ce in self.concordant_edges:
-            if ce[7] == "d":
-                fp.write(
-                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (
-                        ce[0],
-                        ce[1],
-                        ce[2],
-                        ce[3],
-                        ce[4],
-                        ce[5],
-                        ce[-1],
-                        int(math.round(ce[6] * downsample_factor)),
-                        ce[8],
-                    ),
-                )
-            else:
-                fp.write(
-                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n" % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[6], ce[8]),
-                )
-        for de in self.discordant_edges:
-            if de[7] == "d":
-                fp.write(
-                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (
-                        de[0],
-                        de[1],
-                        de[2],
-                        de[3],
-                        de[4],
-                        de[5],
-                        de[-1],
-                        int(math.round(de[6] * downsample_factor)),
-                        de[9],
-                    ),
-                )
-            else:
-                fp.write(
-                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n" % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[6], de[9]),
-                )
-
-
-def output_breakpoint_graph_lr(g, ogfile):
-    """Write a breakpoint graph to file in AA graph format with only long read information"""
-    with open(ogfile, "w") as fp:
-        fp.write(
-            "SequenceEdge: StartPosition, EndPosition, PredictedCN, AverageCoverage, Size, NumberOfLongReads\n",
-        )
-        for se in g.sequence_edges:
-            fp.write(
-                "sequence\t%s:%s-\t%s:%s+\t%f\t%f\t%d\t%d\n" % (se[0], se[1], se[0], se[2], se[-1], se[6] * 1.0 / se[7], se[7], se[5]),
-            )
-        fp.write("BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads\n")
-        for srce in g.source_edges:
-            fp.write(
-                "source\t%s:%s%s->%s:%s%s\t%f\t-1\n" % (srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1]),
-            )
-        for ce in g.concordant_edges:
-            fp.write(
-                "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\n" % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[8]),
-            )
-        for de in g.discordant_edges:
-            fp.write(
-                "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\n" % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[9]),
-            )
-
-
-def output_breakpoint_info_sr_lr(g, obpfile, downsample_factor, new_bp_stats):
-    """Write the list of breakpoints to file"""
-    with open(obpfile, "w") as fp:
-        fp.write(
-            "chr1\tpos1\tchr2\tpos2\torientation\tsr_support\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
-        )
-        for di in range(len(g.discordant_edges)):
-            de = g.discordant_edges[di]
-            if di in bp_stats:
-                fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t-1\t%d\t%s\n" % (de[3], de[4], de[0], de[1], de[5], de[2], de[9], new_bp_stats[di]),
-                )
-            elif de[7] == "d":
-                fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t%d\t%d\tN/A\n"
-                    % (
-                        de[3],
-                        de[4],
-                        de[0],
-                        de[1],
-                        de[5],
-                        de[2],
-                        int(math.round(de[6] * downsample_factor)),
-                        de[9],
-                    ),
-                )
-            else:
-                fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t%d\t%d\tN/A\n" % (de[3], de[4], de[0], de[1], de[5], de[2], de[6], de[9]),
-                )
-
-
-def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):
-    """Write the list of breakpoints to file"""
-    with open(filename, "w") as fp:
-        fp.write(
-            "chr1\tpos1\tchr2\tpos2\torientation\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
-        )
-        for di in range(len(g.discordant_edges)):
-            de = g.discordant_edges[di]
-            fp.write(f"{de[3]}\t{de[4]}\t{de[0]}\t{de[1]}\t{de[5]}{de[2]}\t{de[9]}\t{bp_stats[di]}\n")

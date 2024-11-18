@@ -88,7 +88,7 @@ def convert_cycles_to_bed(
                         for idx in range(len(cycle)):
                             cycle[idx][-1] = INVERT_STRAND_DIRECTION(cycle[idx][-1])  # type: ignore[operator]
                 elif CHR_TAG_TO_IDX[cycle[-1][0]] < CHR_TAG_TO_IDX[cycle[0][0]] or (  # type: ignore[index]
-                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]]
+                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]] # type: ignore[index]
                     and cycle[-1][1] < cycle[-1][1]  # type: ignore[index, operator]
                 ):
                     cycle = cycle[::-1]

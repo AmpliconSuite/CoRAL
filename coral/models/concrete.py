@@ -1,10 +1,8 @@
 import logging
-from dataclasses import dataclass
-from typing import List, Optional, cast
+from typing import List, Optional
 
 import pyomo.environ as pyo
-import pyomo.opt
-import pyomo.util.infeasible
+
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import EdgeToCN
 from coral.models import constraints

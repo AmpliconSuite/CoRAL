@@ -3,23 +3,18 @@ from __future__ import annotations
 import functools
 import io
 import logging
-import math
 import pathlib
 import pickle
-import sys
-import time
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, List
 
-import click
 import intervaltree  # type: ignore[import-untyped]
 import numpy as np
 import pysam
 import typer
 
 from coral import cigar_parsing
-from coral.breakpoint import breakpoint_graph, breakpoint_utilities
+from coral.breakpoint import breakpoint_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.breakpoint_types import CNSSegData
 from coral.breakpoint.breakpoint_utilities import (
@@ -41,24 +36,24 @@ from coral.types import AmpliconInterval, CnsInterval
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
 
-from typing import List, Optional
 
-import pysam
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class BamToBreakpointNanopore:
+class LongReadBamToBreakpointMetadata:
     lr_bamfh: pysam.AlignmentFile  # Long read bam file
 
     lr_graph: list[BreakpointGraph] = field(default_factory=list)  # Breakpoint graph
 
+    # Tunable hyperparameters
     max_seq_len: int = 2000000
     cn_gain: float = 5.0
     min_bp_cov_factor: float = 1.0
     min_bp_match_cutoff_: int = 100
     interval_delta: int = 100000
+
     min_cluster_cutoff: int = 3  # Hard cutoff for considering a long read breakpoint cluster
     max_breakpoint_distance_cutoff: int = 2000  # Used for breakpoint clustering - if the distance of two breakpoint positions are greater than this cutoff, then start a new cluster
     min_del_len: int = 600  # The minimum length of all +- (deletion) breakpoints returned by AA
@@ -171,7 +166,7 @@ class BamToBreakpointNanopore:
                     self.nm_stats[1] += e * e
                     self.nm_stats[2] += 1
         self.nm_stats[0] /= self.nm_stats[2]
-        self.nm_stats[1] = math.sqrt(self.nm_stats[1] / self.nm_stats[2] - self.nm_stats[0] ** 2)
+        self.nm_stats[1] = np.sqrt(self.nm_stats[1] / self.nm_stats[2] - self.nm_stats[0] ** 2)
         logger.info(f"Fetched {len(self.chimeric_alignments)} chimeric reads.")
         reads_wo_primary_alignment = []
         for r in self.chimeric_alignments.keys():
@@ -398,15 +393,11 @@ class BamToBreakpointNanopore:
                 and abs(bp[4] - bp_[4]) < 200
             ):
                 self.new_bp_list[bpi][-1] |= set(bpr_)
-                # if bp[0] == bp[3] and bp[2] == '-' and bp[5] == '+' and abs(bp[1] - bp[4]) < self.small_del_cutoff:
-                # self.small_del_indices.append(bpi)
                 return bpi
         bpi = len(self.new_bp_list)
         self.new_bp_list.append(bp_ + [bpr_])
         self.new_bp_ccids.append(ccid)
         self.new_bp_stats.append(bp_stats_)
-        # if bp_[0] == bp_[3] and bp_[2] == '-' and bp_[5] == '+' and abs(bp_[1] - bp_[4]) < self.small_del_cutoff:
-        # self.small_del_indices.append(bpi)
         return bpi
 
     def find_interval_i(self, ai, ccid):
@@ -1897,7 +1888,7 @@ def reconstruct_graph(
     lr_bam_filename: pathlib.Path,
     cnv_seed_file: typer.FileText,
     cn_seg_file: typer.FileText,
-    output_prefix: str,
+    output_dir: str,
     output_bp: bool,
     skip_cycle_decomp: bool,
     output_all_path_contraints: bool,
@@ -1913,7 +1904,7 @@ def reconstruct_graph(
     for interval in seed_intervals:
         logger.debug(f"Seed interval: {interval[:3]}")
 
-    b2bn = BamToBreakpointNanopore(lr_bamfh=pysam.AlignmentFile(str(lr_bam_filename), "rb"), amplicon_intervals=seed_intervals)
+    b2bn = LongReadBamToBreakpointMetadata(lr_bamfh=pysam.AlignmentFile(str(lr_bam_filename), "rb"), amplicon_intervals=seed_intervals)
     # if filter_bp_by_edit_distance:
     # b2bn.nm_filter = True
     b2bn.min_bp_cov_factor = min_bp_support
@@ -1948,14 +1939,14 @@ def reconstruct_graph(
                     ):
                         bp_stats_i.append(b2bn.new_bp_stats[bpi])
                         break
-            file_prefix = f"{output_prefix}/amplicon{gi+1}"
-            breakpoint_graph.output_breakpoint_info_lr(b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i)
+            file_prefix = f"{output_dir}/amplicon{gi+1}"
+            breakpoint_utilities.output_breakpoint_info_lr(b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i)
             with open(f"{file_prefix}_bp.graph", "wb") as file:
                 pickle.dump(b2bn.lr_graph[gi], file)
-        # Unable to dump full B2BN class until we write custom Cython `__reduce__` methods for pysam objects
-        # with open(f"{output_prefix}/full_bb.graph", "wb") as file:
+        # Unable to dump full metadata class until we write custom Cython `__reduce__` methods for pysam objects
+        # with open(f"{output_dir}/full_bb.graph", "wb") as file:
         #     pickle.dump(b2bn, file)
-        logger.info(f"Wrote breakpoint information, for all amplicons, to {output_prefix}_amplicon*_breakpoints.txt.")
+        logger.info(f"Wrote breakpoint information, for all amplicons, to {output_dir}/amplicon*_breakpoints.txt.")
     else:
         # b2bn.find_cn_breakpoints()
         # logger.info("Completed finding breakpoints corresponding to CN changes.")
@@ -1967,13 +1958,13 @@ def reconstruct_graph(
             b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
         logger.info("Computed CN for all edges.")
         for gi in range(len(b2bn.lr_graph)):
-            breakpoint_graph.output_breakpoint_graph_lr(b2bn.lr_graph[gi], f"{output_prefix}/amplicon{gi+1}_graph.txt")
-            file_prefix = f"{output_prefix}/amplicon{gi+1}"
+            breakpoint_utilities.output_breakpoint_graph_lr(b2bn.lr_graph[gi], f"{output_dir}/amplicon{gi+1}_graph.txt")
+            file_prefix = f"{output_dir}/amplicon{gi+1}"
             with open(f"{file_prefix}_bp.graph", "wb") as file:  # TODO: merge this logic into above fn
                 pickle.dump(b2bn.lr_graph[gi], file)
-        # Unable to dump full B2BN class until we write custom Cython `__reduce__` methods for pysam objects
-        # with open(f"{output_prefix}/full_bb.graph", "wb") as file:
+        # Unable to dump full metadata class until we write custom Cython `__reduce__` methods for pysam objects
+        # with open(f"{output_dir}/full_bb.graph", "wb") as file:
         #     pickle.dump(b2bn, file)
-        logger.info(f"Wrote breakpoint graph for all complicons to {output_prefix}/amplicon*_graph.txt.")
+        logger.info(f"Wrote breakpoint graph for all complicons to {output_dir}/amplicon*_graph.txt.")
 
     return b2bn

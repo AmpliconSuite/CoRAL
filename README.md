@@ -6,7 +6,7 @@ https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
 
-CoRAL requires python>=3.7, and dependencies may be resolved best if python < 3.12.
+CoRAL requires python>=3.7, and dependencies may be resolved best if python=3.12.
 
 1. Clone source
 
@@ -68,7 +68,7 @@ Before running CoRAL, you will need genome-wide copy number (CN) calls generated
 
 CoRAL and its various run-modes can by used in the following manner
 
-`/path/to/CoRAL/src/CoRAL.py [mode] [mode arguments]`
+`coral [mode] [mode arguments]`
 
 The modes are as follows:
 1. `seed`: Identify and filter copy number gain regions where amplifications exist
@@ -77,30 +77,30 @@ The modes are as follows:
 4. `hsr`: Identify candidate locations of chromosomal homogenously staining region (HSR) integration points for ecDNA.
 5. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to a .bed format. The AA format is also used by CoRAL.
 
-## 1. ```CoRAL.py seed```
+## 1. ```seed```
 As the seed amplification intervals are required by the main script ```reconstruct``` mode, it is suggested the user first run ```seed``` mode to generate seed amplification intervals.
 
 Usage: 
-```CoRAL.py seed <Required arguments> <Optional arguments>```
+```coral seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
 * ```--cn_segs <FILE>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **Optional arguments:**
-* ```--out <STRING>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file. Note that if these file is desired to be written to a different directory, then a path/directory should also be included. If not specified (by default), output the ```*_CNV_SEEDS.bed``` file to the current directory with the same prefix as the input ```*.cns``` file.
+* ```--output_dir <FOLDER>``` - Directory of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` file to the current directory with the same prefix as the input ```*.cns``` file.
 * ```--gain <FLOAT>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
 * ```--min_seed_size <INT>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
 * ```--max_seg_gap <INT>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min_seed_size```, and their aggregate size will be compared with the value. Default is 300000. 
 
 
-## 2. ```CoRAL.py reconstruct```
+## 2. ```reconstruct```
 Usage: 
-```CoRAL.py reconstruct <Required arguments> <Optional arguments>```
+```reconstruct <Required arguments> <Optional arguments>```
 
 **2.1 Required arguments:**
 * ```--lr_bam <FILE>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
 * ```--cnv_seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
-* ```--output_prefix <STRING>``` - Prefix of the output ```graph.txt``` and ```cycles.txt``` files. Note that if these files are desired to be written to a different directory, then paths should also be included. 
+* ```--output_dir <FOLDER>``` - Directory to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
 * ```--cn_segs <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **2.2 Optional arguments:**
@@ -115,9 +115,9 @@ Usage:
 
 **2.3 Expected output:**
 
-CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the path specified with ```--output_prefix```, all with the prefix given by ```--output_prefix```.
+CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the directory specified with ```--output_dir```.
 
-* Graph file: For each amplicon, a tab-separated text file named ```output_prefix_amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files output by CoRAL have the same format as those output by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
+* Graph file: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
 ```
 SequenceEdge: StartPosition, EndPosition, PredictedCN, AverageCoverage, Size, NumberOfLongReads
 sequence	chr7:54659673-	chr7:54763281+	4.150534	45.907363	103609	576
@@ -139,7 +139,7 @@ discordant	chr7:56049369+->chr7:54763282-	85.189818	981
 discordant	chr7:55155021-->chr7:55127266+	86.496697	978
 ```
 * Cycles file: 
-For each amplicon, a tab-separated text file named ```output_prefix_amplicon*_cycles.txt``` describing the list of cycles and paths returned from cycle extraction. Note that the cycles files output by CoRAL have mostly the same format as those output by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect in most cases). Specifically a cycles file includes (i) the list of amplified intervals; (ii) the list of sequence edges; (iii) the list of cycles and paths, where an entry starts with ```0+``` and ends with ```0-``` in ```Segments``` indicates a path - these lines have the same format as AmpliconArchitect output. CoRAL's cycles files additionally include (iv) a list of longest (i.e., there are no paths that can form a sub/super-path to each other) path constraint indicated by long reads, and used in CoRAL's cycle extraction. Here is an example cycles file corresponding to the above graph file from GBM39.
+For each amplicon, a tab-separated text file named ```output_dir_amplicon*_cycles.txt``` describing the list of cycles and paths returned from cycle extraction. Note that the cycles files output by CoRAL have mostly the same format as those output by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect in most cases). Specifically a cycles file includes (i) the list of amplified intervals; (ii) the list of sequence edges; (iii) the list of cycles and paths, where an entry starts with ```0+``` and ends with ```0-``` in ```Segments``` indicates a path - these lines have the same format as AmpliconArchitect output. CoRAL's cycles files additionally include (iv) a list of longest (i.e., there are no paths that can form a sub/super-path to each other) path constraint indicated by long reads, and used in CoRAL's cycle extraction. Here is an example cycles file corresponding to the above graph file from GBM39.
 ```
 Interval	1	chr7	54659673	56149664
 List of cycle segments
@@ -157,23 +157,23 @@ Cycle=1;Copy_count=82.34616279663038;Segments=2+,4+,6+;Path_constraints_satisfie
 Cycle=2;Copy_count=2.8436550275157644;Segments=0+,2+,3+,4+,5+,6+,0-;Path_constraints_satisfied=1,2
 ```
 Note that if ```--output_all_path_constraints``` is specified, then all path constraints given by long reads will be written to in ```*.cycles``` file.
-* Other outputs include the ```output_prefix_amplicon*_model.lp``` file(s) and ```output_prefix_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrainted) program in a human readable format, and the standard output produced by Gurobi.
+* Other outputs include the ```output_dir_amplicon*_model.lp``` file(s) and ```output_dir_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrainted) program in a human readable format, and the standard output produced by Gurobi.
 
 
-## 3. ```CoRAL.py plot```
+## 3. ```coral plot```
 Usage: 
-```CoRAL.py plot <Required arguments> <Optional arguments>```
+```coral plot <Required arguments> <Optional arguments>```
 
 **3.1 Required arguments:**
 If `--plot_graph` is given, `--graph` is required. If `--plot_cycles` is given `--cycles` is required.
 
-| Argument                | Descripion                                                            |
+| Argument                | Description                                                            |
 |-------------------------|-----------------------------------------------------------------------|
 | `--ref <choice>`        | Reference genome choice. Must be one of  `[hg19, hg38, GRCh38, mm10]` |
 | `--bam <file>` | Bam file the run was based on                                         |
 | `--graph <file>`        | AA-formatted `_graph.txt` file                                        |
 | `--cycles <file>`       | AA-formatted `_cycles.txt` file                                       |
-| `--output_prefix <str>` | Prefix name for output files                                          |
+| `--output_dir <str>` | Directory for output files                                          |
 
 
 **3.2 Optional arguments:**
@@ -193,9 +193,9 @@ If `--plot_graph` is given, `--graph` is required. If `--plot_cycles` is given `
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
 
 
-## 4. ```CoRAL.py hsr```
+## 4. ```coral hsr```
 Usage: 
-```CoRAL.py hsr <Required arguments> <Optional arguments>```
+```coral hsr <Required arguments> <Optional arguments>```
 
 **4.1 Required arguments:**
 
@@ -214,11 +214,11 @@ Usage:
 | --bp_match_cutoff_clustering | 2000    | Crude breakpoint matching cutoff distance (bp) for clustering | 
 
 
-## 5. ```CoRAL.py cycle2bed```
+## 5. ```coral cycle2bed```
 CoRAL provides an option to convert its cycles output in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
 
 Usage: 
-```CoRAL.py cycle2bed <Required arguments> <Optional arguments>```
+```coral cycle2bed <Required arguments> <Optional arguments>```
 
 **5.1 Required arguments:**
 * ```--cycle_fn <FILE>``` - Input cycles file in AmpliconArchitect format.
@@ -227,7 +227,7 @@ Usage:
 **5.2 Optional arguments:** 
 * ```--num_cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
 
-Here is an example output of ```cycle2bed.py``` given by the above cycles file from GBM39.
+Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
 ```
 #chr	start	end	orientation	cycle_id	iscyclic	weight
 chr7	54763282	55127266	+	1	True	82.346163

@@ -1,4 +1,6 @@
+"""Type aliases and data containers for breakpoint graph elements."""
 from __future__ import annotations
+
 import io
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -11,13 +13,15 @@ from coral.types import CnsInterval
 
 @dataclass
 class CNSSegData:
-    tree: intervaltree.IntervalTree
-    intervals: List[CnsInterval]
-    intervals_by_chr: Dict[str, List[List[int]]]
-    log2_cn: List[float]
+    """Container class for mapping CN (copy number) per chromosome segment, as parsed from a .cns or .bed file."""
+    tree: intervaltree.IntervalTree # IntervalTree mapping chromosome segments to their (per-chromosome) index in input file
+    intervals: List[CnsInterval] # Raw list of all chromosome intervals given, of the form (chromosome, start_idx, end_idx)
+    intervals_by_chr: Dict[str, List[List[int]]] # List of chromosome intervals with their respective CNs, grouped by chromosome number
+    log2_cn: List[float] # Log2 of CN for each chromosome segment
 
     @classmethod
     def from_file(cls, file: io.TextIOWrapper) -> CNSSegData:
+        """Parse CN interval data from a .cns or .bed file."""
         tree, log2_cns = {}, []
         intervals = []
         intervals_by_chr: Dict[str, List[List[Any]]] = {}

@@ -3,6 +3,7 @@ authors = [
   "Kaiyuan Zhu <kaiyuan-zhu@ucsd.edu>",
   "Matt Jones <mgjones@stanford.edu>",
   "Jens Luebeck <jluebeck@ucsd.edu>",
+  "Suhas Rao <nsuhasrao@gmail.com>"
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -20,7 +21,7 @@ license = "MIT"
 name = "CoRAL"
 readme = 'README.md'
 repository = "https://github.com/AmpliconSuite/CoRAL"
-version = "1.0.0"
+version = "2.0.0"
 
 packages = [{ include = "coral" }]
 
@@ -92,6 +93,7 @@ lint.ignore = [
   "TRY003",  # Long messages outside exception class
   "EM102",   # f-string in exception
 ]
+lint.extend-select = ["I"]
 line-length = 140
 
 [tool.mypy]

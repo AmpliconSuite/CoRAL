@@ -5,4 +5,4 @@
 from setuptools import setup
 
 if __name__ == "__main__":
-    setup(name="CoRAL", version="1.0.0")
+    setup(name="CoRAL", version="2.0.0")

@@ -5,18 +5,14 @@ Utilities for breakpoint graph inference.
 from __future__ import annotations
 
 import io
-import math
 from collections import Counter
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
-import click
-import intervaltree
 import numpy as np
 
 from coral import constants
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
-from coral.types import CnsInterval
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:
@@ -41,8 +37,7 @@ def interval_adjacent(int1: list[int], int2: list[int]) -> bool:
         return False
     if int1[1] <= int2[1]:
         return int2[1] == int1[2] + 1
-    else:
-        return int1[1] == int2[2] + 1
+    return int1[1] == int2[2] + 1
 
 
 def interval_overlap_l(int1: list[int], intl: list[list[int]]) -> int:
@@ -93,18 +88,7 @@ def alignment2bp(rn, chimeric_alignment, min_bp_match_cutoff, min_mapq, intrvl1,
             and interval_overlap(rr_int[ri + 1], intrvl2)
             and q_[ri] >= min_mapq
             and q_[ri + 1] >= min_mapq
-        ):
-            bp_list.append(
-                interval2bp(
-                    rr_int[ri],
-                    rr_int[ri + 1],
-                    (rn, ri, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri][1]),
-                )
-                + [q_[ri], q_[ri + 1]]
-            )
-            bassigned[ri] = 1
-        elif (
+        ) or (
             int(r_int[ri + 1][0]) - int(r_int[ri][1]) + min_bp_match_cutoff >= 0
             and interval_overlap(rr_int[ri + 1], intrvl1)
             and interval_overlap(rr_int[ri], intrvl2)
@@ -132,17 +116,7 @@ def alignment2bp(rn, chimeric_alignment, min_bp_match_cutoff, min_mapq, intrvl1,
             and q_[ri + 1] >= min_mapq
             and interval_overlap(rr_int[ri - 1], intrvl1)
             and interval_overlap(rr_int[ri + 1], intrvl2)
-        ):
-            bp_list.append(
-                interval2bp(
-                    rr_int[ri - 1],
-                    rr_int[ri + 1],
-                    (rn, ri - 1, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri - 1][1]),
-                )
-                + [q_[ri - 1], q_[ri + 1]]
-            )
-        elif (
+        ) or (
             bassigned[ri - 1] == 0
             and bassigned[ri] == 0
             and q_[ri] < gap_mapq
@@ -181,18 +155,7 @@ def alignment2bp_nm(rn, chimeric_alignment, min_bp_match_cutoff, min_mapq, max_n
             and q_[ri + 1] >= min_mapq
             and nm[ri] < max_nm
             and nm[ri + 1] < max_nm
-        ):
-            bp_list.append(
-                interval2bp(
-                    rr_int[ri],
-                    rr_int[ri + 1],
-                    (rn, ri, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri][1]),
-                )
-                + [q_[ri], q_[ri + 1]]
-            )
-            bassigned[ri] = 1
-        elif (
+        ) or (
             int(r_int[ri + 1][0]) - int(r_int[ri][1]) + min_bp_match_cutoff >= 0
             and interval_overlap(rr_int[ri + 1], intrvl1)
             and interval_overlap(rr_int[ri], intrvl2)
@@ -224,17 +187,7 @@ def alignment2bp_nm(rn, chimeric_alignment, min_bp_match_cutoff, min_mapq, max_n
             and interval_overlap(rr_int[ri + 1], intrvl2)
             and nm[ri - 1] < max_nm
             and nm[ri + 1] < max_nm
-        ):
-            bp_list.append(
-                interval2bp(
-                    rr_int[ri - 1],
-                    rr_int[ri + 1],
-                    (rn, ri - 1, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri - 1][1]),
-                )
-                + [q_[ri - 1], q_[ri + 1]]
-            )
-        elif (
+        ) or (
             bassigned[ri - 1] == 0
             and bassigned[ri] == 0
             and q_[ri] < gap_mapq
@@ -592,11 +545,11 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
     for i in range(4):
         bp_stats[i] /= len(bp_cluster) * 1.0
     try:
-        bp_stats[2] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[2] - bp_stats[0] * bp_stats[0]))
+        bp_stats[2] = max(bp_distance_cutoff / 2.99, np.sqrt(bp_stats[2] - bp_stats[0] * bp_stats[0]))
     except:
         bp_stats[2] = bp_distance_cutoff / 2.99
     try:
-        bp_stats[3] = max(bp_distance_cutoff / 2.99, math.sqrt(bp_stats[3] - bp_stats[1] * bp_stats[1]))
+        bp_stats[3] = max(bp_distance_cutoff / 2.99, np.sqrt(bp_stats[3] - bp_stats[1] * bp_stats[1]))
     except:
         bp_stats[3] = bp_distance_cutoff / 2.99
     bp1_list = []
@@ -618,24 +571,22 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
         bp1_counter = Counter(bp1_list)
         if len(bp1_counter.most_common(2)) == 1 or bp1_counter.most_common(2)[0][1] > bp1_counter.most_common(2)[1][1]:
             bp[1] = bp1_counter.most_common(2)[0][0]
+        elif len(bp1_list) % 2 == 1:
+            bp[1] = int(np.median(bp1_list))
+        elif bp_[2] == "+":
+            bp[1] = int(np.ceil(np.median(bp1_list)))
         else:
-            if len(bp1_list) % 2 == 1:
-                bp[1] = int(np.median(bp1_list))
-            elif bp_[2] == "+":
-                bp[1] = int(math.ceil(np.median(bp1_list)))
-            else:
-                bp[1] = int(math.floor(np.median(bp1_list)))
+            bp[1] = int(np.floor(np.median(bp1_list)))
     if len(bp4_list) > 0:
         bp4_counter = Counter(bp4_list)
         if len(bp4_counter.most_common(2)) == 1 or bp4_counter.most_common(2)[0][1] > bp4_counter.most_common(2)[1][1]:
             bp[4] = bp4_counter.most_common(2)[0][0]
+        elif len(bp4_list) % 2 == 1:
+            bp[4] = int(np.median(bp4_list))
+        elif bp_[5] == "+":
+            bp[4] = int(np.ceil(np.median(bp4_list)))
         else:
-            if len(bp4_list) % 2 == 1:
-                bp[4] = int(np.median(bp4_list))
-            elif bp_[5] == "+":
-                bp[4] = int(math.ceil(np.median(bp4_list)))
-            else:
-                bp[4] = int(math.floor(np.median(bp4_list)))
+            bp[4] = int(np.floor(np.median(bp4_list)))
     bp_cluster_r = []
     for bp_ in bp_cluster:
         if bp_match(bp_, bp, bp_[7] * 1.2, [bp_distance_cutoff, bp_distance_cutoff]):
@@ -658,11 +609,11 @@ def bpc2bp(bp_cluster, bp_distance_cutoff):
         bp_stats_[i] /= len(bpr) * 1.0
     # print (bp_stats_)
     try:
-        bp_stats_[2] = math.sqrt(bp_stats_[2] - bp_stats_[0] * bp_stats_[0])
+        bp_stats_[2] = np.sqrt(bp_stats_[2] - bp_stats_[0] * bp_stats_[0])
     except:
         bp_stats_[2] = 0
     try:
-        bp_stats_[3] = math.sqrt(bp_stats_[3] - bp_stats_[1] * bp_stats_[1])
+        bp_stats_[3] = np.sqrt(bp_stats_[3] - bp_stats_[1] * bp_stats_[1])
     except:
         bp_stats_[3] = 0
     return bp, bpr, bp_stats_, bp_cluster_r
@@ -722,3 +673,230 @@ def get_interval_from_bed(file_row: Tuple[str, str, str]) -> List:
 
 def get_interval_from_cns(file_row: Tuple[str, str, str]) -> List:
     return [file_row[0], int(file_row[1]), int(file_row[2]), -1]
+
+
+def check_valid_partition(rc_list, partition, max_multiplicity=5):
+    """
+    Given a partition
+    """
+    if partition[0] == partition[1]:
+        return (True, partition[0], 0.0)
+    rc_list_p = rc_list[partition[0] : partition[1] + 1]
+    if rc_list_p[-1] < rc_list_p[0] * 2.0:
+        return (True, partition[1], 0.0)
+    base_ri = 0
+    while base_ri < len(rc_list_p) and rc_list_p[base_ri] < rc_list_p[0] * 2.0:
+        base_ri += 1
+    base_avg_rc = np.average(rc_list_p[:base_ri])
+    if rc_list_p[-1] / base_avg_rc >= max_multiplicity + 0.5:
+        return (False, None, None)
+    score = -10.0
+    best_ri = base_ri
+    sum_deviation = 1.0
+    for base_ri_ in range(base_ri, 0, -1):
+        base_avg_rc = np.average(rc_list_p[:base_ri_])
+        base_size = len(rc_list_p[:base_ri_])
+        sizes = dict()
+        # Cluster breakpoints with higher multiplicities
+        li = base_ri_
+        multiplicity = 2
+        if rc_list_p[base_ri_] / base_avg_rc < multiplicity - 0.5:
+            continue
+        while rc_list_p[base_ri_] / base_avg_rc >= multiplicity + 0.5:
+            multiplicity += 1
+        sum_gap = np.log2(rc_list_p[base_ri_]) - np.log2(rc_list_p[base_ri_ - 1])
+        # Note: sometimes int(round()) will convert 1.5 to 1
+        # The following procedure works well
+        for i in range(base_ri_, len(rc_list_p)):
+            if rc_list_p[i] / base_avg_rc >= multiplicity + 0.5:
+                sum_gap += np.log2(rc_list_p[i]) - np.log2(rc_list_p[i - 1])
+                sizes[multiplicity] = [li, i - 1]
+                li = i
+                while rc_list_p[i] / base_avg_rc >= multiplicity + 0.5:
+                    multiplicity += 1
+        sizes[multiplicity] = [li, len(rc_list_p) - 1]
+        if multiplicity > max_multiplicity:
+            continue
+        size_flag = True
+        for m in range(2, multiplicity + 1):
+            if m in sizes and sizes[m][1] - sizes[m][0] >= base_size:
+                size_flag = False
+                break
+        if not size_flag:
+            continue
+        sum_deviation_ = sum(
+            [abs(m - np.average(rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc)) for m in range(2, multiplicity + 1) if m in sizes],
+        )
+        if sum_gap - sum_deviation_ > score:
+            score = sum_gap - sum_deviation_
+            sum_deviation = sum_deviation_
+            best_ri = base_ri_
+    if sum_deviation < 1.0:
+        return (True, best_ri + partition[0] - 1, score)
+    return (False, None, None)
+
+
+def enumerate_partitions(k, start, end):
+    if k == 0:
+        yield [[start, end]]
+    else:
+        for i in range(1, end - start - k + 2):
+            for res in enumerate_partitions(k - 1, start + i, end):
+                yield [[start, start + i - 1]] + res
+
+
+def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
+    """Write a breakpoint graph to file in AA graph format with short read and long read information"""
+    with open(ogfile, "w") as fp:
+        fp.write(
+            "SequenceEdge: StartPosition, EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads, Size\n",
+        )
+        for se in g.sequence_edges:
+            if se[4] == "d":
+                fp.write(
+                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n"
+                    % (
+                        se[0],
+                        se[1],
+                        se[0],
+                        se[2],
+                        se[-1],
+                        int(np.round(se[3] * downsample_factor)),
+                        se[5],
+                        se[7],
+                    ),
+                )
+            else:
+                fp.write(
+                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n" % (se[0], se[1], se[0], se[2], se[-1], se[3], se[5], se[7]),
+                )
+        fp.write(
+            "BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads\n",
+        )
+        for srce in g.source_edges:
+            if srce[7] == "d":
+                fp.write(
+                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n"
+                    % (
+                        srce[0],
+                        srce[1],
+                        srce[2],
+                        srce[3],
+                        srce[4],
+                        srce[5],
+                        srce[-1],
+                        int(np.round(srce[6] * downsample_factor)),
+                    ),
+                )
+            else:
+                fp.write(
+                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n" % (srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1], srce[6]),
+                )
+        for ce in self.concordant_edges:
+            if ce[7] == "d":
+                fp.write(
+                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
+                    % (
+                        ce[0],
+                        ce[1],
+                        ce[2],
+                        ce[3],
+                        ce[4],
+                        ce[5],
+                        ce[-1],
+                        int(np.round(ce[6] * downsample_factor)),
+                        ce[8],
+                    ),
+                )
+            else:
+                fp.write(
+                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n" % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[6], ce[8]),
+                )
+        for de in self.discordant_edges:
+            if de[7] == "d":
+                fp.write(
+                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
+                    % (
+                        de[0],
+                        de[1],
+                        de[2],
+                        de[3],
+                        de[4],
+                        de[5],
+                        de[-1],
+                        int(np.round(de[6] * downsample_factor)),
+                        de[9],
+                    ),
+                )
+            else:
+                fp.write(
+                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n" % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[6], de[9]),
+                )
+
+
+def output_breakpoint_graph_lr(g, ogfile):
+    """Write a breakpoint graph to file in AA graph format with only long read information"""
+    with open(ogfile, "w") as fp:
+        fp.write(
+            "SequenceEdge: StartPosition, EndPosition, PredictedCN, AverageCoverage, Size, NumberOfLongReads\n",
+        )
+        for se in g.sequence_edges:
+            fp.write(
+                "sequence\t%s:%s-\t%s:%s+\t%f\t%f\t%d\t%d\n" % (se[0], se[1], se[0], se[2], se[-1], se[6] * 1.0 / se[7], se[7], se[5]),
+            )
+        fp.write("BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads\n")
+        for srce in g.source_edges:
+            fp.write(
+                "source\t%s:%s%s->%s:%s%s\t%f\t-1\n" % (srce[0], srce[1], srce[2], srce[3], srce[4], srce[5], srce[-1]),
+            )
+        for ce in g.concordant_edges:
+            fp.write(
+                "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\n" % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[8]),
+            )
+        for de in g.discordant_edges:
+            fp.write(
+                "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\n" % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[9]),
+            )
+
+
+def output_breakpoint_info_sr_lr(g, obpfile, downsample_factor, new_bp_stats):
+    """Write the list of breakpoints to file"""
+    with open(obpfile, "w") as fp:
+        fp.write(
+            "chr1\tpos1\tchr2\tpos2\torientation\tsr_support\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
+        )
+        for di in range(len(g.discordant_edges)):
+            de = g.discordant_edges[di]
+            if di in bp_stats:
+                fp.write(
+                    "%s\t%s\t%s\t%s\t%s%s\t-1\t%d\t%s\n" % (de[3], de[4], de[0], de[1], de[5], de[2], de[9], new_bp_stats[di]),
+                )
+            elif de[7] == "d":
+                fp.write(
+                    "%s\t%s\t%s\t%s\t%s%s\t%d\t%d\tN/A\n"
+                    % (
+                        de[3],
+                        de[4],
+                        de[0],
+                        de[1],
+                        de[5],
+                        de[2],
+                        int(np.round(de[6] * downsample_factor)),
+                        de[9],
+                    ),
+                )
+            else:
+                fp.write(
+                    "%s\t%s\t%s\t%s\t%s%s\t%d\t%d\tN/A\n" % (de[3], de[4], de[0], de[1], de[5], de[2], de[6], de[9]),
+                )
+
+
+def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):
+    """Write the list of breakpoints to file"""
+    with open(filename, "w") as fp:
+        fp.write(
+            "chr1\tpos1\tchr2\tpos2\torientation\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
+        )
+        for di in range(len(g.discordant_edges)):
+            de = g.discordant_edges[di]
+            fp.write(f"{de[3]}\t{de[4]}\t{de[0]}\t{de[1]}\t{de[5]}{de[2]}\t{de[9]}\t{bp_stats[di]}\n")

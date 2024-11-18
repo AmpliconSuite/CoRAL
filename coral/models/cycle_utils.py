@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import logging
-import math
 import os
-import random
-import time
 from typing import Dict, List, Optional
 
 import pyomo
@@ -17,6 +14,7 @@ import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
+
 from coral import datatypes
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import EdgeToCN, ParsedLPSolution
@@ -37,7 +35,7 @@ def process_cycle_edge(
     src_node_offset = bp_graph.num_nonsrc_edges + 2 * bp_graph.num_src_edges
 
     if remaining_cn:
-        assert resolution, f"Resolution must be provided when processing a greedy solution using remaining CN."
+        assert resolution, "Resolution must be provided when processing a greedy solution using remaining CN."
 
     # Is sequence edge
     if edge_idx < bp_graph.num_seq_edges:
@@ -116,7 +114,8 @@ def parse_lp_solution(
         logger.debug(f"Walk {i} checking ; CN = {model.w[i].value}.")
         if model.z[i].value >= 0.9:
             logger.debug(f"Cycle/Path {i} exists; CN = {model.w[i].value}.")
-            if resolution and model.w[i].value < resolution:  # TODO: break condition for greedy
+            if resolution and (walk_weight := model.w[i].value) < resolution:
+                parsed_sol.cycle_weights[0].append(walk_weight)
                 logger.debug("\tCN less than resolution, iteration terminated successfully.")
                 break
             found_cycle = False

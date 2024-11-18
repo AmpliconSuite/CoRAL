@@ -1,10 +1,8 @@
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-import pyomo.core
 import pyomo.environ as pyo
-import pyomo.opt
-import pyomo.util.infeasible
+
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import EdgeToCN
 
@@ -230,7 +228,7 @@ def get_addtl_subpath_edge_constraints(
         for pi in range(len(pc_list)):
             constraints.append(sum(model.r[pi, i] for i in range(k)) >= 1.0)
         return constraints
-    assert p_path_constraints, f"Need to pass p_path_constraints when generating post-processing model"
+    assert p_path_constraints, "Need to pass p_path_constraints when generating post-processing model"
     sum_R = 0.0
     for pi in range(len(pc_list)):
         sum_R += model.R[pi]

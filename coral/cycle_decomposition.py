@@ -1,14 +1,11 @@
 """Functions used for cycle decomposition"""
 
 from __future__ import annotations
-import logging
-import math
-import os
-import random
-import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Set
 
+import logging
+from typing import Any, Dict, List
+
+import numpy as np
 import pyomo
 import pyomo.contrib.appsi
 import pyomo.core
@@ -20,11 +17,11 @@ import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
-from coral import constants, datatypes, models
+
+from coral import datatypes, models
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.constants import CHR_TAG_TO_IDX
-from coral.models import output, utils
+from coral.models import cycle_utils, output
 from coral.models.concrete import CycleLPModel
 from coral.models.path_constraints import longest_path_dict
 
@@ -88,7 +85,7 @@ def minimize_cycles(
     model.write(f"{model_name}.lp", io_options={"symbolic_solver_labels": True})
     logger.debug(f"Completed model setup, wrote to {model_name}.lp.")
 
-    solver = utils.get_solver(
+    solver = cycle_utils.get_solver(
         solver_type=solver_to_use,
         num_threads=num_threads,
         time_limit_s=max(time_limit, bp_graph.num_disc_edges * 300),  # each breakpoint edge is assigned 5 minutes
@@ -99,7 +96,7 @@ def minimize_cycles(
     if results.solver.termination_condition == pyo.TerminationCondition.infeasible:
         pyomo.util.infeasible.log_infeasible_constraints(model, log_expression=True, log_variables=True)
 
-    return utils.parse_lp_solution(results.solver.status, results.solver.termination_condition, model, bp_graph, k, pc_list, total_weights)
+    return cycle_utils.parse_lp_solution(results.solver.status, results.solver.termination_condition, model, bp_graph, k, pc_list, total_weights)
 
 
 def minimize_cycles_post(
@@ -163,7 +160,7 @@ def minimize_cycles_post(
     model.write(f"{model_name}.lp", io_options={"symbolic_solver_labels": True})
 
     logger.debug(f"Completed model setup, wrote to {model_name}.lp.")
-    solver = utils.get_solver(
+    solver = cycle_utils.get_solver(
         solver_type=solver_to_use,
         num_threads=num_threads,
         time_limit_s=max(time_limit, bp_graph.num_disc_edges * 300),  # each breakpoint edge is assigned 5 minutes
@@ -234,6 +231,9 @@ def maximize_weights_greedy(
     model_prefix: str ="pyomo",
     solver_to_use: datatypes.Solver = datatypes.Solver.GUROBI,
 ):
+    """Greedy cycle decomposition by maximizing the total length-weighted CN
+
+    """
     # Essentially can consider base model with k = 1
 
     remaining_weights = total_weights
@@ -252,7 +252,7 @@ def maximize_weights_greedy(
     )
 
     while next_w >= resolution and (
-        remaining_weights > (1.0 - p_total_weight) * total_weights or num_unsatisfied_pc > math.floor((1.0 - p_subpaths) * len(pc_list))
+        remaining_weights > (1.0 - p_total_weight) * total_weights or num_unsatisfied_pc > np.floor((1.0 - p_subpaths) * len(pc_list))
     ):
         pp = 1.0
         if alpha > 0 and num_unsatisfied_pc > 0:
@@ -260,7 +260,7 @@ def maximize_weights_greedy(
         logger.debug(
             f"Iteration {cycle_id + 1} with remaining CN = {remaining_weights} and num subpath constraints = {num_unsatisfied_pc}/{len(pc_list)}."
         )
-        logger.debug(f"Multiplication factor for subpath contstraints = {pp}.")
+        logger.debug(f"Multiplication factor for subpath constraints = {pp}.")
         model_name = f"{model_prefix}/amplicon_{amplicon_id}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
 
         model = models.concrete.get_model(
@@ -278,25 +278,29 @@ def maximize_weights_greedy(
         model.write(f"{model_name}.lp", io_options={"symbolic_solver_labels": True})
         logger.debug(f"Completed model setup, wrote to {model_name}.lp.")
 
-        solver = utils.get_solver(
+        solver = cycle_utils.get_solver(
             solver_type=solver_to_use,
             num_threads=num_threads,
             time_limit_s=max(time_limit, bp_graph.num_disc_edges * 300),  # each breakpoint edge is assigned 5 minutes
         )
         results: pyomo.opt.SolverResults = solver.solve(model, tee=True)
-
+        lp_solution = cycle_utils.parse_lp_solution(results.solver.status, results.solver.termination_condition, model, bp_graph, 1, pc_list, total_weights, remaining_cn, resolution, unsatisfied_pc)
+        # Update greedy stop conditions based on latest solution
+        next_w = lp_solution.cycle_weights[0][0]
+        num_unsatisfied_pc = len(lp_solution.path_constraints_satisfied_set)
+        remaining_weights = total_weights - lp_solution.total_weights_included
 
 def cycle_decomposition(
-    bb: infer_breakpoint_graph.BamToBreakpointNanopore,
+    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
     alpha: float = 0.01,
     p_total_weight: float = 0.9,
     resolution: float = 0.1,
     num_threads: int = -1,
     postprocess: int = 0,
     time_limit: int = 7200,
-    model_prefix: str = "pyomo",
     solver_to_use: datatypes.Solver = datatypes.Solver.GUROBI,
     output_all_path_constraints: bool = False,
+    model_prefix: str = "pyomo",
 ):
     """Caller for cycle decomposition functions"""
     for amplicon_idx in range(len(bb.lr_graph)):
@@ -520,17 +524,17 @@ def cycle_decomposition(
 
 
 def reconstruct_cycles(
-    output_prefix: str,
+    output_dir: str,
     output_all_path_constraints: bool,
     cycle_decomp_alpha: float,
     cycle_decomp_time_limit: int,
     cycle_decomp_threads: int,
     solver_to_use: datatypes.Solver,
     postprocess_greedy_sol: bool,
-    bb: infer_breakpoint_graph.BamToBreakpointNanopore,
+    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
 ):
     logging.basicConfig(
-        filename=f"{output_prefix}/cycle_decomp.log",
+        filename=f"{output_dir}/cycle_decomp.log",
         filemode="w",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -556,10 +560,9 @@ def reconstruct_cycles(
         num_threads=nthreads,
         postprocess=postprocess_,
         time_limit=time_limit_,
-        model_prefix=output_prefix,
         solver_to_use=solver_to_use,
         output_all_path_constraints=output_all_path_constraints,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
-    logger.info(f"Wrote cycles for all complicons to {output_prefix}_amplicon*_cycles.txt.")
+    logger.info(f"Wrote cycles for all complicons to {output_dir}/amplicon*_cycles.txt.")
 

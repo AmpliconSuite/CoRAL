@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 
 import typer
 
@@ -11,18 +10,9 @@ from coral.constants import CHR_SIZES, CNSIZE_MAX
 logger = logging.getLogger(__name__)
 
 
-def interval_overlap(int1, int2):
-    """Check if two intervals in the form of [chr, s, e] overlap"""
-    return (
-        int1[0] == int2[0]
-        and int(int1[1]) <= int(int2[2])
-        and int(int2[1]) <= int(int1[2])
-    )
-
-
 def run_seeding(
     cn_seg_file: typer.FileText,
-    output_filename: str,
+    output_prefix: str,
     gain: float,
     min_seed_size: float,
     max_seg_gap: float,
@@ -101,8 +91,8 @@ def run_seeding(
         chr_arms[chr].append([ccn_p, ccn_q])
 
     OUTPUT_FN = cn_seg_file.name.replace(".cns", "CNV_SEEDS.bed")
-    if output_filename:
-        OUTPUT_FN = output_filename
+    if output_prefix:
+        OUTPUT_FN = f"{output_prefix}_CNV_SEEDS.bed"
     with open(OUTPUT_FN, "w") as fp:
         for seed in cnv_seeds:
             sum_seed_len = sum([cns[2] - cns[1] for cns in seed])
