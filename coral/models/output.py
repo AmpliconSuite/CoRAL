@@ -12,7 +12,12 @@ from coral.constants import CHR_TAG_TO_IDX
 logger = logging.getLogger(__name__)
 
 
-def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next_cycle, path_constraints_support):
+def eulerian_cycle_t(
+    g: BreakpointGraph,
+    edges_next_cycle,
+    path_constraints_next_cycle,
+    path_constraints_support,
+):
     """Return an eulerian traversal of a cycle, represented by a dict of edges
 
     g: breakpoint graph (object)
@@ -28,14 +33,20 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
     """
     lseg = len(g.sequence_edges)
 
-    eulerian_cycle: list[Any] = []  # A cycle is edge - node list starting and ending with the same edge
+    eulerian_cycle: list[
+        Any
+    ] = []  # A cycle is edge - node list starting and ending with the same edge
     # Since Eulerian, there could be subcycles in the middle of a cycle
     eulerian_cycle_: list[Any] = []  # Cycle in AA cycle format
     best_cycle: list[Any] = []  # Cycle in AA cycle format
     valid = 0
     num_trials = 0
     l = len(path_constraints_next_cycle)
-    unsatisfied_path_metric = [range(l), 100 * l, 100 * max(path_constraints_support + [0])]
+    unsatisfied_path_metric = [
+        range(l),
+        100 * l,
+        100 * max(path_constraints_support + [0]),
+    ]
     while valid <= 0 and num_trials < 1000:
         valid = 1
         num_trials += 1
@@ -60,7 +71,11 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
                 next_bp_edges.append(("c", ci))
             for di in g.nodes[node][2]:
                 next_bp_edges.append(("d", di))
-            del_list = [i for i in range(len(next_bp_edges)) if next_bp_edges[i] not in edges_cur]
+            del_list = [
+                i
+                for i in range(len(next_bp_edges))
+                if next_bp_edges[i] not in edges_cur
+            ]
             for i in del_list[::-1]:
                 del next_bp_edges[i]
             if len(next_bp_edges) == 0:
@@ -68,7 +83,9 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
                 break
             if len(next_bp_edges) == 1:  # No branching on the path
                 eulerian_cycle.append(next_bp_edges[0])
-                edges_cur[next_bp_edges[0]] = int(edges_cur[next_bp_edges[0]]) - 1
+                edges_cur[next_bp_edges[0]] = (
+                    int(edges_cur[next_bp_edges[0]]) - 1
+                )
                 if edges_cur[next_bp_edges[0]] == 0:
                     del edges_cur[next_bp_edges[0]]
                 bp_edge = []
@@ -88,13 +105,17 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
                 else:
                     last_edge_dir = "-"
                     eulerian_cycle_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[("e", last_seq_edge)] = (
+                    int(edges_cur[("e", last_seq_edge)]) - 1
+                )
                 if edges_cur[("e", last_seq_edge)] == 0:
                     del edges_cur[("e", last_seq_edge)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_cycle.append(next_bp_edges[r])
-                edges_cur[next_bp_edges[r]] = int(edges_cur[next_bp_edges[r]]) - 1
+                edges_cur[next_bp_edges[r]] = (
+                    int(edges_cur[next_bp_edges[r]]) - 1
+                )
                 if edges_cur[next_bp_edges[r]] == 0:
                     del edges_cur[next_bp_edges[r]]
                 bp_edge = []
@@ -114,7 +135,9 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
                 else:
                     last_edge_dir = "-"
                     eulerian_cycle_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[("e", last_seq_edge)] = (
+                    int(edges_cur[("e", last_seq_edge)]) - 1
+                )
                 if edges_cur[("e", last_seq_edge)] == 0:
                     del edges_cur[("e", last_seq_edge)]
         if valid == 1 and len(best_cycle) == 0:
@@ -130,7 +153,12 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
                 if obj == path0:
                     s_ = 1
                     for i in range(len(path_)):
-                        if eulerian_cycle[:-1][(ei + i) % (len(eulerian_cycle) - 1)] != path_[i]:
+                        if (
+                            eulerian_cycle[:-1][
+                                (ei + i) % (len(eulerian_cycle) - 1)
+                            ]
+                            != path_[i]
+                        ):
                             s_ = 0
                             break
                     if s_ == 1:
@@ -153,7 +181,10 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
         if (
             valid != 0
             and (len(path_metric[0]) < len(unsatisfied_path_metric[0]))
-            or (len(path_metric[0]) == len(unsatisfied_path_metric[0]) and path_metric[1] < unsatisfied_path_metric[1])
+            or (
+                len(path_metric[0]) == len(unsatisfied_path_metric[0])
+                and path_metric[1] < unsatisfied_path_metric[1]
+            )
             or (
                 len(path_metric[0]) == len(unsatisfied_path_metric[0])
                 and path_metric[1] == unsatisfied_path_metric[1]
@@ -175,7 +206,12 @@ def eulerian_cycle_t(g: BreakpointGraph, edges_next_cycle, path_constraints_next
     return best_cycle
 
 
-def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_path, path_constraints_support):
+def eulerian_path_t(
+    g: BreakpointGraph,
+    edges_next_path,
+    path_constraints_next_path,
+    path_constraints_support,
+):
     """Return an eulerian traversal of an s-t walk, represented by a dict of edges
 
     g: breakpoint graph (object)
@@ -195,14 +231,20 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
     lseg = len(g.sequence_edges)
     endnode_list = [node for node in g.endnodes.keys()]
 
-    eulerian_path: list[Any] = []  # A path is edge - node list starting and ending with edges
+    eulerian_path: list[
+        Any
+    ] = []  # A path is edge - node list starting and ending with edges
     # Since Eulerian, there could be subcycles in the middle of a path
     eulerian_path_: list[Any] = []  # Path in AA cycle format
     best_path: list[Any] = []  # Path in AA cycle format
     valid = 0
     num_trials = 0
     l = len(path_constraints_next_path)
-    unsatisfied_path_metric = [range(l), 100 * l, 100 * max(path_constraints_support + [0])]
+    unsatisfied_path_metric = [
+        range(l),
+        100 * l,
+        100 * max(path_constraints_support + [0]),
+    ]
     while valid <= 0 and num_trials < 1000:
         valid = 1
         num_trials += 1
@@ -247,7 +289,9 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
             eulerian_path_.append(str(last_seq_edge + 1) + "+")
         else:
             eulerian_path_.append(str(last_seq_edge + 1) + "-")
-        edges_cur[("e", last_seq_edge)] = int(edges_cur[("e", last_seq_edge)]) - 1
+        edges_cur[("e", last_seq_edge)] = (
+            int(edges_cur[("e", last_seq_edge)]) - 1
+        )
         if edges_cur[("e", last_seq_edge)] == 0:
             del edges_cur[("e", last_seq_edge)]
         while len(edges_cur) > 0:
@@ -269,7 +313,11 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
                 next_bp_edges.append(("c", ci))
             for di in g.nodes[node][2]:
                 next_bp_edges.append(("d", di))
-            del_list = [i for i in range(len(next_bp_edges)) if next_bp_edges[i] not in edges_cur]
+            del_list = [
+                i
+                for i in range(len(next_bp_edges))
+                if next_bp_edges[i] not in edges_cur
+            ]
             for i in del_list[::-1]:
                 del next_bp_edges[i]
             if len(next_bp_edges) == 0:
@@ -277,7 +325,9 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
                 break
             if len(next_bp_edges) == 1:  # No branching on the path
                 eulerian_path.append(next_bp_edges[0])
-                edges_cur[next_bp_edges[0]] = int(edges_cur[next_bp_edges[0]]) - 1
+                edges_cur[next_bp_edges[0]] = (
+                    int(edges_cur[next_bp_edges[0]]) - 1
+                )
                 if edges_cur[next_bp_edges[0]] == 0:
                     del edges_cur[next_bp_edges[0]]
                 bp_edge = []
@@ -297,13 +347,17 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
                 else:
                     last_edge_dir = "-"
                     eulerian_path_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[("e", last_seq_edge)] = (
+                    int(edges_cur[("e", last_seq_edge)]) - 1
+                )
                 if edges_cur[("e", last_seq_edge)] == 0:
                     del edges_cur[("e", last_seq_edge)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_path.append(next_bp_edges[r])
-                edges_cur[next_bp_edges[r]] = int(edges_cur[next_bp_edges[r]]) - 1
+                edges_cur[next_bp_edges[r]] = (
+                    int(edges_cur[next_bp_edges[r]]) - 1
+                )
                 if edges_cur[next_bp_edges[r]] == 0:
                     del edges_cur[next_bp_edges[r]]
                 bp_edge = []
@@ -323,7 +377,9 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
                 else:
                     last_edge_dir = "-"
                     eulerian_path_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[("e", last_seq_edge)] = (
+                    int(edges_cur[("e", last_seq_edge)]) - 1
+                )
                 if edges_cur[("e", last_seq_edge)] == 0:
                     del edges_cur[("e", last_seq_edge)]
         if valid == 1 and len(best_path) == 0:
@@ -334,7 +390,10 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
             path_ = path_constraints_next_path[pathi]
             s = 0
             for ei in range(2, len(eulerian_path) - 1 - len(path_)):
-                if eulerian_path[ei : ei + len(path_)] == path_[:] or eulerian_path[ei : ei + len(path_)] == path_[::-1]:
+                if (
+                    eulerian_path[ei : ei + len(path_)] == path_[:]
+                    or eulerian_path[ei : ei + len(path_)] == path_[::-1]
+                ):
                     s = 1
                     break
             if s == 0 and valid == 1:
@@ -346,7 +405,10 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
         if (
             valid != 0
             and (len(path_metric[0]) < len(unsatisfied_path_metric[0]))
-            or (len(path_metric[0]) == len(unsatisfied_path_metric[0]) and path_metric[1] < unsatisfied_path_metric[1])
+            or (
+                len(path_metric[0]) == len(unsatisfied_path_metric[0])
+                and path_metric[1] < unsatisfied_path_metric[1]
+            )
             or (
                 len(path_metric[0]) == len(unsatisfied_path_metric[0])
                 and path_metric[1] == unsatisfied_path_metric[1]
@@ -366,22 +428,37 @@ def eulerian_path_t(g: BreakpointGraph, edges_next_path, path_constraints_next_p
     return best_path
 
 
-def output_all_cycles(bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata, cycle_file_prefix: str, output_all_paths: bool = False) -> None:
+def output_all_cycles(
+    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    cycle_file_prefix: str,
+    output_all_paths: bool = False,
+) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     for amplicon_idx in range(len(bb.lr_graph)):
-        output_amplicon_cycles(amplicon_idx, bb, cycle_file_prefix, output_all_paths)
+        output_amplicon_cycles(
+            amplicon_idx, bb, cycle_file_prefix, output_all_paths
+        )
 
 
 def output_amplicon_cycles(
-    amplicon_idx: int, bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata, cycle_file_prefix: str, output_all_paths: bool = False
+    amplicon_idx: int,
+    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    cycle_file_prefix: str,
+    output_all_paths: bool = False,
 ) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
     cycle_path = f"{cycle_file_prefix}/amplicon{amplicon_idx + 1}_cycles.txt"
     fp = open(cycle_path, "w")
     interval_num = 1
-    ai_amplicon = [ai for ai in bb.amplicon_intervals if bb.ccid2id[ai[3]] == amplicon_idx + 1]
-    ai_amplicon = sorted(ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai[0]], ai[1]))
+    ai_amplicon = [
+        ai
+        for ai in bb.amplicon_intervals
+        if bb.ccid2id[ai[3]] == amplicon_idx + 1
+    ]
+    ai_amplicon = sorted(
+        ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai[0]], ai[1])
+    )
     for ai in ai_amplicon:
         fp.write(f"Interval\t{interval_num}\t{ai[0]}\t{ai[1]}\t{ai[2]}\n")
         interval_num += 1
@@ -407,15 +484,22 @@ def output_amplicon_cycles(
                         fp.write("%d-\t" % (path_[i][1] + 1))
                     else:
                         fp.write("%d+\t" % (path_[i][1] + 1))
-            fp.write("Support=%d\n" % (bb.path_constraints[amplicon_idx][1][pathi]))
+            fp.write(
+                "Support=%d\n" % (bb.path_constraints[amplicon_idx][1][pathi])
+            )
     else:
         fp.write("List of longest subpath constraints\n")
         path_constraint_indices_ = []
-        for paths in bb.path_constraints_satisfied[amplicon_idx][0] + bb.path_constraints_satisfied[amplicon_idx][1]:
+        for paths in (
+            bb.path_constraints_satisfied[amplicon_idx][0]
+            + bb.path_constraints_satisfied[amplicon_idx][1]
+        ):
             for pathi in paths:
                 if pathi not in path_constraint_indices_:
                     path_constraint_indices_.append(pathi)
-        for constraint_i in range(len(bb.longest_path_constraints[amplicon_idx][1])):
+        for constraint_i in range(
+            len(bb.longest_path_constraints[amplicon_idx][1])
+        ):
             fp.write("Path constraint\t%d\t" % (constraint_i + 1))
             pathi = bb.longest_path_constraints[amplicon_idx][1][constraint_i]
             path_ = bb.path_constraints[amplicon_idx][0][pathi]
@@ -433,7 +517,8 @@ def output_amplicon_cycles(
                     else:
                         fp.write("%d+\t" % (path_[i][1] + 1))
             fp.write(
-                "Support=%d\t" % (bb.longest_path_constraints[amplicon_idx][2][constraint_i]),
+                "Support=%d\t"
+                % (bb.longest_path_constraints[amplicon_idx][2][constraint_i]),
             )
             if constraint_i in path_constraint_indices_:
                 fp.write("Satisfied\n")
@@ -442,7 +527,8 @@ def output_amplicon_cycles(
 
     # sort cycles according to weights
     cycle_indices = sorted(
-        [(0, i) for i in range(len(bb.cycle_weights[amplicon_idx][0]))] + [(1, i) for i in range(len(bb.cycle_weights[amplicon_idx][1]))],
+        [(0, i) for i in range(len(bb.cycle_weights[amplicon_idx][0]))]
+        + [(1, i) for i in range(len(bb.cycle_weights[amplicon_idx][1]))],
         key=lambda item: bb.cycle_weights[amplicon_idx][item[0]][item[1]],
         reverse=True,
     )
@@ -450,10 +536,14 @@ def output_amplicon_cycles(
     print(cycle_indices)
     for cycle_i in cycle_indices:
         if cycle_i[0] == 0:  # cycles
-            logger.debug(f"Traversing next cycle, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}")
+            logger.debug(
+                f"Traversing next cycle, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
+            )
             path_constraints_satisfied_cycle = []
             path_constraints_support_cycle = []
-            for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
+            for pathi in bb.path_constraints_satisfied[amplicon_idx][
+                cycle_i[0]
+            ][cycle_i[1]]:
                 pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
                 path_constraints_satisfied_cycle.append(
                     bb.path_constraints[amplicon_idx][0][pathi_],
@@ -470,33 +560,66 @@ def output_amplicon_cycles(
             assert cycle_seg_list[0] == cycle_seg_list[-1]
             fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
             fp.write(
-                "Copy_count=%s;" % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+                "Copy_count=%s;"
+                % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
             )
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
-                fp.write(f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]}")
-            fp.write("%d%s" % (int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1]))
+                fp.write(
+                    f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]}"
+                )
+            fp.write(
+                "%d%s" % (int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1])
+            )
             if not output_all_paths:
                 fp.write(";Path_constraints_satisfied=")
                 for pathi in range(
-                    len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1,
+                    len(
+                        bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][
+                            cycle_i[1]
+                        ]
+                    )
+                    - 1,
                 ):
                     fp.write(
-                        "%d," % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1),
+                        "%d,"
+                        % (
+                            bb.path_constraints_satisfied[amplicon_idx][
+                                cycle_i[0]
+                            ][cycle_i[1]][pathi]
+                            + 1
+                        ),
                     )
-                if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+                if (
+                    len(
+                        bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][
+                            cycle_i[1]
+                        ]
+                    )
+                    > 0
+                ):
                     fp.write(
-                        "%d\n" % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1),
+                        "%d\n"
+                        % (
+                            bb.path_constraints_satisfied[amplicon_idx][
+                                cycle_i[0]
+                            ][cycle_i[1]][-1]
+                            + 1
+                        ),
                     )
                 else:
                     fp.write("\n")
             else:
                 fp.write("\n")
         else:  # paths
-            logger.debug(f"Traversing next path, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}")
+            logger.debug(
+                f"Traversing next path, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
+            )
             path_constraints_satisfied_path = []
             path_constraints_support_path = []
-            for pathi in bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]:
+            for pathi in bb.path_constraints_satisfied[amplicon_idx][
+                cycle_i[0]
+            ][cycle_i[1]]:
                 pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
                 path_constraints_satisfied_path.append(
                     bb.path_constraints[amplicon_idx][0][pathi_],
@@ -510,27 +633,60 @@ def output_amplicon_cycles(
                 path_constraints_satisfied_path,
                 path_constraints_support_path,
             )
-            print(cycle_seg_list, bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]])
+            print(
+                cycle_seg_list, bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]]
+            )
             fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
             fp.write(
-                "Copy_count=%s;" % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+                "Copy_count=%s;"
+                % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
             )
             fp.write("Segments=0+,")
             for segi in range(len(cycle_seg_list) - 1):
-                fp.write("%d%s," % (int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1]))
+                fp.write(
+                    "%d%s,"
+                    % (int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1])
+                )
 
-            fp.write("%d%s,0-" % (int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1]))
+            fp.write(
+                "%d%s,0-"
+                % (int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1])
+            )
             if not output_all_paths:
                 fp.write(";Path_constraints_satisfied=")
                 for pathi in range(
-                    len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) - 1,
+                    len(
+                        bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][
+                            cycle_i[1]
+                        ]
+                    )
+                    - 1,
                 ):
                     fp.write(
-                        "%d," % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][pathi] + 1),
+                        "%d,"
+                        % (
+                            bb.path_constraints_satisfied[amplicon_idx][
+                                cycle_i[0]
+                            ][cycle_i[1]][pathi]
+                            + 1
+                        ),
                     )
-                if len(bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]]) > 0:
+                if (
+                    len(
+                        bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][
+                            cycle_i[1]
+                        ]
+                    )
+                    > 0
+                ):
                     fp.write(
-                        "%d\n" % (bb.path_constraints_satisfied[amplicon_idx][cycle_i[0]][cycle_i[1]][-1] + 1),
+                        "%d\n"
+                        % (
+                            bb.path_constraints_satisfied[amplicon_idx][
+                                cycle_i[0]
+                            ][cycle_i[1]][-1]
+                            + 1
+                        ),
                     )
                 else:
                     fp.write("\n")

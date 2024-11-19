@@ -49,15 +49,21 @@ def process_cycle_edge(
         conc_edge_idx = edge_idx - bp_graph.num_seq_edges
         cycle[("c", conc_edge_idx)] = edge_count
         if remaining_cn:
-            remaining_cn.concordant[conc_edge_idx] -= edge_count * model.w[0].value
+            remaining_cn.concordant[conc_edge_idx] -= (
+                edge_count * model.w[0].value
+            )
             if remaining_cn.concordant[conc_edge_idx] < resolution:
                 remaining_cn.concordant[conc_edge_idx] = 0.0
     # Is discordant edge
     elif edge_idx < bp_graph.num_nonsrc_edges:
-        disc_edge_idx = edge_idx - bp_graph.num_seq_edges - bp_graph.num_conc_edges
+        disc_edge_idx = (
+            edge_idx - bp_graph.num_seq_edges - bp_graph.num_conc_edges
+        )
         cycle[("d", disc_edge_idx)] = edge_count
         if remaining_cn:
-            remaining_cn.discordant[disc_edge_idx] -= edge_count * model.w[0].value
+            remaining_cn.discordant[disc_edge_idx] -= (
+                edge_count * model.w[0].value
+            )
             if remaining_cn.discordant[disc_edge_idx] < resolution:
                 remaining_cn.discordant[disc_edge_idx] = 0.0
     # Is source edge
@@ -116,7 +122,9 @@ def parse_lp_solution(
             logger.debug(f"Cycle/Path {i} exists; CN = {model.w[i].value}.")
             if resolution and (walk_weight := model.w[i].value) < resolution:
                 parsed_sol.cycle_weights[0].append(walk_weight)
-                logger.debug("\tCN less than resolution, iteration terminated successfully.")
+                logger.debug(
+                    "\tCN less than resolution, iteration terminated successfully."
+                )
                 break
             found_cycle = False
             for node_idx in range(nnodes):
@@ -129,13 +137,29 @@ def parse_lp_solution(
                     if (edge_count := model.x[edge_idx, i].value) >= 0.9:
                         edge_count = round(edge_count)
                         # Update cycle in-place via helper
-                        process_cycle_edge(cycle, model, edge_idx, edge_count, bp_graph, remaining_cn, resolution)
-                path_constraints_s = [pi for pi in range(len(pc_list)) if model.r[pi, i].value >= 0.9]
+                        process_cycle_edge(
+                            cycle,
+                            model,
+                            edge_idx,
+                            edge_count,
+                            bp_graph,
+                            remaining_cn,
+                            resolution,
+                        )
+                path_constraints_s = [
+                    pi
+                    for pi in range(len(pc_list))
+                    if model.r[pi, i].value >= 0.9
+                ]
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.cycles[1].append(cycle)
                     parsed_sol.cycle_weights[1].append(walk_weight)
-                    parsed_sol.path_constraints_satisfied[1].append(path_constraints_s)
-                    parsed_sol.path_constraints_satisfied_set |= set(path_constraints_s)
+                    parsed_sol.path_constraints_satisfied[1].append(
+                        path_constraints_s
+                    )
+                    parsed_sol.path_constraints_satisfied_set |= set(
+                        path_constraints_s
+                    )
             else:
                 cycle = {}
                 path_constraints_s = []
@@ -149,7 +173,9 @@ def parse_lp_solution(
                         elif edge_idx < lseg + lc + ld:
                             cycle[("d", edge_idx - lseg - lc)] = edge_count
                         else:
-                            logger.debug("Error: Cyclic path cannot connect to source nodes.")
+                            logger.debug(
+                                "Error: Cyclic path cannot connect to source nodes."
+                            )
                             logger.debug("Aborted.")
                             os.abort()
                 for pi in range(len(pc_list)):
@@ -161,17 +187,31 @@ def parse_lp_solution(
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.cycles[0].append(cycle)
                     parsed_sol.cycle_weights[0].append(walk_weight)
-                    parsed_sol.path_constraints_satisfied[0].append(path_constraints_s)
-                    parsed_sol.path_constraints_satisfied_set |= set(path_constraints_s)
+                    parsed_sol.path_constraints_satisfied[0].append(
+                        path_constraints_s
+                    )
+                    parsed_sol.path_constraints_satisfied_set |= set(
+                        path_constraints_s
+                    )
             for seqi in range(lseg):
-                parsed_sol.total_weights_included += model.x[seqi, i].value * model.w[i].value * bp_graph.sequence_edges[seqi][-2]
+                parsed_sol.total_weights_included += (
+                    model.x[seqi, i].value
+                    * model.w[i].value
+                    * bp_graph.sequence_edges[seqi][-2]
+                )
 
-    logger.debug(f"Total length weighted CN from cycles/paths = {parsed_sol.total_weights_included}/{total_weights}.")
-    logger.debug(f"Total num subpath constraints satisfied = {len(parsed_sol.path_constraints_satisfied_set)}/{len(pc_list)}.")
+    logger.debug(
+        f"Total length weighted CN from cycles/paths = {parsed_sol.total_weights_included}/{total_weights}."
+    )
+    logger.debug(
+        f"Total num subpath constraints satisfied = {len(parsed_sol.path_constraints_satisfied_set)}/{len(pc_list)}."
+    )
     return parsed_sol
 
 
-def get_solver(solver_type: datatypes.Solver, num_threads: int, time_limit_s: int) -> pyomo.solvers.plugins.solvers:
+def get_solver(
+    solver_type: datatypes.Solver, num_threads: int, time_limit_s: int
+) -> pyomo.solvers.plugins.solvers:
     solver = pyo.SolverFactory(solver_type.value)
     if solver_type == datatypes.Solver.GUROBI:
         solver = pyo.SolverFactory(solver_type.value)

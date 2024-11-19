@@ -17,10 +17,18 @@ class EdgeToCN:
     @staticmethod
     def from_graph(bp_graph: BreakpointGraph):
         return EdgeToCN(
-            sequence={i: edge[-1] for i, edge in enumerate(bp_graph.sequence_edges)},
-            concordant={i: edge[-1] for i, edge in enumerate(bp_graph.concordant_edges)},
-            discordant={i: edge[-1] for i, edge in enumerate(bp_graph.discordant_edges)},
-            source={i: edge[-1] for i, edge in enumerate(bp_graph.source_edges)},
+            sequence={
+                i: edge[-1] for i, edge in enumerate(bp_graph.sequence_edges)
+            },
+            concordant={
+                i: edge[-1] for i, edge in enumerate(bp_graph.concordant_edges)
+            },
+            discordant={
+                i: edge[-1] for i, edge in enumerate(bp_graph.discordant_edges)
+            },
+            source={
+                i: edge[-1] for i, edge in enumerate(bp_graph.source_edges)
+            },
         )
 
 
@@ -29,9 +37,15 @@ class ParsedLPSolution:
     solver_status: str
     termination_condition: pyo.TerminationCondition
     total_weights_included: float = 0.0
-    cycles: List[List[Any]] = field(default_factory=lambda: [[], []])  # cycles, paths
-    cycle_weights: List[List[Any]] = field(default_factory=lambda: [[], []])  # cycles, paths
-    path_constraints_satisfied: List[List[Any]] = field(default_factory=lambda: [[], []])  # cycles, paths
+    cycles: List[List[Any]] = field(
+        default_factory=lambda: [[], []]
+    )  # cycles, paths
+    cycle_weights: List[List[Any]] = field(
+        default_factory=lambda: [[], []]
+    )  # cycles, paths
+    path_constraints_satisfied: List[List[Any]] = field(
+        default_factory=lambda: [[], []]
+    )  # cycles, paths
     path_constraints_satisfied_set: Set[int] = field(default_factory=set)
 
 

@@ -76,7 +76,10 @@ def convert_cycles_to_bed(
             if rotate_to_min and len(cycle) > 1:
                 if iscyclic:
                     argmin_idx = cycle.index(
-                        min(cycle, key=lambda seg: (CHR_TAG_TO_IDX[seg[0]], seg[1])),  # type: ignore[index]
+                        min(
+                            cycle,
+                            key=lambda seg: (CHR_TAG_TO_IDX[seg[0]], seg[1]),
+                        ),  # type: ignore[index]
                     )
                     if cycle[argmin_idx][-1] == "+":
                         cycle = cycle[argmin_idx:] + cycle[:argmin_idx]
@@ -86,15 +89,21 @@ def convert_cycles_to_bed(
                             + cycle[argmin_idx + 1 :][::-1]
                         )
                         for idx in range(len(cycle)):
-                            cycle[idx][-1] = INVERT_STRAND_DIRECTION(cycle[idx][-1])  # type: ignore[operator]
-                elif CHR_TAG_TO_IDX[cycle[-1][0]] < CHR_TAG_TO_IDX[cycle[0][0]] or (  # type: ignore[index]
-                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]] # type: ignore[index]
+                            cycle[idx][-1] = INVERT_STRAND_DIRECTION(
+                                cycle[idx][-1]
+                            )  # type: ignore[operator]
+                elif CHR_TAG_TO_IDX[cycle[-1][0]] < CHR_TAG_TO_IDX[
+                    cycle[0][0]
+                ] or (  # type: ignore[index]
+                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]]  # type: ignore[index]
                     and cycle[-1][1] < cycle[-1][1]  # type: ignore[index, operator]
                 ):
                     cycle = cycle[::-1]
                     if cycle[0][-1] == "-":
                         for idx in range(len(cycle)):
-                            cycle[idx][-1] = INVERT_STRAND_DIRECTION(cycle[idx][-1])  # type: ignore[operator]
+                            cycle[idx][-1] = INVERT_STRAND_DIRECTION(
+                                cycle[idx][-1]
+                            )  # type: ignore[operator]
             cycles[int(cycle_id)] = [iscyclic, cycle_weight, cycle]
 
     print("Creating bed-converted cycles file: " + output_fn)

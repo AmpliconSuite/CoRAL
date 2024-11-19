@@ -23,7 +23,9 @@ def run_seeding(
     __location__ = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__))
     )
-    with open(os.path.join(__location__, "annotations", "GRCh38_centromere.bed")) as fp:
+    with open(
+        os.path.join(__location__, "annotations", "GRCh38_centromere.bed")
+    ) as fp:
         for line in fp:
             s = line.strip().split()
             if len(s[0]) <= 5:  # chr1 - chrM
@@ -48,7 +50,8 @@ def run_seeding(
                 logger.error("Invalid cn_seg file format!\n")
             # Require absolute CN >= max(gain, cn_cutoff_chrarm)
             if cn >= gain and (
-                int(s[2]) <= chr_arms[s[0]][0][0] or int(s[1]) >= chr_arms[s[0]][0][1]
+                int(s[2]) <= chr_arms[s[0]][0][0]
+                or int(s[1]) >= chr_arms[s[0]][0][1]
             ):  # type: ignore[possibly-undefined]
                 # assume input CN segments sorted by chr and pos
                 if (
@@ -100,9 +103,13 @@ def run_seeding(
             if sum_seed_len > CNSIZE_MAX:
                 cn_cutoff_chrarm = 1.2 * gain
             if seed[-1][2] <= chr_arms[seed[-1][0]][0][0]:  # p arm
-                cn_cutoff_chrarm = cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][0] - 2.0
+                cn_cutoff_chrarm = (
+                    cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][0] - 2.0
+                )
             elif seed[0][1] >= chr_arms[seed[-1][0]][0][1]:  # q arm
-                cn_cutoff_chrarm = cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][1] - 2.0
+                cn_cutoff_chrarm = (
+                    cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][1] - 2.0
+                )
             else:
                 os.abort()
             for ci in range(len(seed))[::-1]:
@@ -120,11 +127,15 @@ def run_seeding(
                         sum_seed_len += cns[2] - cns[1]
                     elif sum_seed_len >= min_seed_size:
                         fp.write(
-                            "%s\t%d\t%d\n" % (lastseg[0], lastseg[1], lastseg[2] - 1)
+                            "%s\t%d\t%d\n"
+                            % (lastseg[0], lastseg[1], lastseg[2] - 1)
                         )
                         sum_seed_len = 0
                         lastseg = list(cns)
                 if sum_seed_len >= min_seed_size:
-                    fp.write("%s\t%d\t%d\n" % (lastseg[0], lastseg[1], lastseg[2] - 1))
+                    fp.write(
+                        "%s\t%d\t%d\n"
+                        % (lastseg[0], lastseg[1], lastseg[2] - 1)
+                    )
 
     print("Created " + OUTPUT_FN)

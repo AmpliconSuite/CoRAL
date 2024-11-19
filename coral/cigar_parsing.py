@@ -124,7 +124,9 @@ def alignment_from_satags(sa_list, read_length):
         t = sa.split(",")
         if "S" not in t[3] or ("M" not in t[3] and "=" not in t[3]):
             # Require a chimeric alignment record having at least some (soft)clips and matches
-            logger.warning("Found chimeric alignment without match or soft clips.")
+            logger.warning(
+                "Found chimeric alignment without match or soft clips."
+            )
             # logging.warning("Read name: %s; Read length: %d." %(r, read_length))
             logger.warning("All CIGAR strings: %s." % (sa_list))
             return ([], [], [])

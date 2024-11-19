@@ -15,7 +15,10 @@ import cvxopt.modeling  # type: ignore[import-untyped]
 import numpy as np
 
 from coral import types
-from coral.breakpoint.breakpoint_utilities import check_valid_partition, enumerate_partitions
+from coral.breakpoint.breakpoint_utilities import (
+    check_valid_partition,
+    enumerate_partitions,
+)
 from coral.constants import CHR_TAG_TO_IDX
 
 logger = logging.getLogger(__name__)
@@ -25,7 +28,9 @@ logger = logging.getLogger(__name__)
 class BreakpointGraph:
     """A container object for the breakpoint graphs."""
 
-    amplicon_intervals: list[types.AmpliconInterval] = field(default_factory=list)
+    amplicon_intervals: list[types.AmpliconInterval] = field(
+        default_factory=list
+    )
     sequence_edges: list[list[Any]] = field(default_factory=list)
     concordant_edges: list[list[Any]] = field(default_factory=list)
     discordant_edges: list[list[Any]] = field(default_factory=list)
@@ -45,7 +50,13 @@ class BreakpointGraph:
 
     @property
     def num_edges(self) -> int:
-        return self.num_seq_edges + self.num_conc_edges + self.num_disc_edges + 2 * self.num_src_edges + 2 * len(self.endnodes)
+        return (
+            self.num_seq_edges
+            + self.num_conc_edges
+            + self.num_disc_edges
+            + 2 * self.num_src_edges
+            + 2 * len(self.endnodes)
+        )
 
     @property
     def num_seq_edges(self) -> int:
@@ -75,7 +86,9 @@ class BreakpointGraph:
 
         """
         if type(node_) != tuple or len(node_) != 3:
-            raise Exception("Breakpoint node must be of form (chr, pos, orientation).")
+            raise Exception(
+                "Breakpoint node must be of form (chr, pos, orientation)."
+            )
         if node_ in self.nodes:
             pass
         self.nodes[node_] = [[], [], [], []]
@@ -88,7 +101,9 @@ class BreakpointGraph:
 
         """
         if type(node_) != tuple or len(node_) != 3:
-            raise Exception("Breakpoint node must be of form (chr, pos, orientation).")
+            raise Exception(
+                "Breakpoint node must be of form (chr, pos, orientation)."
+            )
         if node_ not in self.endnodes:
             self.endnodes[node_] = []
         else:
@@ -115,14 +130,18 @@ class BreakpointGraph:
         for node in del_list:
             del self.endnodes[node]
 
-    def add_sequence_edge(self, chr, l, r, sr_count=-1, sr_flag="d", lr_count=-1, lr_nc=0, cn=0.0):
+    def add_sequence_edge(
+        self, chr, l, r, sr_count=-1, sr_flag="d", lr_count=-1, lr_nc=0, cn=0.0
+    ):
         """Add a sequence edge to the graph."""
         if (chr, l, "-") not in self.nodes or (chr, r, "+") not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
         lseq = len(self.sequence_edges)
         self.nodes[(chr, l, "-")][0].append(lseq)
         self.nodes[(chr, r, "+")][0].append(lseq)
-        self.sequence_edges.append([chr, l, r, sr_count, sr_flag, lr_count, lr_nc, r - l + 1, cn])
+        self.sequence_edges.append(
+            [chr, l, r, sr_count, sr_flag, lr_count, lr_nc, r - l + 1, cn]
+        )
 
     def add_concordant_edge(
         self,
@@ -141,13 +160,29 @@ class BreakpointGraph:
         """Add a concordant edge to the graph."""
         if chr1 != chr2 or pos2 != pos1 + 1 or o1 != "+" or o2 != "-":
             raise Exception("Invalid concordant edge.")
-        if (chr1, pos1, o1) not in self.nodes or (chr2, pos2, o2) not in self.nodes:
+        if (chr1, pos1, o1) not in self.nodes or (
+            chr2,
+            pos2,
+            o2,
+        ) not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
         lc = len(self.concordant_edges)
         self.nodes[(chr1, pos1, o1)][1].append(lc)
         self.nodes[(chr2, pos2, o2)][1].append(lc)
         self.concordant_edges.append(
-            [chr1, pos1, o1, chr2, pos2, o2, sr_count, sr_flag, lr_count, reads, cn],
+            [
+                chr1,
+                pos1,
+                o1,
+                chr2,
+                pos2,
+                o2,
+                sr_count,
+                sr_flag,
+                lr_count,
+                reads,
+                cn,
+            ],
         )
 
     def add_discordant_edge(
@@ -166,7 +201,11 @@ class BreakpointGraph:
         cn=0.0,
     ):
         """Add a discordant edge to the graph."""
-        if (chr1, pos1, o1) not in self.nodes or (chr2, pos2, o2) not in self.nodes:
+        if (chr1, pos1, o1) not in self.nodes or (
+            chr2,
+            pos2,
+            o2,
+        ) not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
         ld = len(self.discordant_edges)
         self.nodes[(chr1, pos1, o1)][2].append(ld)
@@ -176,7 +215,20 @@ class BreakpointGraph:
         if (chr2, pos2, o2) in self.endnodes:
             self.endnodes[(chr2, pos2, o2)].append(ld)
         self.discordant_edges.append(
-            [chr1, pos1, o1, chr2, pos2, o2, sr_count, sr_flag, sr_cn, lr_count, reads, cn],
+            [
+                chr1,
+                pos1,
+                o1,
+                chr2,
+                pos2,
+                o2,
+                sr_count,
+                sr_flag,
+                sr_cn,
+                lr_count,
+                reads,
+                cn,
+            ],
         )
 
     def del_discordant_edges(self, del_list, bpi_map):
@@ -213,7 +265,19 @@ class BreakpointGraph:
             raise Exception("Breakpoint node must be added first.")
         self.nodes[(chr1, pos1, o1)][3].append(len(self.source_edges))
         self.source_edges.append(
-            ["source", -1, "-", chr1, pos1, o1, sr_count, sr_flag, sr_cn, lr_cn, cn],
+            [
+                "source",
+                -1,
+                "-",
+                chr1,
+                pos1,
+                o1,
+                sr_count,
+                sr_flag,
+                sr_cn,
+                lr_cn,
+                cn,
+            ],
         )
 
     def del_source_edges(self, del_list, srci_map):
@@ -237,8 +301,16 @@ class BreakpointGraph:
             sseg = self.sequence_edges[seqi]
             node1 = (sseg[0], sseg[1], "-")
             node2 = (sseg[0], sseg[2], "+")
-            s1 = len(self.nodes[node1][1]) + len(self.nodes[node1][2]) + len(self.nodes[node1][3])
-            s2 = len(self.nodes[node2][1]) + len(self.nodes[node2][2]) + len(self.nodes[node2][3])
+            s1 = (
+                len(self.nodes[node1][1])
+                + len(self.nodes[node1][2])
+                + len(self.nodes[node1][3])
+            )
+            s2 = (
+                len(self.nodes[node2][1])
+                + len(self.nodes[node2][2])
+                + len(self.nodes[node2][3])
+            )
             if s1 + s2 == 0:
                 del_list.append(seqi)
         for seqi in del_list[::-1]:
@@ -293,7 +365,11 @@ class BreakpointGraph:
                 self.sequence_edges[seqi2][1] = self.sequence_edges[seqi1][1]
                 self.sequence_edges[seqi2][3] = -1
                 self.sequence_edges[seqi2][4] = "f"
-                self.sequence_edges[seqi2][-2] = self.sequence_edges[seqi2][2] - self.sequence_edges[seqi2][1] + 1
+                self.sequence_edges[seqi2][-2] = (
+                    self.sequence_edges[seqi2][2]
+                    - self.sequence_edges[seqi2][1]
+                    + 1
+                )
                 si = i
                 li = i
         seqi1 = seq_del_list[si]
@@ -301,7 +377,9 @@ class BreakpointGraph:
         self.sequence_edges[seqi2][1] = self.sequence_edges[seqi1][1]
         self.sequence_edges[seqi2][3] = -1
         self.sequence_edges[seqi2][4] = "f"
-        self.sequence_edges[seqi2][-2] = self.sequence_edges[seqi2][2] - self.sequence_edges[seqi2][1] + 1
+        self.sequence_edges[seqi2][-2] = (
+            self.sequence_edges[seqi2][2] - self.sequence_edges[seqi2][1] + 1
+        )
         for seqi in seq_del_list[::-1]:
             del self.sequence_edges[seqi]
         for ci in sorted(c_del_list, reverse=True):
@@ -323,8 +401,12 @@ class BreakpointGraph:
         """Sort sequence and concordant edges according to chromosome and position
         Reset adjacent list
         """
-        self.sequence_edges.sort(key=lambda sseg: (CHR_TAG_TO_IDX[sseg[0]], sseg[1]))
-        self.concordant_edges.sort(key=lambda ce: (CHR_TAG_TO_IDX[ce[0]], ce[1]))
+        self.sequence_edges.sort(
+            key=lambda sseg: (CHR_TAG_TO_IDX[sseg[0]], sseg[1])
+        )
+        self.concordant_edges.sort(
+            key=lambda ce: (CHR_TAG_TO_IDX[ce[0]], ce[1])
+        )
 
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
@@ -360,15 +442,34 @@ class BreakpointGraph:
             "There are %d variables for cvxopt." % (nvariables),
         )
         self.del_discordant_endnodes()
-        nconstraints = len([node for node in self.nodes.keys() if node not in self.endnodes])
+        nconstraints = len(
+            [node for node in self.nodes.keys() if node not in self.endnodes]
+        )
         logger.debug(
             "There are %d constraints for cvxopt." % (nconstraints),
         )
 
-        wcn = [(normal_cov_sr * se[7] / sr_length + 0.5 * normal_cov_lr * se[7]) for se in self.sequence_edges]
-        wcn += [normal_cov_sr * (sr_length - 1.0) / sr_length + normal_cov_lr for eci in range(lc)]
-        wcn += [normal_cov_sr * (sr_length - 2 * min_sr_alignment_length) / sr_length + normal_cov_lr for edi in range(ld)]
-        wcn += [normal_cov_sr * (sr_length - 2 * min_sr_alignment_length) / sr_length for srci in range(lsrc)]
+        wcn = [
+            (normal_cov_sr * se[7] / sr_length + 0.5 * normal_cov_lr * se[7])
+            for se in self.sequence_edges
+        ]
+        wcn += [
+            normal_cov_sr * (sr_length - 1.0) / sr_length + normal_cov_lr
+            for eci in range(lc)
+        ]
+        wcn += [
+            normal_cov_sr
+            * (sr_length - 2 * min_sr_alignment_length)
+            / sr_length
+            + normal_cov_lr
+            for edi in range(ld)
+        ]
+        wcn += [
+            normal_cov_sr
+            * (sr_length - 2 * min_sr_alignment_length)
+            / sr_length
+            for srci in range(lsrc)
+        ]
         wlncn = []
         for se in self.sequence_edges:
             if se[4] == "d":
@@ -387,10 +488,15 @@ class BreakpointGraph:
                 wlncn.append((de[6] + de[9]) * 1.0)
         for srce in self.source_edges:
             if srce[7] == "d":
-                wlncn.append(srce[6] * downsample_factor if srce[6] >= 1 else 0.1)
+                wlncn.append(
+                    srce[6] * downsample_factor if srce[6] >= 1 else 0.1
+                )
             else:
                 wlncn.append(srce[6] * 1.0 if srce[6] >= 1 else 0.1)
-        wlrseg = [(0.5 * se[6] ** 2 / (normal_cov_lr * se[7])) for se in self.sequence_edges]
+        wlrseg = [
+            (0.5 * se[6] ** 2 / (normal_cov_lr * se[7]))
+            for se in self.sequence_edges
+        ]
         wlrseg += [0.0 for ce in self.concordant_edges]
         wlrseg += [0.0 for de in self.discordant_edges]
         wlrseg += [0.0 for es in self.source_edges]
@@ -419,11 +525,18 @@ class BreakpointGraph:
                 return 0, cvxopt.matrix(1.0, (nvariables, 1))
             if min(x) <= 0.0:
                 return None
-            f = cvxopt.modeling.dot(wlrseg, x**-1) + cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
+            f = (
+                cvxopt.modeling.dot(wlrseg, x**-1)
+                + cvxopt.modeling.dot(wcn, x)
+                - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
+            )
             Df = (wcn - cvxopt.mul(wlncn, x**-1) - cvxopt.mul(wlrseg, x**-2)).T
             if z is None:
                 return f, Df
-            H = cvxopt.spdiag(z[0] * (cvxopt.mul(wlncn, x**-2) + cvxopt.mul(2.0 * wlrseg, x**-3)))
+            H = cvxopt.spdiag(
+                z[0]
+                * (cvxopt.mul(wlncn, x**-2) + cvxopt.mul(2.0 * wlrseg, x**-3))
+            )
             return f, Df, H
 
         options = {"maxiters": 1000, "show_progress": False}
@@ -458,7 +571,8 @@ class BreakpointGraph:
                     "\trelative gap = %f" % (sol["relative gap"]),
                 )
                 logger.debug(
-                    "\tprimal infeasibility = %f" % (sol["primal infeasibility"]),
+                    "\tprimal infeasibility = %f"
+                    % (sol["primal infeasibility"]),
                 )
                 logger.debug(
                     "\tdual infeasibility = %f" % (sol["dual infeasibility"]),
@@ -473,8 +587,12 @@ class BreakpointGraph:
                     self.discordant_edges[di][-1] = sol["x"][lseq + lc + di] * 2
                     self.max_cn = max(sol["x"][lseq + lc + di] * 2, self.max_cn)
                 for srci in range(len(self.source_edges)):
-                    self.source_edges[srci][-1] = sol["x"][lseq + lc + ld + srci] * 2
-                    self.max_cn = max(sol["x"][lseq + lc + ld + srci] * 2, self.max_cn)
+                    self.source_edges[srci][-1] = (
+                        sol["x"][lseq + lc + ld + srci] * 2
+                    )
+                    self.max_cn = max(
+                        sol["x"][lseq + lc + ld + srci] * 2, self.max_cn
+                    )
         else:
             assert lc == 0 and ld == 0 and lsrc == 0
             logger.debug(
@@ -509,7 +627,9 @@ class BreakpointGraph:
         logger.debug(
             "There are %d variables for cvxopt." % (nvariables),
         )
-        nconstraints = len([node for node in self.nodes.keys() if node not in self.endnodes])
+        nconstraints = len(
+            [node for node in self.nodes.keys() if node not in self.endnodes]
+        )
         logger.debug(
             "There are %d constraints for cvxopt." % (nconstraints),
         )
@@ -525,10 +645,16 @@ class BreakpointGraph:
         wlncn += [ce[8] * 1.0 for ce in self.concordant_edges]
         wlncn += [de[9] * 1.0 for de in self.discordant_edges]
         wlncn += [-0.5 for srci in range(lsrc)]
-        wlrseg = [(0.5 * se[6] ** 2 / (normal_cov_lr * se[7])) for se in self.sequence_edges]
+        wlrseg = [
+            (0.5 * se[6] ** 2 / (normal_cov_lr * se[7]))
+            for se in self.sequence_edges
+        ]
         wlrseg += [0.0 for eci in range(lc)]
         wlrseg += [0.0 for edi in range(ld)]
-        wlrseg += [(0.5 * self.source_edges[srci][-1] ** 2 / normal_cov_lr) for srci in range(lsrc)]
+        wlrseg += [
+            (0.5 * self.source_edges[srci][-1] ** 2 / normal_cov_lr)
+            for srci in range(lsrc)
+        ]
         wcn = cvxopt.matrix(wcn)
         wlncn = cvxopt.matrix(wlncn)
         wlrseg = cvxopt.matrix(wlrseg)
@@ -554,11 +680,18 @@ class BreakpointGraph:
                 return 0, cvxopt.matrix(1.0, (nvariables, 1))
             if min(x) <= 0.0:
                 return None
-            f = cvxopt.modeling.dot(wlrseg, x**-1) + cvxopt.modeling.dot(wcn, x) - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
+            f = (
+                cvxopt.modeling.dot(wlrseg, x**-1)
+                + cvxopt.modeling.dot(wcn, x)
+                - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
+            )
             Df = (wcn - cvxopt.mul(wlncn, x**-1) - cvxopt.mul(wlrseg, x**-2)).T
             if z is None:
                 return f, Df
-            H = cvxopt.spdiag(z[0] * (cvxopt.mul(wlncn, x**-2) + cvxopt.mul(2.0 * wlrseg, x**-3)))
+            H = cvxopt.spdiag(
+                z[0]
+                * (cvxopt.mul(wlncn, x**-2) + cvxopt.mul(2.0 * wlrseg, x**-3))
+            )
             return f, Df, H
 
         options = {"maxiters": 1000, "show_progress": False}
@@ -593,7 +726,8 @@ class BreakpointGraph:
                     "\trelative gap = %f" % (sol["relative gap"]),
                 )
                 logger.debug(
-                    "\tprimal infeasibility = %f" % (sol["primal infeasibility"]),
+                    "\tprimal infeasibility = %f"
+                    % (sol["primal infeasibility"]),
                 )
                 logger.debug(
                     "dual infeasibility = %f" % (sol["dual infeasibility"]),
@@ -610,11 +744,19 @@ class BreakpointGraph:
                         self.discordant_edges[di][-1] = sol["x"][lseq + lc + di]
                         self.max_cn = max(sol["x"][lseq + lc + di], self.max_cn)
                     else:
-                        self.discordant_edges[di][-1] = sol["x"][lseq + lc + di] * 2
-                        self.max_cn = max(sol["x"][lseq + lc + di] * 2, self.max_cn)
+                        self.discordant_edges[di][-1] = (
+                            sol["x"][lseq + lc + di] * 2
+                        )
+                        self.max_cn = max(
+                            sol["x"][lseq + lc + di] * 2, self.max_cn
+                        )
                 for srci in range(lsrc):
-                    self.source_edges[srci][-1] = sol["x"][lseq + lc + ld + srci] * 2
-                    self.max_cn = max(sol["x"][lseq + lc + ld + srci] * 2, self.max_cn)
+                    self.source_edges[srci][-1] = (
+                        sol["x"][lseq + lc + ld + srci] * 2
+                    )
+                    self.max_cn = max(
+                        sol["x"][lseq + lc + ld + srci] * 2, self.max_cn
+                    )
         else:
             assert lc == 0 and ld == 0 and lsrc == 0
             logger.debug("Skipped convex optimization.")
@@ -625,7 +767,9 @@ class BreakpointGraph:
                 self.max_cn = max(cn_seqi, self.max_cn)
         self.max_cn += 1.0
 
-    def infer_max_seq_multiplicity(self, gain=5.0, size_cutoff=10000, multiplicity=2):
+    def infer_max_seq_multiplicity(
+        self, gain=5.0, size_cutoff=10000, multiplicity=2
+    ):
         """Estimate maximum allowed multiplicities in cycles/paths for any sequence edge
 
         gain: float, only consider sequence edges with predicted CN >= gain
@@ -636,8 +780,16 @@ class BreakpointGraph:
         Return: integer, estimated maximum multiplicity on sequence edges
         """
         max_seq_multiplicity = multiplicity
-        seq_cn_list = [se[-1] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
-        seq_len_list = [se[7] for se in self.sequence_edges if se[7] >= size_cutoff and se[-1] >= gain]
+        seq_cn_list = [
+            se[-1]
+            for se in self.sequence_edges
+            if se[7] >= size_cutoff and se[-1] >= gain
+        ]
+        seq_len_list = [
+            se[7]
+            for se in self.sequence_edges
+            if se[7] >= size_cutoff and se[-1] >= gain
+        ]
         if len(seq_cn_list) > 0:
             max_cn = max(seq_cn_list)
             avg_cn = np.average(seq_cn_list, weights=seq_len_list)
@@ -664,7 +816,9 @@ class BreakpointGraph:
         distinct_all = []
         while not valid_clustering:
             valid_clustering = False
-            for partitions in enumerate_partitions(num_clusters - 1, 0, len(rc_list) - 1):
+            for partitions in enumerate_partitions(
+                num_clusters - 1, 0, len(rc_list) - 1
+            ):
                 valid_partition = True
                 score_all = 0.0
                 distinct = []
@@ -681,7 +835,9 @@ class BreakpointGraph:
                     score_all += score
                     distinct.append([partitions[pi][0], base_ri])
                     if pi > 0:
-                        score_all += np.log2(rc_list[partitions[pi][0]]) - np.log2(
+                        score_all += np.log2(
+                            rc_list[partitions[pi][0]]
+                        ) - np.log2(
                             rc_list[partitions[pi - 1][1]],
                         )
                 if valid_partition:
@@ -711,7 +867,10 @@ class BreakpointGraph:
                 while rc_list[i] / base_avg_rc >= multiplicity + 0.5:
                     multiplicity += 1
                 multiplicities_sorted.append(multiplicity)
-        return [multiplicities_sorted[list(rc_indices).index(i)] for i in range(len(rc_list))]
+        return [
+            multiplicities_sorted[list(rc_indices).index(i)]
+            for i in range(len(rc_list))
+        ]
 
     def nextminus(self, chr, pos, min_bp_match_cutoff_=100):
         """Helper function to read_graph
@@ -740,7 +899,9 @@ class BreakpointGraph:
                 break
             if cl >= min_bp_match_cutoff_:
                 break
-            seglen = self.sequence_edges[self.nodes[(chr, pos_ - 1, "+")][0][0]][7]
+            seglen = self.sequence_edges[
+                self.nodes[(chr, pos_ - 1, "+")][0][0]
+            ][7]
             cl = max(cl, 0) + seglen
             pos_ = pos_ - seglen
         return cl
@@ -756,7 +917,9 @@ class BreakpointGraph:
                 break
             if cr >= min_bp_match_cutoff_:
                 break
-            seglen = self.sequence_edges[self.nodes[(chr, pos_ + 1, "-")][0][0]][7]
+            seglen = self.sequence_edges[
+                self.nodes[(chr, pos_ + 1, "-")][0][0]
+            ][7]
             cr = max(cr, 0) + seglen
             pos_ = pos_ + seglen
         return cr
@@ -776,5 +939,3 @@ class BreakpointGraph:
             cl = max(cl, 0) + seglen
             pos_ = pos_ - seglen
         return cl
-
-

@@ -6,11 +6,15 @@ import pydantic
 
 
 class LoggingFormatter(pydantic.BaseModel):
-    file_format: str = pydantic.Field(alias="format")  # Avoid shadowing Python `format`
+    file_format: str = pydantic.Field(
+        alias="format"
+    )  # Avoid shadowing Python `format`
 
 
 class LoggingHandler(pydantic.BaseModel):
-    file_class: str = pydantic.Field(alias="class")  # Avoid shadowing Python `class`
+    file_class: str = pydantic.Field(
+        alias="class"
+    )  # Avoid shadowing Python `class`
     level: str
     formatter: str
     filename: str

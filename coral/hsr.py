@@ -158,7 +158,8 @@ def locate_hsrs(
                     q_[ri] >= 20
                     and q_[ri + 1] >= 20
                     and interval_overlap_l(rr_int[ri], ecdna_intervals) >= 0
-                    and interval_overlap_l(rr_int[ri + 1], ecdna_intervals) == -1
+                    and interval_overlap_l(rr_int[ri + 1], ecdna_intervals)
+                    == -1
                 ):
                     bp_list.append(
                         interval2bp(
@@ -180,7 +181,8 @@ def locate_hsrs(
                     and q_[ri] < 10
                     and q_[ri - 1] >= 20
                     and q_[ri + 1] >= 20
-                    and interval_overlap_l(rr_int[ri - 1], ecdna_intervals) == -1
+                    and interval_overlap_l(rr_int[ri - 1], ecdna_intervals)
+                    == -1
                     and interval_overlap(rr_int[ri + 1], ecdna_intervals) >= 0  # type: ignore[arg-type]
                 ) or (
                     bassigned[ri - 1] == 0
@@ -188,7 +190,8 @@ def locate_hsrs(
                     and q_[ri] < 10
                     and q_[ri - 1] >= 20
                     and q_[ri + 1] >= 20
-                    and interval_overlap_l(rr_int[ri - 1], ecdna_intervals) == -1
+                    and interval_overlap_l(rr_int[ri - 1], ecdna_intervals)
+                    == -1
                     and interval_overlap(rr_int[ri + 1], ecdna_intervals) >= 0  # type: ignore[arg-type]
                 ):
                     bp_list.append(
@@ -210,7 +213,9 @@ def locate_hsrs(
         if len(c) >= float(normal_cov) * 0.5:
             bp_cluster_r = c
             while len(bp_cluster_r) >= float(normal_cov) * 0.5:
-                bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(bp_cluster_r, bp_match_cutoff)
+                bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(
+                    bp_cluster_r, bp_match_cutoff
+                )
                 # print (bp[:6])
                 if len(set(bpr)) >= float(normal_cov) * 0.5:
                     bpi_ = -1
@@ -230,7 +235,9 @@ def locate_hsrs(
                     if bpi_ < 0:
                         bp_refined.append(bp + [bpr])
                         bp_stats.append(bp_stats_)
-    print(f"Found {len(bp_refined)} breakpoints connecting ecDNA and chromosomes.")
+    print(
+        f"Found {len(bp_refined)} breakpoints connecting ecDNA and chromosomes."
+    )
     lr_bamfh.close()
     sum_sizes = sum(CHR_SIZES.values())
     agg_size = 0
@@ -251,7 +258,8 @@ def locate_hsrs(
     for bp in bp_refined:
         if (
             interval_overlap_l([bp[0], bp[1], bp[1]], ecdna_intervals_ext) >= 0
-            and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext) < 0
+            and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext)
+            < 0
         ):
             if bp[3] in starting_pos:
                 cn = 0.0
@@ -266,7 +274,8 @@ def locate_hsrs(
                     plt.plot(xpos, ypos, "bo")
         elif (
             interval_overlap_l([bp[0], bp[1], bp[1]], ecdna_intervals_ext) < 0
-            and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext) >= 0
+            and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext)
+            >= 0
         ):
             if bp[0] in starting_pos:
                 cn = 0.0

@@ -33,7 +33,9 @@ def valid_path(g, path):
             e1 = path[i - 1]
             e2 = path[i + 1]
             try:
-                if (e1[0] == "s" and e2[0] == "s") or (e1[0] != "s" and e2[0] != "s"):
+                if (e1[0] == "s" and e2[0] == "s") or (
+                    e1[0] != "s" and e2[0] != "s"
+                ):
                     return False
                 if e1[1] not in g.nodes[path[i]][edge_type_to_index[e1[0]]]:
                     return False
@@ -61,11 +63,15 @@ def alignment_to_path(g, rint, min_overlap=500):
             seq_edge_list.append(segi)
     if len(seq_edge_list) == 0:
         return []
-    seq_edge_list = sorted(seq_edge_list, key=lambda item: g.sequence_edges[item][1])
+    seq_edge_list = sorted(
+        seq_edge_list, key=lambda item: g.sequence_edges[item][1]
+    )
     segi0 = seq_edge_list[0]
     if (
         len(seq_edge_list) > 1
-        and min(g.sequence_edges[segi0][2], rint[2]) - max(g.sequence_edges[segi0][1], rint[1]) < min_overlap
+        and min(g.sequence_edges[segi0][2], rint[2])
+        - max(g.sequence_edges[segi0][1], rint[1])
+        < min_overlap
     ):
         del seq_edge_list[0]
     segi0 = seq_edge_list[0]
@@ -75,7 +81,9 @@ def alignment_to_path(g, rint, min_overlap=500):
     segi0 = seq_edge_list[-1]
     if (
         len(seq_edge_list) > 1
-        and min(g.sequence_edges[segi0][2], rint[2]) - max(g.sequence_edges[segi0][1], rint[1]) < min_overlap
+        and min(g.sequence_edges[segi0][2], rint[2])
+        - max(g.sequence_edges[segi0][1], rint[1])
+        < min_overlap
     ):  # need to parameterize this
         del seq_edge_list[-1]
     segi0 = seq_edge_list[-1]
@@ -118,22 +126,32 @@ def chimeric_alignment_to_path_l(g, rints, ai, bp_node, min_overlap=500):
     if len(seq_edge_list) == 0:
         return []
     if seq_edge_list[0][1] == "+":
-        seq_edge_list = sorted(seq_edge_list, key=lambda item: g.sequence_edges[item[0]][1])
+        seq_edge_list = sorted(
+            seq_edge_list, key=lambda item: g.sequence_edges[item[0]][1]
+        )
         segi0 = seq_edge_list[0][0]
         if (
             len(seq_edge_list) > 1
-            and min(g.sequence_edges[segi0][2], al[2]) - max(g.sequence_edges[segi0][1], al[1]) < min_overlap
+            and min(g.sequence_edges[segi0][2], al[2])
+            - max(g.sequence_edges[segi0][1], al[1])
+            < min_overlap
         ):
             del seq_edge_list[0]
         segi0 = seq_edge_list[0][0]
-        while len(seq_edge_list) > 0 and g.sequence_edges[segi0][7] < min_overlap:
+        while (
+            len(seq_edge_list) > 0 and g.sequence_edges[segi0][7] < min_overlap
+        ):
             del seq_edge_list[0]
             if len(seq_edge_list) > 0:
                 segi0 = seq_edge_list[0][0]
         # check if the rightmost node connects to the breakpoint edge at index edi
         while len(seq_edge_list) > 0:
             segi_last = seq_edge_list[-1][0]
-            rnode = (g.sequence_edges[segi_last][0], g.sequence_edges[segi_last][2], "+")
+            rnode = (
+                g.sequence_edges[segi_last][0],
+                g.sequence_edges[segi_last][2],
+                "+",
+            )
             if rnode != bp_node:
                 del seq_edge_list[-1]
             else:
@@ -147,18 +165,26 @@ def chimeric_alignment_to_path_l(g, rints, ai, bp_node, min_overlap=500):
         segi0 = seq_edge_list[0][0]
         if (
             len(seq_edge_list) > 1
-            and min(g.sequence_edges[segi0][2], al[1]) - max(g.sequence_edges[segi0][1], al[2]) < min_overlap
+            and min(g.sequence_edges[segi0][2], al[1])
+            - max(g.sequence_edges[segi0][1], al[2])
+            < min_overlap
         ):
             del seq_edge_list[0]
         segi0 = seq_edge_list[0][0]
-        while len(seq_edge_list) > 0 and g.sequence_edges[segi0][7] < min_overlap:
+        while (
+            len(seq_edge_list) > 0 and g.sequence_edges[segi0][7] < min_overlap
+        ):
             del seq_edge_list[0]
             if len(seq_edge_list) > 0:
                 segi0 = seq_edge_list[0][0]
         # check if the rightmost node connects to the breakpoint edge at index edi
         while len(seq_edge_list) > 0:
             segi_last = seq_edge_list[-1][0]
-            rnode = (g.sequence_edges[segi_last][0], g.sequence_edges[segi_last][1], "-")
+            rnode = (
+                g.sequence_edges[segi_last][0],
+                g.sequence_edges[segi_last][1],
+                "-",
+            )
             if rnode != bp_node:
                 del seq_edge_list[-1]
             else:
@@ -185,12 +211,18 @@ def chimeric_alignment_to_path_l(g, rints, ai, bp_node, min_overlap=500):
                 ),
             )
         if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "+":
-            if g.sequence_edges[seq_edge_list[si][0]][2] + 1 == g.sequence_edges[seq_edge_list[si + 1][0]][1]:
+            if (
+                g.sequence_edges[seq_edge_list[si][0]][2] + 1
+                == g.sequence_edges[seq_edge_list[si + 1][0]][1]
+            ):
                 for ci in range(len(g.concordant_edges)):
                     if (
-                        g.concordant_edges[ci][0] == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si][0]][2] == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][1] == g.concordant_edges[ci][4]
+                        g.concordant_edges[ci][0]
+                        == g.sequence_edges[seq_edge_list[si][0]][0]
+                        and g.sequence_edges[seq_edge_list[si][0]][2]
+                        == g.concordant_edges[ci][1]
+                        and g.sequence_edges[seq_edge_list[si + 1][0]][1]
+                        == g.concordant_edges[ci][4]
                     ):
                         path_l.append(("c", ci))
                         path_l.append(
@@ -202,12 +234,18 @@ def chimeric_alignment_to_path_l(g, rints, ai, bp_node, min_overlap=500):
                         )
                         break
         if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "-":
-            if g.sequence_edges[seq_edge_list[si][0]][1] - 1 == g.sequence_edges[seq_edge_list[si + 1][0]][2]:
+            if (
+                g.sequence_edges[seq_edge_list[si][0]][1] - 1
+                == g.sequence_edges[seq_edge_list[si + 1][0]][2]
+            ):
                 for ci in range(len(g.concordant_edges)):
                     if (
-                        g.concordant_edges[ci][0] == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][2] == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si][0]][1] == g.concordant_edges[ci][4]
+                        g.concordant_edges[ci][0]
+                        == g.sequence_edges[seq_edge_list[si][0]][0]
+                        and g.sequence_edges[seq_edge_list[si + 1][0]][2]
+                        == g.concordant_edges[ci][1]
+                        and g.sequence_edges[seq_edge_list[si][0]][1]
+                        == g.concordant_edges[ci][4]
                     ):
                         path_l.append(("c", ci))
                         path_l.append(
@@ -247,10 +285,14 @@ def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
     if len(seq_edge_list) == 0:
         return []
     if seq_edge_list[0][1] == "+":
-        seq_edge_list = sorted(seq_edge_list, key=lambda item: g.sequence_edges[item[0]][1])
+        seq_edge_list = sorted(
+            seq_edge_list, key=lambda item: g.sequence_edges[item[0]][1]
+        )
         segi1 = seq_edge_list[-1][0]
         if (
-            min(g.sequence_edges[segi1][2], ar[2]) - max(g.sequence_edges[segi1][1], ar[1]) < 500
+            min(g.sequence_edges[segi1][2], ar[2])
+            - max(g.sequence_edges[segi1][1], ar[1])
+            < 500
         ):  # need to parameterize this
             del seq_edge_list[-1]
         if len(seq_edge_list) == 0:
@@ -263,7 +305,11 @@ def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
         # check if the leftmost node connects to the breakpoint edge at index edi
         while len(seq_edge_list) > 0:
             segi_last = seq_edge_list[0][0]
-            lnode = (g.sequence_edges[segi_last][0], g.sequence_edges[segi_last][1], "-")
+            lnode = (
+                g.sequence_edges[segi_last][0],
+                g.sequence_edges[segi_last][1],
+                "-",
+            )
             if lnode != bp_node:
                 del seq_edge_list[0]
             else:
@@ -276,7 +322,9 @@ def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
         )
         segi1 = seq_edge_list[-1][0]
         if (
-            min(g.sequence_edges[segi1][2], ar[1]) - max(g.sequence_edges[segi1][1], ar[2]) < 500
+            min(g.sequence_edges[segi1][2], ar[1])
+            - max(g.sequence_edges[segi1][1], ar[2])
+            < 500
         ):  # need to parameterize this
             del seq_edge_list[-1]
         if len(seq_edge_list) == 0:
@@ -288,7 +336,11 @@ def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
                 segi1 = seq_edge_list[-1][0]
         while len(seq_edge_list) > 0:
             segi_last = seq_edge_list[0][0]
-            lnode = (g.sequence_edges[segi_last][0], g.sequence_edges[segi_last][2], "+")
+            lnode = (
+                g.sequence_edges[segi_last][0],
+                g.sequence_edges[segi_last][2],
+                "+",
+            )
             if lnode != bp_node:
                 del seq_edge_list[0]
             else:
@@ -315,12 +367,18 @@ def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
             )
         path_r.append(("s", seq_edge_list[si][0]))
         if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "+":
-            if g.sequence_edges[seq_edge_list[si][0]][2] + 1 == g.sequence_edges[seq_edge_list[si + 1][0]][1]:
+            if (
+                g.sequence_edges[seq_edge_list[si][0]][2] + 1
+                == g.sequence_edges[seq_edge_list[si + 1][0]][1]
+            ):
                 for ci in range(len(g.concordant_edges)):
                     if (
-                        g.concordant_edges[ci][0] == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si][0]][2] == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][1] == g.concordant_edges[ci][4]
+                        g.concordant_edges[ci][0]
+                        == g.sequence_edges[seq_edge_list[si][0]][0]
+                        and g.sequence_edges[seq_edge_list[si][0]][2]
+                        == g.concordant_edges[ci][1]
+                        and g.sequence_edges[seq_edge_list[si + 1][0]][1]
+                        == g.concordant_edges[ci][4]
                     ):
                         path_r.append(
                             (
@@ -332,12 +390,18 @@ def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
                         path_r.append(("c", ci))
                         break
         if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "-":
-            if g.sequence_edges[seq_edge_list[si][0]][1] - 1 == g.sequence_edges[seq_edge_list[si + 1][0]][2]:
+            if (
+                g.sequence_edges[seq_edge_list[si][0]][1] - 1
+                == g.sequence_edges[seq_edge_list[si + 1][0]][2]
+            ):
                 for ci in range(len(g.concordant_edges)):
                     if (
-                        g.concordant_edges[ci][0] == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][2] == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si][0]][1] == g.concordant_edges[ci][4]
+                        g.concordant_edges[ci][0]
+                        == g.sequence_edges[seq_edge_list[si][0]][0]
+                        and g.sequence_edges[seq_edge_list[si + 1][0]][2]
+                        == g.concordant_edges[ci][1]
+                        and g.sequence_edges[seq_edge_list[si][0]][1]
+                        == g.concordant_edges[ci][4]
                     ):
                         path_r.append(
                             (
@@ -365,8 +429,16 @@ def chimeric_alignment_to_path_i(g, rints, ai1, ai2, di):
     Returns: the resulting path as a list of alternating nodes and edges
     """
     path_ = [("d", di)]
-    node1 = (g.discordant_edges[di][0], g.discordant_edges[di][1], g.discordant_edges[di][2])
-    node2 = (g.discordant_edges[di][3], g.discordant_edges[di][4], g.discordant_edges[di][5])
+    node1 = (
+        g.discordant_edges[di][0],
+        g.discordant_edges[di][1],
+        g.discordant_edges[di][2],
+    )
+    node2 = (
+        g.discordant_edges[di][3],
+        g.discordant_edges[di][4],
+        g.discordant_edges[di][5],
+    )
     if ai1 > ai2:
         path_ = (
             chimeric_alignment_to_path_l(g, rints, ai2, node2)
@@ -405,7 +477,9 @@ def traverse_through_sequence_edge(g, start_node, end_node):
         try:
             ci = g.nodes[next_end][1][0]
         except:
-            return path_  # ignore the alignments spanning two amplicon intervals
+            return (
+                path_  # ignore the alignments spanning two amplicon intervals
+            )
         path_.append(("c", ci))
         cedge = g.concordant_edges[ci]
         next_start = (cedge[0], cedge[1], cedge[2])
@@ -428,11 +502,21 @@ def chimeric_alignment_to_path(g, rints, ai_list, bp_list):
     lastnode = ()
     for i in range(len(bp_list)):
         di = bp_list[i]
-        node1 = (g.discordant_edges[di][0], g.discordant_edges[di][1], g.discordant_edges[di][2])
-        node2 = (g.discordant_edges[di][3], g.discordant_edges[di][4], g.discordant_edges[di][5])
+        node1 = (
+            g.discordant_edges[di][0],
+            g.discordant_edges[di][1],
+            g.discordant_edges[di][2],
+        )
+        node2 = (
+            g.discordant_edges[di][3],
+            g.discordant_edges[di][4],
+            g.discordant_edges[di][5],
+        )
         if ai_list[i][0] > ai_list[i][1]:
             if i == 0:
-                path_ = chimeric_alignment_to_path_l(g, rints, ai_list[i][1], node2) + [
+                path_ = chimeric_alignment_to_path_l(
+                    g, rints, ai_list[i][1], node2
+                ) + [
                     ("d", bp_list[i]),
                 ]
                 lastnode = node1
@@ -441,9 +525,13 @@ def chimeric_alignment_to_path(g, rints, ai_list, bp_list):
                 path_.append(("d", bp_list[i]))
                 lastnode = node1
                 if i == len(bp_list) - 1:
-                    path_ += chimeric_alignment_to_path_r(g, rints, ai_list[i][0], node1)
+                    path_ += chimeric_alignment_to_path_r(
+                        g, rints, ai_list[i][0], node1
+                    )
         elif i == 0:
-            path_ = chimeric_alignment_to_path_l(g, rints, ai_list[i][0], node1) + [
+            path_ = chimeric_alignment_to_path_l(
+                g, rints, ai_list[i][0], node1
+            ) + [
                 ("d", bp_list[i]),
             ]
             lastnode = node2
@@ -452,7 +540,9 @@ def chimeric_alignment_to_path(g, rints, ai_list, bp_list):
             path_.append(("d", bp_list[i]))
             lastnode = node2
             if i == len(bp_list) - 1:
-                path_ += chimeric_alignment_to_path_r(g, rints, ai_list[i][1], node2)
+                path_ += chimeric_alignment_to_path_r(
+                    g, rints, ai_list[i][1], node2
+                )
     return path_
 
 
@@ -480,7 +570,10 @@ def longest_path_dict(path_constraints_):
             path_constraint_ = res_paths[0][pathi_]
             s1 = 1
             for edge in path_constraint.keys():
-                if edge not in path_constraint_ or path_constraint_[edge] < path_constraint[edge]:
+                if (
+                    edge not in path_constraint_
+                    or path_constraint_[edge] < path_constraint[edge]
+                ):
                     s1 = 0
                     break
             if s1 == 1 and pathi_ != pathi:
@@ -489,6 +582,8 @@ def longest_path_dict(path_constraints_):
         if subpath_flag >= 0:
             del res_paths[0][pathi]
             del res_paths[1][pathi]
-            res_paths[2][subpath_flag] = max(res_paths[2][subpath_flag], res_paths[2][pathi])
+            res_paths[2][subpath_flag] = max(
+                res_paths[2][subpath_flag], res_paths[2][pathi]
+            )
             del res_paths[2][pathi]
     return res_paths

@@ -45,7 +45,9 @@ OutputDirArg = Annotated[str, typer.Option(help="Directory of output files.")]
 OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
 OutputPCFlag = Annotated[
     bool,
-    typer.Option(help="If specified, output all path constraints in *.cycles file."),
+    typer.Option(
+        help="If specified, output all path constraints in *.cycles file."
+    ),
 ]
 PostProcessFlag = Annotated[
     bool,
@@ -55,7 +57,10 @@ PostProcessFlag = Annotated[
 ]
 SolverArg = Annotated[Solver, typer.Option(help="LP solver to use.")]
 ThreadsArg = Annotated[
-    int, typer.Option(help="Number of threads reserved for integer program solvers.")
+    int,
+    typer.Option(
+        help="Number of threads reserved for integer program solvers."
+    ),
 ]
 TimeLimitArg = Annotated[
     int,
@@ -78,7 +83,9 @@ def seed(
     output_prefix: OutputPrefixArg,
     gain: Annotated[
         float,
-        typer.Option(help="CN gain threshold for interval to be considered as a seed."),
+        typer.Option(
+            help="CN gain threshold for interval to be considered as a seed."
+        ),
     ] = 6.0,
     min_seed_size: Annotated[
         float,
@@ -88,7 +95,9 @@ def seed(
     ] = 100000,
     max_seg_gap: Annotated[
         float,
-        typer.Option(help="Maximum gap size (in bp) to merge two proximal intervals."),
+        typer.Option(
+            help="Maximum gap size (in bp) to merge two proximal intervals."
+        ),
     ] = 300000,
 ) -> None:
     print(f"Performing seeding mode with options: {ctx.params}")
@@ -110,7 +119,8 @@ def reconstruct(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     output_bp: Annotated[
-        bool, typer.Option(help="If specified, only output the list of breakpoints.")
+        bool,
+        typer.Option(help="If specified, only output the list of breakpoints."),
     ] = False,
     skip_cycle_decomp: Annotated[
         bool,
@@ -197,7 +207,8 @@ def cycle_decomposition_mode(
 
 
 @coral_app.command(
-    name="hsr", help="Detect possible integration points of ecDNA HSR amplifications."
+    name="hsr",
+    help="Detect possible integration points of ecDNA HSR amplifications.",
 )
 def hsr_mode(
     ctx: typer.Context,
@@ -205,14 +216,18 @@ def hsr_mode(
     cn_seg: CnSegArg,
     output_prefix: OutputPrefixArg,
     cycles: Annotated[
-        typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")
+        typer.FileText,
+        typer.Option(help="AmpliconSuite-formatted cycles file."),
     ],
-    normal_cov: Annotated[float, typer.Option(help="Estimated diploid coverage.")],
+    normal_cov: Annotated[
+        float, typer.Option(help="Estimated diploid coverage.")
+    ],
     bp_match_cutoff: Annotated[
         int, typer.Option(help="Breakpoint matching cutoff.")
     ] = 100,
     bp_match_cutoff_clustering: Annotated[
-        int, typer.Option(help="Crude breakpoint matching cutoff for clustering.")
+        int,
+        typer.Option(help="Crude breakpoint matching cutoff for clustering."),
     ] = 2000,
 ) -> None:
     print(f"Performing HSR mode with options: {ctx.params}")
@@ -239,7 +254,8 @@ def plot_mode(
         typer.Option(help="AmpliconSuite-formatted *.graph file."),
     ],
     cycle_file: Annotated[
-        typer.FileText | None, typer.Option(help="AmpliconSuite-formatted cycles file.")
+        typer.FileText | None,
+        typer.Option(help="AmpliconSuite-formatted cycles file."),
     ],
     bam: BamArg,
     output_prefix: OutputPrefixArg,
@@ -262,7 +278,10 @@ def plot_mode(
         bool, typer.Option(help="Only plot cyclic paths from cycles file.")
     ] = False,
     max_coverage: Annotated[
-        float, typer.Option(help="Limit the maximum visualized coverage in the graph.")
+        float,
+        typer.Option(
+            help="Limit the maximum visualized coverage in the graph."
+        ),
     ] = float("inf"),
     min_mapq: Annotated[
         float,
@@ -272,15 +291,21 @@ def plot_mode(
     ] = 0.0,
     gene_subset_list: Annotated[
         list[str],
-        typer.Option(help="List of genes to visualize (will show all by default)."),
+        typer.Option(
+            help="List of genes to visualize (will show all by default)."
+        ),
     ] = [],
-    hide_genes: Annotated[bool, typer.Option(help="Do not show gene track.")] = False,
+    hide_genes: Annotated[
+        bool, typer.Option(help="Do not show gene track.")
+    ] = False,
     gene_fontsize: Annotated[
         float, typer.Option(help="Change size of gene font.")
     ] = 12.0,
     bushman_genes: Annotated[
         bool,
-        typer.Option(help="Reduce gene set to the Bushman cancer-related gene set."),
+        typer.Option(
+            help="Reduce gene set to the Bushman cancer-related gene set."
+        ),
     ] = False,
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
@@ -310,7 +335,8 @@ def plot_mode(
 def cycle2bed_mode(
     ctx: typer.Context,
     cycle_file: Annotated[
-        typer.FileText, typer.Option(help="AmpliconSuite-formatted cycles file.")
+        typer.FileText,
+        typer.Option(help="AmpliconSuite-formatted cycles file."),
     ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
     num_cycles: Annotated[
@@ -324,4 +350,6 @@ def cycle2bed_mode(
     ] = False,
 ) -> None:
     print(f"Performing cycle to bed mode with options: {ctx.params}")
-    cycle2bed.convert_cycles_to_bed(cycle_file, output_file, rotate_to_min, num_cycles)
+    cycle2bed.convert_cycles_to_bed(
+        cycle_file, output_file, rotate_to_min, num_cycles
+    )

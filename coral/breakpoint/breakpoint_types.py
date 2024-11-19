@@ -1,4 +1,5 @@
 """Type aliases and data containers for breakpoint graph elements."""
+
 from __future__ import annotations
 
 import io
@@ -14,10 +15,15 @@ from coral.types import CnsInterval
 @dataclass
 class CNSSegData:
     """Container class for mapping CN (copy number) per chromosome segment, as parsed from a .cns or .bed file."""
-    tree: intervaltree.IntervalTree # IntervalTree mapping chromosome segments to their (per-chromosome) index in input file
-    intervals: List[CnsInterval] # Raw list of all chromosome intervals given, of the form (chromosome, start_idx, end_idx)
-    intervals_by_chr: Dict[str, List[List[int]]] # List of chromosome intervals with their respective CNs, grouped by chromosome number
-    log2_cn: List[float] # Log2 of CN for each chromosome segment
+
+    tree: intervaltree.IntervalTree  # IntervalTree mapping chromosome segments to their (per-chromosome) index in input file
+    intervals: List[
+        CnsInterval
+    ]  # Raw list of all chromosome intervals given, of the form (chromosome, start_idx, end_idx)
+    intervals_by_chr: Dict[
+        str, List[List[int]]
+    ]  # List of chromosome intervals with their respective CNs, grouped by chromosome number
+    log2_cn: List[float]  # Log2 of CN for each chromosome segment
 
     @classmethod
     def from_file(cls, file: io.TextIOWrapper) -> CNSSegData:
@@ -41,7 +47,9 @@ class CNSSegData:
             idx += 1
 
             # Calc log2 CN for .cns
-            log2_cn = float(fields[4]) if is_cns else np.log2(float(fields[3]) / 2.0)
+            log2_cn = (
+                float(fields[4]) if is_cns else np.log2(float(fields[3]) / 2.0)
+            )
             raw_cn = 2 * (2**log2_cn) if is_cns else float(fields[3])
 
             log2_cns.append(log2_cn)
