@@ -121,7 +121,7 @@ def parse_lp_solution(
         if model.z[i].value >= 0.9:
             logger.debug(f"Cycle/Path {i} exists; CN = {model.w[i].value}.")
             if resolution and (walk_weight := model.w[i].value) < resolution:
-                parsed_sol.cycle_weights[0].append(walk_weight)
+                parsed_sol.walk_weights[0].append(walk_weight)
                 logger.debug(
                     "\tCN less than resolution, iteration terminated successfully."
                 )
@@ -152,8 +152,8 @@ def parse_lp_solution(
                     if model.r[pi, i].value >= 0.9
                 ]
                 if (walk_weight := model.w[i].value) > 0.0:
-                    parsed_sol.cycles[1].append(cycle)
-                    parsed_sol.cycle_weights[1].append(walk_weight)
+                    parsed_sol.walks[1].append(cycle)
+                    parsed_sol.walk_weights[1].append(walk_weight)
                     parsed_sol.path_constraints_satisfied[1].append(
                         path_constraints_s
                     )
@@ -185,8 +185,8 @@ def parse_lp_solution(
                         if unsatisfied_pc:
                             unsatisfied_pc[pi] = -1
                 if (walk_weight := model.w[i].value) > 0.0:
-                    parsed_sol.cycles[0].append(cycle)
-                    parsed_sol.cycle_weights[0].append(walk_weight)
+                    parsed_sol.walks[0].append(cycle)
+                    parsed_sol.walk_weights[0].append(walk_weight)
                     parsed_sol.path_constraints_satisfied[0].append(
                         path_constraints_s
                     )
