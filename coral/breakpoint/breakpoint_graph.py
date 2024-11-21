@@ -200,7 +200,7 @@ class BreakpointGraph:
         reads=set([]),
         cn=0.0,
     ):
-        """Add a discordant edge to the graph."""
+        """Add a discordant edge to the breakpoint graph."""
         if (chr1, pos1, o1) not in self.nodes or (
             chr2,
             pos2,
@@ -417,222 +417,44 @@ class BreakpointGraph:
             self.nodes[(ce[0], ce[1], ce[2])][1] = [ci]
             self.nodes[(ce[3], ce[4], ce[5])][1] = [ci]
 
-    def compute_cn_sr_lr(
-        self,
-        normal_cov_sr,
-        sr_length,
-        normal_cov_lr,
-        downsample_factor,
-        min_sr_alignment_length=30,
-    ):
-        """Estimate CN for each edge, with both short and long reads"""
+    def compute_cn_lr(self, normal_cov_lr: float) -> None:
+        """Estimate CN (copy number) for each edge, using only long reads.
+
+        CN estimation is done via maximum likelihood estimation using the joint
+        distribution of
+            1) observed number of nucleotides on each sequence edge
+                - Uses normal distribution, μ = σ^2 = θ_LR * CN(e) * length(e),
+                where length is given in base pairs. (S3.1 in Supplementary Methods)
+            2) observed read counts on each concordant/discordant edge
+                - Uses Poisson distribution, λ = θ_LR * C_e (S3.2)
+
+        Additionally, each node in the breakpoint graph is required to be
+        balanced; that is, the CN assignment for each sequence edge (u,v) = the
+        sum of CN values from all breakpoint edges connected to that sequence
+        edge (S1.1,S3.4).
+
+        These constraints are enforced using convex optimization via cvxpy.
+
+        Args:
+            normal_cov_lr: Normal coverage of long reads. (θ_LR)
+
+        Returns:
+            None, but assigns all CN values for all breakpoint graph edges.
+
+        """
         lseq = len(self.sequence_edges)
         lc = len(self.concordant_edges)
         ld = len(self.discordant_edges)
         lsrc = len(self.source_edges)
-        logger.debug(
-            "Adjacent list for estimating CN:",
-        )
-        for node in self.nodes.keys():
-            logger.debug(
-                "Node %s; adjacent list = %s." % (str(node), self.nodes[node]),
-            )
-        nvariables = lseg + lc + ld + lsrc
-        logger.debug(
-            "There are %d variables for cvxopt." % (nvariables),
-        )
-        self.del_discordant_endnodes()
-        nconstraints = len(
-            [node for node in self.nodes.keys() if node not in self.endnodes]
-        )
-        logger.debug(
-            "There are %d constraints for cvxopt." % (nconstraints),
-        )
-
-        wcn = [
-            (normal_cov_sr * se[7] / sr_length + 0.5 * normal_cov_lr * se[7])
-            for se in self.sequence_edges
-        ]
-        wcn += [
-            normal_cov_sr * (sr_length - 1.0) / sr_length + normal_cov_lr
-            for eci in range(lc)
-        ]
-        wcn += [
-            normal_cov_sr
-            * (sr_length - 2 * min_sr_alignment_length)
-            / sr_length
-            + normal_cov_lr
-            for edi in range(ld)
-        ]
-        wcn += [
-            normal_cov_sr
-            * (sr_length - 2 * min_sr_alignment_length)
-            / sr_length
-            for srci in range(lsrc)
-        ]
-        wlncn = []
-        for se in self.sequence_edges:
-            if se[4] == "d":
-                wlncn.append(se[3] * downsample_factor - 0.5)
-            else:
-                wlncn.append(se[3] - 0.5)
-        for ce in self.concordant_edges:
-            if ce[7] == "d":
-                wlncn.append(ce[6] * downsample_factor + ce[8])
-            else:
-                wlncn.append((ce[6] + ce[8]) * 1.0)
-        for de in self.discordant_edges:
-            if de[7] == "d":
-                wlncn.append(de[6] * downsample_factor + de[9])
-            else:
-                wlncn.append((de[6] + de[9]) * 1.0)
-        for srce in self.source_edges:
-            if srce[7] == "d":
-                wlncn.append(
-                    srce[6] * downsample_factor if srce[6] >= 1 else 0.1
-                )
-            else:
-                wlncn.append(srce[6] * 1.0 if srce[6] >= 1 else 0.1)
-        wlrseg = [
-            (0.5 * se[6] ** 2 / (normal_cov_lr * se[7]))
-            for se in self.sequence_edges
-        ]
-        wlrseg += [0.0 for ce in self.concordant_edges]
-        wlrseg += [0.0 for de in self.discordant_edges]
-        wlrseg += [0.0 for es in self.source_edges]
-        wcn = cvxopt.matrix(wcn)
-        wlncn = cvxopt.matrix(wlncn)
-        wlrseg = cvxopt.matrix(wlrseg)
-
-        cidx = 0
-        balance_constraints = np.zeros([nconstraints, nvariables])
-        for node in self.nodes.keys():
-            if node not in self.endnodes:
-                for seqi in self.nodes[node][0]:
-                    balance_constraints[cidx][seqi] = 1
-                for ci in self.nodes[node][1]:
-                    balance_constraints[cidx][lseq + ci] = -1
-                for di in self.nodes[node][2]:
-                    balance_constraints[cidx][lseq + lc + di] = -1
-                for srci in self.nodes[node][3]:
-                    balance_constraints[cidx][lseq + lc + ld + srci] = -1
-                cidx += 1
-        balance_constraints = cvxopt.matrix(balance_constraints)
-
-        # Convex optimization function required by cvxopt
-        def F_normal(x=None, z=None):
-            if x is None:
-                return 0, cvxopt.matrix(1.0, (nvariables, 1))
-            if min(x) <= 0.0:
-                return None
-            f = (
-                cvxopt.modeling.dot(wlrseg, x**-1)
-                + cvxopt.modeling.dot(wcn, x)
-                - cvxopt.modeling.dot(wlncn, cvxopt.log(x))
-            )
-            Df = (wcn - cvxopt.mul(wlncn, x**-1) - cvxopt.mul(wlrseg, x**-2)).T
-            if z is None:
-                return f, Df
-            H = cvxopt.spdiag(
-                z[0]
-                * (cvxopt.mul(wlncn, x**-2) + cvxopt.mul(2.0 * wlrseg, x**-3))
-            )
-            return f, Df, H
-
-        options = {"maxiters": 1000, "show_progress": False}
-        sol = ""
-        if nconstraints > 0:
-            sol = cvxopt.solvers.cp(
-                F_normal,
-                A=balance_constraints,
-                b=cvxopt.matrix([0.0 for i in range(nconstraints)]),
-                kktsolver="ldl",
-                options=options,
-            )
-            if sol["status"] == "optimal" or sol["status"] == "unknown":
-                if sol["status"] == "optimal":
-                    logger.debug(
-                        "Found optimal solution.",
-                    )
-                else:
-                    logger.debug(
-                        "Reached maximum num iterations.",
-                    )
-                logger.debug(
-                    "primal objective = %f" % (sol["primal objective"]),
-                )
-                logger.debug(
-                    "\tdual objective = %f" % (sol["dual objective"]),
-                )
-                logger.debug(
-                    "\tgap = %f" % (sol["gap"]),
-                )
-                logger.debug(
-                    "\trelative gap = %f" % (sol["relative gap"]),
-                )
-                logger.debug(
-                    "\tprimal infeasibility = %f"
-                    % (sol["primal infeasibility"]),
-                )
-                logger.debug(
-                    "\tdual infeasibility = %f" % (sol["dual infeasibility"]),
-                )
-                for seqi in range(lseq):
-                    self.sequence_edges[seqi][-1] = sol["x"][seqi] * 2
-                    self.max_cn = max(sol["x"][seqi] * 2, self.max_cn)
-                for ci in range(lc):
-                    self.concordant_edges[ci][-1] = sol["x"][lseq + ci] * 2
-                    self.max_cn = max(sol["x"][lseq + ci] * 2, self.max_cn)
-                for di in range(ld):
-                    self.discordant_edges[di][-1] = sol["x"][lseq + lc + di] * 2
-                    self.max_cn = max(sol["x"][lseq + lc + di] * 2, self.max_cn)
-                for srci in range(len(self.source_edges)):
-                    self.source_edges[srci][-1] = (
-                        sol["x"][lseq + lc + ld + srci] * 2
-                    )
-                    self.max_cn = max(
-                        sol["x"][lseq + lc + ld + srci] * 2, self.max_cn
-                    )
-        else:
-            assert lc == 0 and ld == 0 and lsrc == 0
-            logger.debug(
-                "Skipped convex optimization.",
-            )
-            for seqi in range(lseq):
-                se = self.sequence_edges[seqi]
-                cn_seqi = 0.0
-                if se[4] == "d":
-                    cn_seqi = (sr_length * se[3]) / (10.0 * se[7])
-                else:
-                    cn_seqi = (sr_length * se[3]) / (normal_cov_sr * se[7])
-                cn_seqi += se[6] / (normal_cov_lr * se[7])
-                self.sequence_edges[seqi][-1] = cn_seqi
-                self.max_cn = max(cn_seqi, self.max_cn)
-        self.max_cn += 1.0
-
-    def compute_cn_lr(self, normal_cov_lr):
-        """Estimate CN for each edge, with only long reads"""
-        lseq = len(self.sequence_edges)
-        lc = len(self.concordant_edges)
-        ld = len(self.discordant_edges)
-        lsrc = len(self.source_edges)
-        logger.debug(
-            "Adjacent list for estimating CN:",
-        )
-        for node in self.nodes.keys():
-            logger.debug(
-                "Node %s; adjacent list = %s." % (str(node), self.nodes[node]),
-            )
+        logger.debug("Adjacent list for estimating CN:")
+        for node in self.nodes:
+            logger.debug(f"Node {node}; adjacent list = {self.nodes[node]}.")
         nvariables = lseq + lc + ld + lsrc
-        logger.debug(
-            "There are %d variables for cvxopt." % (nvariables),
-        )
+        logger.debug(f"There are {nvariables} variables for cvxopt.")
         nconstraints = len(
-            [node for node in self.nodes.keys() if node not in self.endnodes]
+            [node for node in self.nodes if node not in self.endnodes]
         )
-        logger.debug(
-            "There are %d constraints for cvxopt." % (nconstraints),
-        )
+        logger.debug(f"There are {nconstraints} constraints for cvxopt.")
 
         wcn = []
         wlncn = []
@@ -661,7 +483,7 @@ class BreakpointGraph:
 
         cidx = 0
         balance_constraints = np.zeros([nconstraints, nvariables])
-        for node in self.nodes.keys():
+        for node in self.nodes:
             if node not in self.endnodes:
                 for seqi in self.nodes[node][0]:
                     balance_constraints[cidx][seqi] = 1
@@ -695,7 +517,7 @@ class BreakpointGraph:
             return f, Df, H
 
         options = {"maxiters": 1000, "show_progress": False}
-        sol = ""
+        sol = {}
         if nconstraints > 0:
             sol = cvxopt.solvers.cp(
                 F_normal,
@@ -767,39 +589,19 @@ class BreakpointGraph:
                 self.max_cn = max(cn_seqi, self.max_cn)
         self.max_cn += 1.0
 
-    def infer_max_seq_multiplicity(
-        self, gain=5.0, size_cutoff=10000, multiplicity=2
-    ):
-        """Estimate maximum allowed multiplicities in cycles/paths for any sequence edge
-
-        gain: float, only consider sequence edges with predicted CN >= gain
-        size_cutoff: integer, only consider sequence edges of size CN >= size_cutoff
-        multiplicity: integer, default maximum multiplicity
-                default value is 2, indicating both orientations
-
-        Return: integer, estimated maximum multiplicity on sequence edges
-        """
-        max_seq_multiplicity = multiplicity
-        seq_cn_list = [
-            se[-1]
-            for se in self.sequence_edges
-            if se[7] >= size_cutoff and se[-1] >= gain
-        ]
-        seq_len_list = [
-            se[7]
-            for se in self.sequence_edges
-            if se[7] >= size_cutoff and se[-1] >= gain
-        ]
-        if len(seq_cn_list) > 0:
-            max_cn = max(seq_cn_list)
-            avg_cn = np.average(seq_cn_list, weights=seq_len_list)
-            max_seq_multiplicity = int(round(max_cn / avg_cn)) + 1
-        return max_seq_multiplicity
-
     def infer_discordant_edge_multiplicities(
         self, max_multiplicity: int = 5
     ) -> list[int]:
-        """Estimate multiplicities in for each discordant edge
+        """Estimate multiplicities for each discordant edge.
+
+        A single discordant edge may be a part of multiple distinct ecDNA
+        species, i.e., amplicon walks. We consider multiple supporting reads
+        where the CN multiplicity is within the given `max_multiplicity`
+        parameter to be representative of the same species, and attempt to
+        normalize multiplicities across reads of a discordant edge accordingly.
+
+        Args:
+            max_multiplicity: integer, maximum allowed multiplicities in walks
 
         Return: a list of integers corresponding to the multiplicities of each
             discordant edge
@@ -880,71 +682,3 @@ class BreakpointGraph:
             multiplicities_sorted[list(rc_indices).index(i)]
             for i in range(len(rc_list))
         ]
-
-    def nextminus(self, chr, pos, min_bp_match_cutoff_=100):
-        """Helper function to read_graph
-        Return the distance to the next position towards 3' which has incoming breakpoint edges on chr
-        """
-        cr = -1
-        pos_ = pos
-        while (chr, pos_, "-") in self.nodes.keys():
-            if pos_ != pos and len(self.nodes[(chr, pos_, "-")][2]) > 0:
-                break
-            if cr >= min_bp_match_cutoff_:
-                break
-            seglen = self.sequence_edges[self.nodes[(chr, pos_, "-")][0][0]][7]
-            cr = max(cr, 0) + seglen
-            pos_ = pos_ + seglen
-        return cr
-
-    def lastminus(self, chr, pos, min_bp_match_cutoff_=100):
-        """Helper function to read_graph
-        Return the distance to the next position towards 5' which has incoming breakpoint edges on chr
-        """
-        cl = -1
-        pos_ = pos
-        while (chr, pos_ - 1, "+") in self.nodes.keys():
-            if pos_ != pos and len(self.nodes[(chr, pos_, "-")][2]) > 0:
-                break
-            if cl >= min_bp_match_cutoff_:
-                break
-            seglen = self.sequence_edges[
-                self.nodes[(chr, pos_ - 1, "+")][0][0]
-            ][7]
-            cl = max(cl, 0) + seglen
-            pos_ = pos_ - seglen
-        return cl
-
-    def nextplus(self, chr, pos, min_bp_match_cutoff_=100):
-        """Helper function to read_graph
-        Return the next position towards 3' which has outgoing breakpoint edges on chr
-        """
-        cr = -1
-        pos_ = pos
-        while (chr, pos_ + 1, "-") in self.nodes.keys():
-            if pos_ != pos and len(self.nodes[(chr, pos_, "+")][2]) > 0:
-                break
-            if cr >= min_bp_match_cutoff_:
-                break
-            seglen = self.sequence_edges[
-                self.nodes[(chr, pos_ + 1, "-")][0][0]
-            ][7]
-            cr = max(cr, 0) + seglen
-            pos_ = pos_ + seglen
-        return cr
-
-    def lastplus(self, chr, pos, min_bp_match_cutoff_=100):
-        """Helper function to read_graph
-        Return the next position towards 5' which has outgoing breakpoint edges on chr
-        """
-        cl = -1
-        pos_ = pos
-        while (chr, pos_, "+") in self.nodes.keys():
-            if pos_ != pos and len(self.nodes[(chr, pos_, "+")][2]) > 0:
-                break
-            if cl >= min_bp_match_cutoff_:
-                break
-            seglen = self.sequence_edges[self.nodes[(chr, pos_, "+")][0][0]][7]
-            cl = max(cl, 0) + seglen
-            pos_ = pos_ - seglen
-        return cl

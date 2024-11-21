@@ -1,3 +1,5 @@
+"""Infer breakpoint graph(s) from long read alignments + associated CN calls."""
+
 from __future__ import annotations
 
 import functools
@@ -49,7 +51,7 @@ class LongReadBamToBreakpointMetadata:
     )  # Breakpoint graph
 
     # Tunable hyperparameters
-    max_seq_len: int = 2000000
+    max_seq_len: int = 2000000  # Maximum allowed length for a breakpoint edge
     cn_gain: float = 5.0
     min_bp_cov_factor: float = 1.0
     min_bp_match_cutoff_: int = 100
@@ -84,9 +86,8 @@ class LongReadBamToBreakpointMetadata:
     )  # Default of [0.0, 0.0, 0.0]
     nm_filter: bool = False
 
-    amplicon_intervals: list[AmpliconInterval] = field(
-        default_factory=list
-    )  # AA amplicon intervals
+    # AA amplicon intervals
+    amplicon_intervals: list[AmpliconInterval] = field(default_factory=list)
     amplicon_interval_connections: dict[str, List[AmpliconInterval]] = field(
         default_factory=dict
     )
@@ -97,23 +98,18 @@ class LongReadBamToBreakpointMetadata:
     cns_intervals_by_chr: dict[str, list[CnsInterval]] = field(
         default_factory=dict
     )
-    log2_cn: list[float] = field(
-        default_factory=list
-    )  # log2 CN for each CN segment
-    cns_tree: dict[str, intervaltree.IntervalTree] = field(
-        default_factory=dict
-    )  # Interval tree structure for each chromosome
-    normal_cov: float = (
-        0.0  # Normal long read coverage - used for CN assignment
-    )
+    # log2 CN for each CN segment
+    log2_cn: list[float] = field(default_factory=list)
+    # Interval tree structure for each chromosome
+    cns_tree: dict[str, intervaltree.IntervalTree] = field(default_factory=dict)
+    # Normal long read coverage - used for CN assignment
+    normal_cov: float = 0.0
 
     ccid2id: dict[int, int] = field(default_factory=dict)
-    new_bp_list: list[list[int]] = field(
-        default_factory=list
-    )  # List of breakpoints (discordant edges)
-    new_bp_stats: list[list[int]] = field(
-        default_factory=list
-    )  # Statistics of breakpoints (discordant edges)
+    # List of breakpoints (discordant edges)
+    new_bp_list: list[list[int]] = field(default_factory=list)
+    # Statistics of breakpoints (discordant edges)
+    new_bp_stats: list[list[int]] = field(default_factory=list)
     new_bp_ccids: list[int] = field(default_factory=list)
     source_edges: list[list[Any]] = field(default_factory=list)
     source_edge_ccids: list[int] = field(default_factory=list)

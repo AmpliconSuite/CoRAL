@@ -33,10 +33,11 @@ class CNSSegData:
         intervals_by_chr: Dict[str, List[List[Any]]] = {}
         is_cns = file.name.endswith(".cns")
 
-        next(file)  # Skip header row
         idx = 0
         for line in file:
             fields = line.strip().split()
+            if fields[0] == "chromosome":  # Skip potential header row
+                continue
             chr_tag, start, end = fields[0], int(fields[1]), int(fields[2])
             intervals.append([chr_tag, start, end - 1])
             if chr_tag not in tree:

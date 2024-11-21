@@ -84,13 +84,13 @@ Usage:
 ```coral seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
-* ```--cn_segs <FILE>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <FILE>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **Optional arguments:**
-* ```--output_dir <FOLDER>``` - Directory of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` file to the current directory with the same prefix as the input ```*.cns``` file.
+* ```--output-prefix <STRING>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` with the same prefix as the input ```*.cns``` file.
 * ```--gain <FLOAT>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
-* ```--min_seed_size <INT>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
-* ```--max_seg_gap <INT>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min_seed_size```, and their aggregate size will be compared with the value. Default is 300000. 
+* ```--min-seed-size <INT>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
+* ```--max-seg-gap <INT>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000. 
 
 
 ## 2. ```reconstruct```
@@ -98,20 +98,20 @@ Usage:
 ```reconstruct <Required arguments> <Optional arguments>```
 
 **2.1 Required arguments:**
-* ```--lr_bam <FILE>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
-* ```--cnv_seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
-* ```--output_dir <FOLDER>``` - Directory to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
-* ```--cn_segs <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--lr-bam <FILE>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
+* ```--cnv-seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
+* ```--output-dir <FOLDER>``` - Directory to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
+* ```--cn-seg <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **2.2 Optional arguments:**
-* ```--min_bp_support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
-* ```--skip_cycle_decomp``` - If specified, will stop by only outputting the breakpoint graph files ```*_graph.txt``` (see [**Expected output**](#2.3-Expected-output) below) for all amplicons and not extract cycles from the graph and output ```*_cycles.txt```.
-* ```--output_all_path_constraints``` - If specified, output all path constraints given by long reads in ```*_cycles.txt``` file (see "Expected output" below).
-* ```--cycle_decomp_alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
-* ```--cycle_decomp_time_limit <INT>``` - Maximum running time (in seconds) reserved for solving the quadratic program with Gurobi (integer program solver). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
-* ```--cycle_decomp_threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
-* ```--postprocess_greedy_sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
-*	```--log_fn <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
+* ```--min-bp-support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
+* ```--skip-cycle-decomp``` - If specified, will stop by only outputting the breakpoint graph files ```*_graph.txt``` (see [**Expected output**](#2.3-Expected-output) below) for all amplicons and not extract cycles from the graph and output ```*_cycles.txt```.
+* ```--output-all-path_constraints``` - If specified, output all path constraints given by long reads in ```*_cycles.txt``` file (see "Expected output" below).
+* ```--cycle-decomp-alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
+* ```--cycle-decomp-time-limit <INT>``` - Maximum running time (in seconds) reserved for solving the quadratic program with Gurobi (integer program solver). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
+* ```--cycle-decomp-threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
+* ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
+*	```--log-file <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
 
 **2.3 Expected output:**
 
@@ -156,7 +156,7 @@ Path constraint	2	4+,5+,6+	Support<=34	Satisfied
 Cycle=1;Copy_count=82.34616279663038;Segments=2+,4+,6+;Path_constraints_satisfied=
 Cycle=2;Copy_count=2.8436550275157644;Segments=0+,2+,3+,4+,5+,6+,0-;Path_constraints_satisfied=1,2
 ```
-Note that if ```--output_all_path_constraints``` is specified, then all path constraints given by long reads will be written to in ```*.cycles``` file.
+Note that if ```--output-all-path-constraints``` is specified, then all path constraints given by long reads will be written to in ```*.cycles``` file.
 * Other outputs include the ```output_dir_amplicon*_model.lp``` file(s) and ```output_dir_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrainted) program in a human readable format, and the standard output produced by Gurobi.
 
 
@@ -165,7 +165,7 @@ Usage:
 ```coral plot <Required arguments> <Optional arguments>```
 
 **3.1 Required arguments:**
-If `--plot_graph` is given, `--graph` is required. If `--plot_cycles` is given `--cycles` is required.
+If `--plot-graph` is given, `--graph` is required. If `--plot-cycles` is given `--cycles` is required.
 
 | Argument                | Description                                                            |
 |-------------------------|-----------------------------------------------------------------------|
@@ -173,23 +173,23 @@ If `--plot_graph` is given, `--graph` is required. If `--plot_cycles` is given `
 | `--bam <file>` | Bam file the run was based on                                         |
 | `--graph <file>`        | AA-formatted `_graph.txt` file                                        |
 | `--cycles <file>`       | AA-formatted `_cycles.txt` file                                       |
-| `--output_dir <str>` | Directory for output files                                          |
+| `--output-dir <str>` | Directory for output files                                          |
 
 
 **3.2 Optional arguments:**
 
 | Argument                                   | Default                          | Description                                                                                                                               |
 |--------------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `--plot_graph`                             |                                  | Plot the AA graph file CN, SVs and coverage as a sashimi plot                                                                             |
-| `--plot_cycles`                            |                                  | Plot the AA cycles file genome decompositions                                                                                             |
-| `--only_cyclic_paths`                      |                                  | Only visualize the cyclic paths in the cycles file                                                                                        |
-| `--num_cycles <int>`                       | `[all]`                          | Only plot the first `[arg]` cycles from the cycles file                                                                                   |
-| `--max_coverage <float>`                   | `[1.25x max coverage in region]` | Do not extend coverage plot in graph sashimi plot above `[arg]` value                                                                     |
-| `--min_mapq <int>`                         | 15                               | Do not use alignment in coverage plot with MAPQ value below `[arg]`                                                                       |
-| `--gene_subset_list <str> <str> <str> ...` | `[all]`                          | Only indicate positions of the gene names in this list                                                                                    |
-| `--hide_genes`                             |                                  | Do not plot positions of genes                                                                                                            |
-| `--gene_fontsize <float>`                  | 12                               | Adjust fontsize of gene names                                                                                                             
-| `--bushman_genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
+| `--plot-graph`                             |                                  | Plot the AA graph file CN, SVs and coverage as a sashimi plot                                                                             |
+| `--plot-cycles`                            |                                  | Plot the AA cycles file genome decompositions                                                                                             |
+| `--only-cyclic-paths`                      |                                  | Only visualize the cyclic paths in the cycles file                                                                                        |
+| `--num-cycles <int>`                       | `[all]`                          | Only plot the first `[arg]` cycles from the cycles file                                                                                   |
+| `--max-coverage <float>`                   | `[1.25x max coverage in region]` | Do not extend coverage plot in graph sashimi plot above `[arg]` value                                                                     |
+| `--min-mapq <int>`                         | 15                               | Do not use alignment in coverage plot with MAPQ value below `[arg]`                                                                       |
+| `--gene-subset-list <str> <str> <str> ...` | `[all]`                          | Only indicate positions of the gene names in this list                                                                                    |
+| `--hide-genes`                             |                                  | Do not plot positions of genes                                                                                                            |
+| `--gene-fontsize <float>`                  | 12                               | Adjust fontsize of gene names                                                                                                             
+| `--bushman-genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
 
 
@@ -201,10 +201,10 @@ Usage:
 
 | Argument           | Descripion                                        |
 |--------------------|---------------------------------------------------|
-| `--lr_bam <file>`  | Coordinate-sorted and indexed long read .bam file |
+| `--lr-bam <file>`  | Coordinate-sorted and indexed long read .bam file |
 | `--cycles <file>`  | AA-formatted `_cycles.txt` file                   |
-| `--cn_segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
-| `--normal_cov <float>` | Estimated coverage of diploid genome regions      |
+| `--cn-segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
+| `--normal-cov <float>` | Estimated coverage of diploid genome regions      |
 
 **4.2 Optional arguments:**
 
@@ -221,11 +221,11 @@ Usage:
 ```coral cycle2bed <Required arguments> <Optional arguments>```
 
 **5.1 Required arguments:**
-* ```--cycle_fn <FILE>``` - Input cycles file in AmpliconArchitect format.
-* ```--output_fn <FILE>```  - Output cycles file in ```*.bed``` format.
+* ```--cycle-file <FILE>``` - Input cycles file in AmpliconArchitect format.
+* ```--output-file <FILE>```  - Output cycles file in ```*.bed``` format.
 
 **5.2 Optional arguments:** 
-* ```--num_cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
+* ```--num-cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
 
 Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
 ```

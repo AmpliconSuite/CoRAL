@@ -19,8 +19,12 @@ if TYPE_CHECKING:
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:
-    """
-    Check if two intervals in the form of [chr, s, e] overlap
+    """Check if two chromosome intervals overlap (share a subsequence).
+
+    Intervals are given in the form [chr, start, end], where:
+        chr: chromosome number
+        s: start position/index
+        e: end position/index
     """
     return (
         int1[0] == int2[0]
@@ -877,128 +881,6 @@ def enumerate_partitions(
         for i in range(1, end - start - k + 2):
             for res in enumerate_partitions(k - 1, start + i, end):
                 yield [[start, start + i - 1], *res]
-
-
-def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):
-    """Write a breakpoint graph to file in AA graph format with short read and long read information"""
-    with open(ogfile, "w") as fp:
-        fp.write(
-            "SequenceEdge: StartPosition, EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads, Size\n",
-        )
-        for se in g.sequence_edges:
-            if se[4] == "d":
-                fp.write(
-                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n"
-                    % (
-                        se[0],
-                        se[1],
-                        se[0],
-                        se[2],
-                        se[-1],
-                        int(np.round(se[3] * downsample_factor)),
-                        se[5],
-                        se[7],
-                    ),
-                )
-            else:
-                fp.write(
-                    "sequence\t%s:%s-\t%s:%s+\t%f\t%d\t%d\t%d\n"
-                    % (se[0], se[1], se[0], se[2], se[-1], se[3], se[5], se[7]),
-                )
-        fp.write(
-            "BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfReadPairs, NumberOfLongReads\n",
-        )
-        for srce in g.source_edges:
-            if srce[7] == "d":
-                fp.write(
-                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n"
-                    % (
-                        srce[0],
-                        srce[1],
-                        srce[2],
-                        srce[3],
-                        srce[4],
-                        srce[5],
-                        srce[-1],
-                        int(np.round(srce[6] * downsample_factor)),
-                    ),
-                )
-            else:
-                fp.write(
-                    "source\t%s:%s%s->%s:%s%s\t%f\t-1\t%d\n"
-                    % (
-                        srce[0],
-                        srce[1],
-                        srce[2],
-                        srce[3],
-                        srce[4],
-                        srce[5],
-                        srce[-1],
-                        srce[6],
-                    ),
-                )
-        for ce in self.concordant_edges:
-            if ce[7] == "d":
-                fp.write(
-                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (
-                        ce[0],
-                        ce[1],
-                        ce[2],
-                        ce[3],
-                        ce[4],
-                        ce[5],
-                        ce[-1],
-                        int(np.round(ce[6] * downsample_factor)),
-                        ce[8],
-                    ),
-                )
-            else:
-                fp.write(
-                    "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (
-                        ce[0],
-                        ce[1],
-                        ce[2],
-                        ce[3],
-                        ce[4],
-                        ce[5],
-                        ce[-1],
-                        ce[6],
-                        ce[8],
-                    ),
-                )
-        for de in self.discordant_edges:
-            if de[7] == "d":
-                fp.write(
-                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (
-                        de[0],
-                        de[1],
-                        de[2],
-                        de[3],
-                        de[4],
-                        de[5],
-                        de[-1],
-                        int(np.round(de[6] * downsample_factor)),
-                        de[9],
-                    ),
-                )
-            else:
-                fp.write(
-                    "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\t%d\n"
-                    % (
-                        de[0],
-                        de[1],
-                        de[2],
-                        de[3],
-                        de[4],
-                        de[5],
-                        de[-1],
-                        de[6],
-                        de[9],
-                    ),
-                )
 
 
 def output_breakpoint_graph_lr(g, ogfile):

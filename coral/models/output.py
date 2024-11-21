@@ -448,8 +448,7 @@ def output_amplicon_cycles(
 ) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
-    cycle_path = f"{cycle_file_prefix}/amplicon{amplicon_idx + 1}_cycles.txt"
-    fp = open(cycle_path, "w")
+    fp = open(f"{cycle_file_prefix}_amplicon{amplicon_idx + 1}_cycles.txt", "w")
     interval_num = 1
     ai_amplicon = [
         ai

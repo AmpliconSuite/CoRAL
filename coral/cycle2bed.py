@@ -14,6 +14,7 @@ def convert_cycles_to_bed(
     rotate_to_min: bool = False,
     num_cycles: int | None = None,
 ):
+    """Convert an AA-formatted .txt file into equivalent .bed representation."""
     all_segs: dict[str, list[str | int]] = dict()
     cycles: dict[int, list[Any]] = dict()
     for line in cycle_file:

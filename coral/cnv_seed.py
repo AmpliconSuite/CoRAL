@@ -16,7 +16,24 @@ def run_seeding(
     gain: float,
     min_seed_size: float,
     max_seg_gap: float,
-):
+) -> None:
+    """Generate seed intervals from file containing WGS CN calls.
+
+    Breakpoint graph reconstruction initially requires a set of focally
+    amplified seed intervals, from which breakpoint edges are explored. This
+    method produces these intervals using the given parameters as heuristic
+    cutoffs.
+
+    Args:
+        cn_seg_file: File containing long-read segmented whole genome CN calls.
+        output_prefix: Prefix for output file.
+        gain: Minimum CN threshold for an interval to be considered as a seed.
+        min_seed_size: Minimum size (in base pairs) of a seed interval.
+        max_seg_gap: Maximum gap size (in base pairs) between two adjacent
+            potential seed intervals for them to be merged into a single seed.
+            If merged, min_seed_size is enforced on the combined interval.
+
+    """
     blocked_intervals = []
     chr_arms: dict[str, list[list]] = {}
 
@@ -93,10 +110,11 @@ def run_seeding(
                     break
         chr_arms[chr].append([ccn_p, ccn_q])
 
-    OUTPUT_FN = cn_seg_file.name.replace(".cns", "CNV_SEEDS.bed")
     if output_prefix:
-        OUTPUT_FN = f"{output_prefix}_CNV_SEEDS.bed"
-    with open(OUTPUT_FN, "w") as fp:
+        output_filename = f"{output_prefix}_CNV_SEEDS.bed"
+    else:
+        output_filename = cn_seg_file.name.replace(".cns", "CNV_SEEDS.bed")
+    with open(output_filename, "w") as fp:
         for seed in cnv_seeds:
             sum_seed_len = sum([cns[2] - cns[1] for cns in seed])
             cn_cutoff_chrarm = gain
@@ -138,4 +156,4 @@ def run_seeding(
                         % (lastseg[0], lastseg[1], lastseg[2] - 1)
                     )
 
-    print("Created " + OUTPUT_FN)
+    print("Created " + output_filename)
