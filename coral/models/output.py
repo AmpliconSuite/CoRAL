@@ -527,9 +527,17 @@ def output_amplicon_cycles(
 
     # sort cycles according to weights
     cycle_indices = sorted(
-        [(0, i) for i in range(len(bb.cycle_weights[amplicon_idx][0]))]
-        + [(1, i) for i in range(len(bb.cycle_weights[amplicon_idx][1]))],
-        key=lambda item: bb.cycle_weights[amplicon_idx][item[0]][item[1]],
+        [
+            (0, i)
+            for i in range(len(bb.walk_weights_by_amplicon[amplicon_idx][0]))
+        ]
+        + [
+            (1, i)
+            for i in range(len(bb.walk_weights_by_amplicon[amplicon_idx][1]))
+        ],
+        key=lambda item: bb.walk_weights_by_amplicon[amplicon_idx][item[0]][
+            item[1]
+        ],
         reverse=True,
     )
 
@@ -537,7 +545,7 @@ def output_amplicon_cycles(
     for cycle_i in cycle_indices:
         if cycle_i[0] == 0:  # cycles
             logger.debug(
-                f"Traversing next cycle, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
+                f"Traversing next cycle, CN = {bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
             )
             path_constraints_satisfied_cycle = []
             path_constraints_support_cycle = []
@@ -553,7 +561,7 @@ def output_amplicon_cycles(
                 )
             cycle_seg_list = eulerian_cycle_t(
                 bb.lr_graph[amplicon_idx],
-                bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]],
+                bb.walks_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]],
                 path_constraints_satisfied_cycle,
                 path_constraints_support_cycle,
             )
@@ -561,7 +569,11 @@ def output_amplicon_cycles(
             fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
             fp.write(
                 "Copy_count=%s;"
-                % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+                % str(
+                    bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][
+                        cycle_i[1]
+                    ]
+                ),
             )
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
@@ -613,7 +625,7 @@ def output_amplicon_cycles(
                 fp.write("\n")
         else:  # paths
             logger.debug(
-                f"Traversing next path, CN = {bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
+                f"Traversing next path, CN = {bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
             )
             path_constraints_satisfied_path = []
             path_constraints_support_path = []
@@ -629,17 +641,22 @@ def output_amplicon_cycles(
                 )
             cycle_seg_list = eulerian_path_t(
                 bb.lr_graph[amplicon_idx],
-                bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]],
+                bb.walks_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]],
                 path_constraints_satisfied_path,
                 path_constraints_support_path,
             )
             print(
-                cycle_seg_list, bb.cycles[amplicon_idx][cycle_i[0]][cycle_i[1]]
+                cycle_seg_list,
+                bb.walks_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]],
             )
             fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
             fp.write(
                 "Copy_count=%s;"
-                % str(bb.cycle_weights[amplicon_idx][cycle_i[0]][cycle_i[1]]),
+                % str(
+                    bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][
+                        cycle_i[1]
+                    ]
+                ),
             )
             fp.write("Segments=0+,")
             for segi in range(len(cycle_seg_list) - 1):

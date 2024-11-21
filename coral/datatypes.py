@@ -1,10 +1,27 @@
+from __future__ import annotations
+
 import enum
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, NamedTuple, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Generic,
+    List,
+    NamedTuple,
+    Set,
+    Tuple,
+    TypeVar,
+)
 
 import pyomo.environ as pyo
 
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral import types
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -34,27 +51,39 @@ class EdgeToCN:
         )
 
 
-@dataclass
-class ParsedLPSolution:
-    """Container for storing MIQCP solution state, solved cycles (+weights), and satisfied path constraints."""
+class WalkData(NamedTuple, Generic[T]):
+    """Container for storing graph walk data, separated into cycles and paths."""
 
-    solver_status: str
+    cycles: list[T]
+    paths: list[T]
+
+
+@dataclass
+class CycleSolution:
+    """Container for storing MIQCP Pyomo solution state.
+
+    This consists of parsing solved cycles, their weights, and corresponding
+    satisfied path constraints.
+
+    """
+
+    solver_status: pyo.SolverStatus
     termination_condition: pyo.TerminationCondition
     total_weights_included: float = 0.0
-    walks: List[List[Any]] = field(
-        default_factory=lambda: [[], []]
-    )  # cycles, paths
-    walk_weights: List[List[Any]] = field(
-        default_factory=lambda: [[], []]
-    )  # cycles, paths
-    path_constraints_satisfied: List[List[Any]] = field(
-        default_factory=lambda: [[], []]
-    )  # cycles, paths
-    path_constraints_satisfied_set: Set[int] = field(default_factory=set)
+    walks: WalkData[types.AmpliconWalk] = field(
+        default_factory=lambda: WalkData([], [])
+    )
+    walk_weights: WalkData[float] = field(
+        default_factory=lambda: WalkData([], [])
+    )
+    satisfied_pc: WalkData[list[int]] = field(
+        default_factory=lambda: WalkData([], [])
+    )  # Each list contains indices of satisfied path constraints for relevant walk.
+    satisfied_pc_set: Set[int] = field(default_factory=set)
 
     @property
     def num_pc_satisfied(self) -> int:
-        return len(self.path_constraints_satisfied_set)
+        return len(self.satisfied_pc_set)
 
 
 class InitialSolution(NamedTuple):

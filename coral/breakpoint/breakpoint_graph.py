@@ -799,7 +799,8 @@ class BreakpointGraph:
     def infer_discordant_edge_multiplicities(self, max_multiplicity=5):
         """Estimate multiplicities in for each discordant edge
 
-        Return: a list of integers corresponding to the multiplicities of each  discordant edge
+        Return: a list of integers corresponding to the multiplicities of each
+            discordant edge
         """
         rc_list = [de[9] for de in self.discordant_edges]
         if len(rc_list) == 0:

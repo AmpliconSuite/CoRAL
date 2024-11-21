@@ -13,7 +13,7 @@ import numpy as np
 import pysam
 import typer
 
-from coral import cigar_parsing
+from coral import cigar_parsing, types
 from coral.breakpoint import breakpoint_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.breakpoint_types import CNSSegData
@@ -30,6 +30,7 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_overlap_l,
 )
 from coral.constants import CHR_TAG_TO_IDX
+from coral.datatypes import WalkData
 from coral.models import path_constraints
 from coral.types import AmpliconInterval, CnsInterval
 
@@ -120,23 +121,23 @@ class LongReadBamToBreakpointMetadata:
     longest_path_constraints: dict[int, list[list[Any]]] = field(
         default_factory=dict
     )
-    cycles: dict[int, list[list[list[int]]]] = field(
+    walks_by_amplicon: dict[int, WalkData[types.AmpliconWalk]] = field(
         default_factory=dict
-    )  # cycles, paths
-    cycle_weights: dict[int, list[list[float]]] = field(
+    )
+    walk_weights_by_amplicon: dict[int, WalkData[float]] = field(
         default_factory=dict
-    )  # cycles, paths
-    path_constraints_satisfied: dict[int, list[list[list[int]]]] = field(
+    )
+    path_constraints_satisfied: dict[int, WalkData[list[int]]] = field(
         default_factory=dict
-    )  # cycles, paths
+    )
 
-    def set_raw_cns_data(self, cns_data: CNSSegData):
+    def set_raw_cns_data(self, cns_data: CNSSegData) -> None:
         self.cns_tree = cns_data.tree
         self.cns_intervals = cns_data.intervals
         self.cns_intervals_by_chr = cns_data.intervals_by_chr
         self.log2_cn = cns_data.log2_cn
 
-    def read_cns(self, cns_file: io.TextIOWrapper):
+    def read_cns(self, cns_file: io.TextIOWrapper) -> None:
         """Read in (cnvkit) *.cns file and estimate the normal long read coverage"""
         self.set_raw_cns_data(CNSSegData.from_file(cns_file))
 

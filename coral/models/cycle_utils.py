@@ -15,23 +15,24 @@ import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
-from coral import datatypes
+from coral import datatypes, types
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.datatypes import EdgeToCN, ParsedLPSolution
+from coral.datatypes import CycleSolution, EdgeToCN
 
 logger = logging.getLogger(__name__)
 
 
 def process_cycle_edge(
-    cycle: Dict,
+    cycle: types.AmpliconWalk,
     model: pyo.Model,
     edge_idx: int,
-    edge_count: float,
+    edge_count: int,
     bp_graph: BreakpointGraph,
     remaining_cn: Optional[EdgeToCN] = None,
     resolution: float = 0.0,
 ) -> None:
-    """Update `cycle` parameter with the appropriate entry for a given edge count after solving the LP."""
+    """Update `cycle` parameter with the appropriate entry for a given edge
+    count after solving the LP."""
     src_node_offset = bp_graph.num_nonsrc_edges + 2 * bp_graph.num_src_edges
 
     if remaining_cn:
@@ -95,7 +96,7 @@ def process_cycle_edge(
             cycle[("nt", nti)] = 1  # source edge connected to t
 
 
-def parse_lp_solution(
+def parse_solver_output(
     solver_status: str,
     solver_termination_condition: pyo.TerminationCondition,
     model: pyo.Model,
@@ -105,9 +106,9 @@ def parse_lp_solution(
     total_weights: float,
     remaining_cn: Optional[EdgeToCN] = None,
     resolution: float = 0.0,
-    unsatisfied_pc: Optional[List] = None,
-) -> ParsedLPSolution:
-    parsed_sol = ParsedLPSolution(solver_status, solver_termination_condition)
+    is_pc_unsatisfied: List[bool] | None = None,
+) -> CycleSolution:
+    parsed_sol = CycleSolution(solver_status, solver_termination_condition)
 
     lseg = len(bp_graph.sequence_edges)
     lc = len(bp_graph.concordant_edges)
@@ -154,12 +155,8 @@ def parse_lp_solution(
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.walks[1].append(cycle)
                     parsed_sol.walk_weights[1].append(walk_weight)
-                    parsed_sol.path_constraints_satisfied[1].append(
-                        path_constraints_s
-                    )
-                    parsed_sol.path_constraints_satisfied_set |= set(
-                        path_constraints_s
-                    )
+                    parsed_sol.satisfied_pc[1].append(path_constraints_s)
+                    parsed_sol.satisfied_pc_set |= set(path_constraints_s)
             else:
                 cycle = {}
                 path_constraints_s = []
@@ -181,18 +178,15 @@ def parse_lp_solution(
                 for pi in range(len(pc_list)):
                     if model.r[pi, i].value >= 0.9:
                         path_constraints_s.append(pi)
-                        # Only used for greedy
-                        if unsatisfied_pc:
-                            unsatisfied_pc[pi] = -1
+
+                        # Only used for greedy, flip to False when PC satisfied
+                        if is_pc_unsatisfied:
+                            is_pc_unsatisfied[pi] = False
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.walks[0].append(cycle)
                     parsed_sol.walk_weights[0].append(walk_weight)
-                    parsed_sol.path_constraints_satisfied[0].append(
-                        path_constraints_s
-                    )
-                    parsed_sol.path_constraints_satisfied_set |= set(
-                        path_constraints_s
-                    )
+                    parsed_sol.satisfied_pc[0].append(path_constraints_s)
+                    parsed_sol.satisfied_pc_set |= set(path_constraints_s)
             for seqi in range(lseg):
                 parsed_sol.total_weights_included += (
                     model.x[seqi, i].value
@@ -204,7 +198,7 @@ def parse_lp_solution(
         f"Total length weighted CN from cycles/paths = {parsed_sol.total_weights_included}/{total_weights}."
     )
     logger.debug(
-        f"Total num subpath constraints satisfied = {len(parsed_sol.path_constraints_satisfied_set)}/{len(pc_list)}."
+        f"Total num subpath constraints satisfied = {len(parsed_sol.satisfied_pc_set)}/{len(pc_list)}."
     )
     return parsed_sol
 

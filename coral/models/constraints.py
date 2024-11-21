@@ -350,8 +350,8 @@ def set_copy_number_constraints(
     k: int,
     bp_graph: BreakpointGraph,
     edge_to_cn: EdgeToCN,
-    is_post: bool = False,
     p_bp_cn: float = 0.9,
+    is_post: bool = False,
     is_greedy: bool = False,
 ) -> None:
     # CN constraints (all quadratic)

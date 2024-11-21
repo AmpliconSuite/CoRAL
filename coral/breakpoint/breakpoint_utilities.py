@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import io
 from collections import Counter
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 
 from coral import constants
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:
@@ -769,9 +771,6 @@ def get_interval_from_cns(file_row: Tuple[str, str, str]) -> List:
 
 
 def check_valid_partition(rc_list, partition, max_multiplicity=5):
-    """
-    Given a partition
-    """
     if partition[0] == partition[1]:
         return (True, partition[0], 0.0)
     rc_list_p = rc_list[partition[0] : partition[1] + 1]

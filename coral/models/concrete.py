@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import List, Optional
 
@@ -39,7 +41,7 @@ def get_greedy_objective(
     model: pyo.Model,
     bp_graph: BreakpointGraph,
     pc_list: List,
-    unsatisfied_pc: List[int],
+    is_pc_unsatisfied: List[bool],
     pp: float,
 ) -> pyo.Objective:
     obj_value = 0.0
@@ -48,7 +50,7 @@ def get_greedy_objective(
             model.x[seqi, 0] * model.w[0] * bp_graph.sequence_edges[seqi][-2]
         )
     for pi in range(len(pc_list)):
-        if unsatisfied_pc[pi] >= 0:
+        if is_pc_unsatisfied[pi]:
             obj_value += model.r[pi, 0] * max(pp, 1.0)
     return pyo.Objective(sense=pyo.maximize, expr=obj_value)
 
@@ -135,13 +137,13 @@ def get_model(
     model_name: str,
     is_post: bool = False,
     is_greedy: bool = False,
-    p_total_weight=0.9,
-    resolution=0.1,  # Used only in post
-    p_path_constraints: Optional[float] = None,  # Used only in post
-    p_bp_cn=0.9,  # Used only in base
-    pp=1.0,  # Used only in greedy
-    unsatisfied_pc: Optional[List[int]] = None,  # Used only in greedy
-    remaining_cn: Optional[EdgeToCN] = None,  # Used only in greedy
+    p_total_weight: float = 0.9,
+    resolution: float = 0.1,  # Used only in post
+    p_path_constraints: float | None = None,  # Used only in post
+    p_bp_cn: float = 0.9,  # Used only in base
+    pp: float = 1.0,  # Used only in greedy
+    is_pc_unsatisfied: list[bool] | None = None,  # Used only in greedy
+    remaining_cn: EdgeToCN | None = None,  # Used only in greedy
 ) -> pyo.ConcreteModel:
     logger.debug(f"Num nodes to be used in QP = {bp_graph.num_nodes}")
     logger.debug(f"Num edges to be used in QP = {bp_graph.num_edges}")
@@ -172,7 +174,7 @@ def get_model(
         )
     else:
         model.ObjectiveGreedy = get_greedy_objective(
-            model, bp_graph, pc_list, unsatisfied_pc or [], pp
+            model, bp_graph, pc_list, is_pc_unsatisfied or [], pp
         )
 
     # Must include at least 0.9 * total CN weights (bilinear constraint)
@@ -195,7 +197,9 @@ def get_model(
         k,
         bp_graph,
         remaining_cn or EdgeToCN.from_graph(bp_graph),
-        p_bp_cn,
+        p_bp_cn=p_bp_cn,
+        is_post=is_post,
+        is_greedy=is_greedy,
     )
 
     model.ConstraintBPOccurrence = constraints.get_bp_occurrence_constraint(
