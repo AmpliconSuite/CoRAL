@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import io
 from collections import Counter
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING, Generator, List, Tuple, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from coral import constants
 from coral.constants import CHR_TAG_TO_IDX
@@ -770,25 +771,51 @@ def get_interval_from_cns(file_row: Tuple[str, str, str]) -> List:
     return [file_row[0], int(file_row[1]), int(file_row[2]), -1]
 
 
-def check_valid_partition(rc_list, partition, max_multiplicity=5):
+def check_valid_discordant_rc_partition(
+    rc_list: list[int], partition: list[int], max_multiplicity: int = 5
+) -> tuple[int, float] | None:
+    """Verify if a given partition of discordant edges meets the CoRAL criteria.
+
+    We impose a maximum number of traversals through a discordant edge by each
+    walk, otherwise cycles cannot be detected. This is empirically determined
+    per discordant edge by clustering the various reads (+ their associated
+    counts) that support that edge. The `max_multiplicity` is used to separate
+    supporting reads into different clusters when one read has a significantly
+    higher count than another (likely indicating multiple ecDNA species).
+
+    For additional detail, refer to the following from our paper:
+    Supplemental Equation S4.8 - https://genome.cshlp.org/content/suppl/2024/09/27/gr.279131.124.DC1/Supplemental_Methods.pdf
+    Supplemental Figure 13 - https://genome.cshlp.org/content/suppl/2024/09/27/gr.279131.124.DC1/Supplemental_Figures_.pdf
+
+    Args:
+        rc_list: Read counts for each discordant edge
+        partition: Partition of the discordant edge indices
+        max_multiplicity: Maximum allowed multiplicity of the discordant edge
+
+    Returns:
+        If the partition is invalid, returns None. Otherwise, returns a tuple
+        containing:
+            - The empirically value of R for the discordant edge
+            - The score of the partition
+    """
     if partition[0] == partition[1]:
-        return (True, partition[0], 0.0)
+        return (partition[0], 0.0)
     rc_list_p = rc_list[partition[0] : partition[1] + 1]
     if rc_list_p[-1] < rc_list_p[0] * 2.0:
-        return (True, partition[1], 0.0)
+        return (partition[1], 0.0)
     base_ri = 0
     while base_ri < len(rc_list_p) and rc_list_p[base_ri] < rc_list_p[0] * 2.0:
         base_ri += 1
-    base_avg_rc = np.average(rc_list_p[:base_ri])
+    base_avg_rc = cast(float, np.average(rc_list_p[:base_ri]))
     if rc_list_p[-1] / base_avg_rc >= max_multiplicity + 0.5:
-        return (False, None, None)
+        return None
     score = -10.0
     best_ri = base_ri
     sum_deviation = 1.0
     for base_ri_ in range(base_ri, 0, -1):
-        base_avg_rc = np.average(rc_list_p[:base_ri_])
+        base_avg_rc = cast(float, np.average(rc_list_p[:base_ri_]))
         base_size = len(rc_list_p[:base_ri_])
-        sizes = dict()
+        sizes = {}
         # Cluster breakpoints with higher multiplicities
         li = base_ri_
         multiplicity = 2
@@ -820,7 +847,7 @@ def check_valid_partition(rc_list, partition, max_multiplicity=5):
             continue
         sum_deviation_ = sum(
             [
-                abs(
+                np.abs(
                     m
                     - np.average(
                         rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc
@@ -829,23 +856,27 @@ def check_valid_partition(rc_list, partition, max_multiplicity=5):
                 for m in range(2, multiplicity + 1)
                 if m in sizes
             ],
+            0,
         )
         if sum_gap - sum_deviation_ > score:
             score = sum_gap - sum_deviation_
             sum_deviation = sum_deviation_
             best_ri = base_ri_
     if sum_deviation < 1.0:
-        return (True, best_ri + partition[0] - 1, score)
-    return (False, None, None)
+        return (best_ri + partition[0] - 1, score)
+    return None
 
 
-def enumerate_partitions(k, start, end):
+def enumerate_partitions(
+    k: int, start: int, end: int
+) -> Generator[list[list[int]]]:
+    """Generate all partitions of the interval [start, end] into k parts."""
     if k == 0:
         yield [[start, end]]
     else:
         for i in range(1, end - start - k + 2):
             for res in enumerate_partitions(k - 1, start + i, end):
-                yield [[start, start + i - 1]] + res
+                yield [[start, start + i - 1], *res]
 
 
 def output_breakpoint_graph_sr_lr(g, ogfile, downsample_factor):

@@ -16,7 +16,7 @@ import numpy as np
 
 from coral import types
 from coral.breakpoint.breakpoint_utilities import (
-    check_valid_partition,
+    check_valid_discordant_rc_partition,
     enumerate_partitions,
 )
 from coral.constants import CHR_TAG_TO_IDX
@@ -796,25 +796,31 @@ class BreakpointGraph:
             max_seq_multiplicity = int(round(max_cn / avg_cn)) + 1
         return max_seq_multiplicity
 
-    def infer_discordant_edge_multiplicities(self, max_multiplicity=5):
+    def infer_discordant_edge_multiplicities(
+        self, max_multiplicity: int = 5
+    ) -> list[int]:
         """Estimate multiplicities in for each discordant edge
 
         Return: a list of integers corresponding to the multiplicities of each
             discordant edge
         """
-        rc_list = [de[9] for de in self.discordant_edges]
+        rc_list = [de[9] for de in self.discordant_edges]  # Read counts
         if len(rc_list) == 0:
             return []
         rc_indices = np.argsort(rc_list)
         rc_list = sorted(rc_list)
         if np.log2(rc_list[-1]) - np.log2(rc_list[0]) < 1.0:
             return [1 for i in rc_indices]
-        # Minimize clusters, with maximum sum gap - sum deviations from multiplicities
+        # Minimize clusters, with maximum sum gap
+        #   Sum deviations from multiplicities
         num_clusters = 1
         valid_clustering = False
         best_score_all = -10.0
         best_partitions = []
         distinct_all = []
+
+        # Slowly increase # num clusters until we get a valid clustering,
+        # since we want to minimize cycles / clusters.
         while not valid_clustering:
             valid_clustering = False
             for partitions in enumerate_partitions(
@@ -825,14 +831,16 @@ class BreakpointGraph:
                 distinct = []
                 for pi in range(len(partitions)):
                     partition = partitions[pi]
-                    valid, base_ri, score = check_valid_partition(
-                        rc_list,
-                        partition,
-                        max_multiplicity,
-                    )
-                    if not valid:
+                    if (
+                        scored_partition := check_valid_discordant_rc_partition(
+                            rc_list,
+                            partition,
+                            max_multiplicity,
+                        )
+                    ) is None:
                         valid_partition = False
                         break
+                    base_ri, score = scored_partition
                     score_all += score
                     distinct.append([partitions[pi][0], base_ri])
                     if pi > 0:

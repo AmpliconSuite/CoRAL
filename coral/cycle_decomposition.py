@@ -85,10 +85,10 @@ def minimize_cycles(
         total_weights,
         node_order,
         pc_list,
-        model_name=f"{model_prefix}/amplicon_{amplicon_id}_cycle_decomposition_{k=}",
+        model_name=f"{model_prefix}amplicon_{amplicon_id}_cycle_decomposition_{k=}",
     )
 
-    model_name = f"{model_prefix}/amplicon_{amplicon_id}_model"
+    model_name = f"{model_prefix}amplicon_{amplicon_id}_model"
     model.write(f"{model_name}.lp", io_options={"symbolic_solver_labels": True})
     logger.debug(f"Completed model setup, wrote to {model_name}.lp.")
 
@@ -194,7 +194,7 @@ def minimize_cycles_post(
     else:
         logger.debug("Proceed without subpath constraints.")
 
-    model_name = f"{model_prefix}/amplicon_{amplicon_id}_cycle_decomposition_postprocessing_{k=}"
+    model_name = f"{model_prefix}amplicon_{amplicon_id}_cycle_decomposition_postprocessing_{k=}"
     model = models.concrete.get_model(
         bp_graph,
         k,
@@ -344,7 +344,7 @@ def maximize_weights_greedy(
             f"Iteration {cycle_id + 1} with remaining CN = {remaining_weights} and num subpath constraints = {num_unsatisfied_pc}/{len(pc_list)}."
         )
         logger.debug(f"Multiplication factor for subpath constraints = {pp}.")
-        model_name = f"{model_prefix}/amplicon_{amplicon_id}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
+        model_name = f"{model_prefix}amplicon_{amplicon_id}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
 
         model = models.concrete.get_model(
             bp_graph,
@@ -750,6 +750,7 @@ def reconstruct_cycles(
         time_limit=time_limit_,
         solver_to_use=solver_to_use,
         output_all_path_constraints=output_all_path_constraints,
+        model_prefix=f"{output_dir}/pyomo_",
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(
