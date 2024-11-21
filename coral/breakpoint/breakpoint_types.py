@@ -36,7 +36,7 @@ class CNSSegData:
         idx = 0
         for line in file:
             fields = line.strip().split()
-            if fields[0] == "chromosome":  # Skip potential header row
+            if not fields or fields[0] == "chromosome" or line.startswith("#"):  # Skip potential header row
                 continue
             chr_tag, start, end = fields[0], int(fields[1]), int(fields[2])
             intervals.append([chr_tag, start, end - 1])
