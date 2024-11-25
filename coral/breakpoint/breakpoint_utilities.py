@@ -9,7 +9,6 @@ from collections import Counter
 from typing import TYPE_CHECKING, Generator, List, Tuple, cast
 
 import numpy as np
-import numpy.typing as npt
 
 from coral import constants
 from coral.constants import CHR_TAG_TO_IDX
