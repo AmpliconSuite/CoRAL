@@ -216,7 +216,6 @@ def get_solver(
     elif solver_type == datatypes.Solver.SCIP:
         solver.options["lp/threads"] = num_threads
         solver.options["parallel/maxnthreads"] = num_threads
-        solver.options["alg/concurrent"] = 1
         solver.options["display/freq"] = 1
         solver.options["display/lpinfo"] = True
         solver.options["propagating/nlobbt/nlptimelimit"] = time_limit_s
