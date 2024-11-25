@@ -23,6 +23,7 @@ from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.datatypes import Solver
+from coral.scoring import score_simulation
 
 coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities."
@@ -154,7 +155,9 @@ def reconstruct(
         ),
     ] = 1.0,
     force_greedy: ForceGreedyFlag = False,
-    profile: Annotated[bool,typer.Option(help="Profile resource usage.")] = False
+    profile: Annotated[
+        bool, typer.Option(help="Profile resource usage.")
+    ] = False,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
 
@@ -205,7 +208,9 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
-    profile: Annotated[bool,typer.Option(help="Profile resource usage.")] = False
+    profile: Annotated[
+        bool, typer.Option(help="Profile resource usage.")
+    ] = False,
 ) -> None:
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
@@ -240,7 +245,8 @@ def cycle_decomposition_mode(
 
 
 @coral_app.command(
-    name="cycle_all", help="Pass all breakpoint files in directory to LP solver."
+    name="cycle_all",
+    help="Pass all breakpoint files in directory to LP solver.",
 )
 def cycle_decomposition_all_mode(
     bp_dir: Annotated[
@@ -254,7 +260,9 @@ def cycle_decomposition_all_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
-    profile: Annotated[bool,typer.Option(help="Profile resource usage.")] = False
+    profile: Annotated[
+        bool, typer.Option(help="Profile resource usage.")
+    ] = False,
 ) -> None:
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
@@ -463,3 +471,32 @@ def plot_cn_mode(
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
     plot_cn.plot_cnr(cnr, output_dir, name)
+
+
+@coral_app.command(
+    name="score", help="Score cycle reconstructions vs. ground-truth."
+)
+def score_mode(
+    ctx: typer.Context,
+    true_cycles: Annotated[
+        typer.FileText, typer.Option(help="Ground-truth cycles file.")
+    ],
+    true_graphs: Annotated[
+        typer.FileText, typer.Option(help="Ground-truth graphs file.")
+    ],
+    bp_dir: Annotated[
+        pathlib.Path, typer.Option(help="Breakpoint graph directory.")
+    ],
+    cnv_seeds: Annotated[typer.FileText, typer.Option(help="CNV seeds file.")],
+    tolerance: Annotated[
+        int, typer.Option(help="Breakpoint matching tolerance.")
+    ] = 100,
+) -> None:
+    print(f"Performing score mode with options: {ctx.params}")
+    score_simulation.score_reconstruction(
+        true_cycles,
+        true_graphs,
+        bp_dir,
+        cnv_seeds,
+        tolerance,
+    )
