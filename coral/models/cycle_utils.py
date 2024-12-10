@@ -120,7 +120,7 @@ def parse_solver_output(
     for i in range(k):
         logger.debug(f"Walk {i} checking ; CN = {model.w[i].value}.")
         if model.z[i].value >= 0.9:
-            logger.debug(f"Cycle/Path {i} exists; CN = {model.w[i].value}.")
+            logger.debug(f"Walk {i} exists; CN = {model.w[i].value}.")
             if resolution and (walk_weight := model.w[i].value) < resolution:
                 parsed_sol.walk_weights[0].append(walk_weight)
                 logger.debug(
@@ -132,8 +132,15 @@ def parse_solver_output(
                 if model.c[node_idx, i].value >= 0.9:
                     found_cycle = True
                     break
+            cycle: dict = {}
+            path_constraints_s = []
+            for pi in range(len(pc_list)):
+                if model.r[pi, i].value >= 0.9:
+                    path_constraints_s.append(pi)
+                    # Only used for greedy, flip to False when PC satisfied
+                    if is_pc_unsatisfied:
+                        is_pc_unsatisfied[pi] = False
             if not found_cycle:
-                cycle: dict = {}
                 for edge_idx in range(nedges):
                     if (edge_count := model.x[edge_idx, i].value) >= 0.9:
                         edge_count = round(edge_count)
@@ -147,19 +154,12 @@ def parse_solver_output(
                             remaining_cn,
                             resolution,
                         )
-                path_constraints_s = [
-                    pi
-                    for pi in range(len(pc_list))
-                    if model.r[pi, i].value >= 0.9
-                ]
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.walks[1].append(cycle)
                     parsed_sol.walk_weights[1].append(walk_weight)
                     parsed_sol.satisfied_pc[1].append(path_constraints_s)
                     parsed_sol.satisfied_pc_set |= set(path_constraints_s)
             else:
-                cycle = {}
-                path_constraints_s = []
                 for edge_idx in range(nedges):
                     if (edge_count := model.x[edge_idx, i].value) >= 0.9:
                         edge_count = round(edge_count)
@@ -175,13 +175,6 @@ def parse_solver_output(
                             )
                             logger.debug("Aborted.")
                             os.abort()
-                for pi in range(len(pc_list)):
-                    if model.r[pi, i].value >= 0.9:
-                        path_constraints_s.append(pi)
-
-                        # Only used for greedy, flip to False when PC satisfied
-                        if is_pc_unsatisfied:
-                            is_pc_unsatisfied[pi] = False
                 if (walk_weight := model.w[i].value) > 0.0:
                     parsed_sol.walks[0].append(cycle)
                     parsed_sol.walk_weights[0].append(walk_weight)
@@ -204,19 +197,23 @@ def parse_solver_output(
 
 
 def get_solver(
-    solver_type: datatypes.Solver, num_threads: int, time_limit_s: int
+    solver_options: datatypes.SolverOptions,
 ) -> pyomo.solvers.plugins.solvers:
+    solver_type = solver_options.solver
     solver = pyo.SolverFactory(solver_type.value)
     if solver_type == datatypes.Solver.GUROBI:
         solver = pyo.SolverFactory(solver_type.value)
-        if num_threads > 0:
-            solver.options["threads"] = num_threads
+        if solver_options.num_threads > 0:
+            solver.options["threads"] = solver_options.num_threads
         solver.options["NonConvex"] = 2
-        solver.options["timelimit"] = time_limit_s
+        solver.options["timelimit"] = solver_options.time_limit_s
     elif solver_type == datatypes.Solver.SCIP:
-        solver.options["lp/threads"] = num_threads
-        solver.options["parallel/maxnthreads"] = num_threads
+        solver.options["lp/threads"] = solver_options.num_threads
+        solver.options["parallel/maxnthreads"] = solver_options.num_threads
+        solver.options["limits/time"] = solver_options.time_limit_s
         solver.options["display/freq"] = 1
         solver.options["display/lpinfo"] = True
-        solver.options["propagating/nlobbt/nlptimelimit"] = time_limit_s
+        solver.options["propagating/nlobbt/nlptimelimit"] = (
+            solver_options.time_limit_s
+        )
     return solver
