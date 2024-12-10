@@ -853,7 +853,7 @@ def check_valid_discordant_rc_partition(
                 np.abs(
                     m
                     - np.average(
-                        rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc
+                        rc_list_p[sizes[m][0] : sizes[m][1] + 1] / base_avg_rc  # type: ignore[operator]
                     )
                 )
                 for m in range(2, multiplicity + 1)

@@ -16,6 +16,7 @@ from coral.datatypes import Solver
 coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities."
 )
+logger = logging.getLogger(__name__)
 
 
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
@@ -138,7 +139,7 @@ def reconstruct(
     print(f"Performing reconstruction with options: {ctx.params}")
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
-        filemode="w",
+        filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )

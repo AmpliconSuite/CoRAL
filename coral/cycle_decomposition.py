@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -363,7 +364,7 @@ def maximize_weights_greedy(
         logger.debug(f"Multiplication factor for subpath constraints = {pp}.")
 
         model_name = f"amplicon_{amplicon_id}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
-        model_filename = f"{solver_options.model_output_prefix}_{model_name}"
+        model_filename = f"{solver_options.output_dir}/models/{solver_options.model_prefix}_{model_name}"
 
         model = models.concrete.get_model(
             bp_graph,
@@ -378,10 +379,10 @@ def maximize_weights_greedy(
             remaining_cn=remaining_cn,
         )
         model.write(
-            f"{model_name}.lp", io_options={"symbolic_solver_labels": True}
+            f"{model_filename}.lp", io_options={"symbolic_solver_labels": True}
         )
-        model.write(f"{model_name}_ampl.nl", format="nl")
-        logger.debug(f"Completed model setup, wrote to {model_name}.lp.")
+        model.write(f"{model_filename}_ampl.nl", format="nl")
+        logger.debug(f"Completed model setup, wrote to {model_filename}.lp.")
 
         solver = cycle_utils.get_solver(solver_options)
         results: pyomo.opt.SolverResults = solver.solve(model, tee=True)
@@ -432,9 +433,11 @@ def maximize_weights_greedy(
         # Update greedy stop conditions based on latest solution
         next_w = curr_walk_weight
         num_unsatisfied_pc = len(pc_list) - len(full_solution.satisfied_pc_set)
+        for pi in curr_sol.satisfied_pc_set:
+            is_pc_unsatisfied[pi] = False
         remaining_weights -= curr_sol.total_weights_included
         if curr_sol.total_weights_included < cn_tol * total_weights:
-            logging.debug(
+            logger.debug(
                 f"Proportion of length-weighted CN less than {cn_tol=}, "
                 "iteration terminated."
             )
@@ -453,6 +456,7 @@ def cycle_decomposition(
     output_all_path_constraints: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
+    was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
     for amplicon_idx in range(len(bb.lr_graph)):
         bp_graph = bb.lr_graph[amplicon_idx]
         lseg = len(bp_graph.sequence_edges)
@@ -641,6 +645,12 @@ def cycle_decomposition(
                 solver_options.output_dir,
                 output_all_path_constraints,
             )
+            was_amplicon_solved[amplicon_idx] = True
+    output.output_summary_amplicon_stats(
+        was_amplicon_solved,
+        bb,
+        output_dir=solver_options.output_dir,
+    )
 
 
 def reconstruct_cycles(

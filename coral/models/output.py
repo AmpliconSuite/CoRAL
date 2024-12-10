@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any
+from typing import Any, Dict
 
 from coral import constants
 from coral.breakpoint import infer_breakpoint_graph
@@ -430,25 +430,23 @@ def eulerian_path_t(
 
 def output_all_cycles(
     bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
-    cycle_file_prefix: str,
+    output_dir: str,
     output_all_paths: bool = False,
 ) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     for amplicon_idx in range(len(bb.lr_graph)):
-        output_amplicon_cycles(
-            amplicon_idx, bb, cycle_file_prefix, output_all_paths
-        )
+        output_amplicon_cycles(amplicon_idx, bb, output_dir, output_all_paths)
 
 
 def output_amplicon_cycles(
     amplicon_idx: int,
     bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
-    cycle_file_prefix: str,
+    output_dir: str,
     output_all_paths: bool = False,
 ) -> None:
     """Write the result from cycle decomposition into *.cycles files"""
     logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
-    fp = open(f"{cycle_file_prefix}_amplicon{amplicon_idx + 1}_cycles.txt", "w")
+    fp = open(f"{output_dir}/amplicon{amplicon_idx + 1}_cycles.txt", "w")
     interval_num = 1
     ai_amplicon = [
         ai
@@ -461,6 +459,7 @@ def output_amplicon_cycles(
     for ai in ai_amplicon:
         fp.write(f"Interval\t{interval_num}\t{ai[0]}\t{ai[1]}\t{ai[2]}\n")
         interval_num += 1
+
     fp.write("List of cycle segments\n")
     for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
         sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
@@ -708,4 +707,27 @@ def output_amplicon_cycles(
                     fp.write("\n")
             else:
                 fp.write("\n")
+    fp.close()
+
+
+def output_summary_amplicon_stats(
+    was_amplicon_solved: Dict[int, bool],
+    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    output_dir: str,
+):
+    logger.info(f"Outputting solution info for all amplicons.")
+
+    fp = open(f"{output_dir}/amplicon_summary.txt", "w")
+    fp.write(
+        f"{sum(was_amplicon_solved.values())}/{len(bb.lr_graph)} amplicons solved.\n"
+    )
+    fp.write("--------------------------------------------------------------\n")
+    for amplicon_idx in range(len(bb.lr_graph)):
+        fp.write(f"Amplicon {amplicon_idx + 1}: ")
+        if not was_amplicon_solved[amplicon_idx]:
+            fp.write("UNSOLVED.\n")
+            continue
+        else:
+            fp.write("Solved.\n")
+    # TODO: mirror AA summary output
     fp.close()

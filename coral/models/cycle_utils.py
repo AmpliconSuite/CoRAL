@@ -22,12 +22,13 @@ from coral.datatypes import CycleSolution, EdgeToCN
 logger = logging.getLogger(__name__)
 
 
-def process_cycle_edge(
-    cycle: types.AmpliconWalk,
+def process_walk_edge(
+    walk: types.AmpliconWalk,
     model: pyo.Model,
     edge_idx: int,
     edge_count: int,
     bp_graph: BreakpointGraph,
+    is_cycle: bool,
     remaining_cn: Optional[EdgeToCN] = None,
     resolution: float = 0.0,
 ) -> None:
@@ -40,7 +41,7 @@ def process_cycle_edge(
 
     # Is sequence edge
     if edge_idx < bp_graph.num_seq_edges:
-        cycle[("e", edge_idx)] = edge_count
+        walk[("e", edge_idx)] = edge_count
         if remaining_cn:
             remaining_cn.sequence[edge_idx] -= edge_count * model.w[0].value
             if remaining_cn.sequence[edge_idx] < resolution:
@@ -48,7 +49,7 @@ def process_cycle_edge(
     # Is concordant edge
     elif edge_idx < bp_graph.num_seq_edges + bp_graph.num_conc_edges:
         conc_edge_idx = edge_idx - bp_graph.num_seq_edges
-        cycle[("c", conc_edge_idx)] = edge_count
+        walk[("c", conc_edge_idx)] = edge_count
         if remaining_cn:
             remaining_cn.concordant[conc_edge_idx] -= (
                 edge_count * model.w[0].value
@@ -60,27 +61,31 @@ def process_cycle_edge(
         disc_edge_idx = (
             edge_idx - bp_graph.num_seq_edges - bp_graph.num_conc_edges
         )
-        cycle[("d", disc_edge_idx)] = edge_count
+        walk[("d", disc_edge_idx)] = edge_count
         if remaining_cn:
             remaining_cn.discordant[disc_edge_idx] -= (
                 edge_count * model.w[0].value
             )
             if remaining_cn.discordant[disc_edge_idx] < resolution:
                 remaining_cn.discordant[disc_edge_idx] = 0.0
+    elif is_cycle:
+        logger.error("Cyclic path cannot connect to source nodes.")
+        logger.warning("Aborted.")
+        os.abort()
     # Is source edge
     elif edge_idx < src_node_offset:
         assert edge_count == 1
         src_edge_idx = edge_idx - bp_graph.num_nonsrc_edges
         if src_edge_idx % 2 == 0:
             s_edge_idx = src_edge_idx // 2
-            cycle[("s", s_edge_idx)] = 1  # source edge connected to s
+            walk[("s", s_edge_idx)] = 1  # source edge connected to s
             if remaining_cn:
                 remaining_cn.source[s_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[s_edge_idx] < resolution:
                     remaining_cn.source[s_edge_idx] = 0.0
         else:
             t_edge_idx = (src_edge_idx - 1) // 2
-            cycle[("t", t_edge_idx)] = 1  # source edge connected to t
+            walk[("t", t_edge_idx)] = 1  # source edge connected to t
             if remaining_cn:
                 remaining_cn.source[t_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[t_edge_idx] < resolution:
@@ -90,10 +95,10 @@ def process_cycle_edge(
         assert edge_count == 1
         if (edge_idx - src_node_offset) % 2 == 0:
             nsi = (edge_idx - src_node_offset) // 2
-            cycle[("ns", nsi)] = 1  # source edge connected to s
+            walk[("ns", nsi)] = 1  # source edge connected to s
         else:
             nti = (edge_idx - src_node_offset - 1) // 2
-            cycle[("nt", nti)] = 1  # source edge connected to t
+            walk[("nt", nti)] = 1  # source edge connected to t
 
 
 def parse_solver_output(
@@ -140,42 +145,27 @@ def parse_solver_output(
                     # Only used for greedy, flip to False when PC satisfied
                     if is_pc_unsatisfied:
                         is_pc_unsatisfied[pi] = False
-            if not found_cycle:
-                for edge_idx in range(nedges):
-                    if (edge_count := model.x[edge_idx, i].value) >= 0.9:
-                        edge_count = round(edge_count)
-                        # Update cycle in-place via helper
-                        process_cycle_edge(
-                            cycle,
-                            model,
-                            edge_idx,
-                            edge_count,
-                            bp_graph,
-                            remaining_cn,
-                            resolution,
-                        )
-                if (walk_weight := model.w[i].value) > 0.0:
+            for edge_idx in range(nedges):
+                if (edge_count := model.x[edge_idx, i].value) >= 0.9:
+                    edge_count = round(edge_count)
+                    # Update cycle in-place via helper
+                    process_walk_edge(
+                        cycle,
+                        model,
+                        edge_idx,
+                        edge_count,
+                        bp_graph,
+                        is_cycle=found_cycle,
+                        remaining_cn=remaining_cn,
+                        resolution=resolution,
+                    )
+            if (walk_weight := model.w[i].value) > 0.0:
+                if not found_cycle:
                     parsed_sol.walks[1].append(cycle)
                     parsed_sol.walk_weights[1].append(walk_weight)
                     parsed_sol.satisfied_pc[1].append(path_constraints_s)
                     parsed_sol.satisfied_pc_set |= set(path_constraints_s)
-            else:
-                for edge_idx in range(nedges):
-                    if (edge_count := model.x[edge_idx, i].value) >= 0.9:
-                        edge_count = round(edge_count)
-                        if edge_idx < lseg:
-                            cycle[("e", edge_idx)] = edge_count
-                        elif edge_idx < lseg + lc:
-                            cycle[("c", edge_idx - lseg)] = edge_count
-                        elif edge_idx < lseg + lc + ld:
-                            cycle[("d", edge_idx - lseg - lc)] = edge_count
-                        else:
-                            logger.debug(
-                                "Error: Cyclic path cannot connect to source nodes."
-                            )
-                            logger.debug("Aborted.")
-                            os.abort()
-                if (walk_weight := model.w[i].value) > 0.0:
+                else:
                     parsed_sol.walks[0].append(cycle)
                     parsed_sol.walk_weights[0].append(walk_weight)
                     parsed_sol.satisfied_pc[0].append(path_constraints_s)
