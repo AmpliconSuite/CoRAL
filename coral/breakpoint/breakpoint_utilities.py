@@ -12,6 +12,7 @@ import numpy as np
 
 from coral import constants
 from coral.constants import CHR_TAG_TO_IDX
+from coral.datatypes import Interval
 
 if TYPE_CHECKING:
     from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -54,12 +55,12 @@ def interval_adjacent(int1: list[int], int2: list[int]) -> bool:
     return int1[1] == int2[2] + 1
 
 
-def interval_overlap_l(int1: list[int], intl: list[list[int]]) -> int:
+def interval_overlap_l(int1: Interval, intl: list[Interval]) -> int:
     """
     Check if an interval in the form of [chr, s, e] overlaps with a list of intervals
     """
     for int2i in range(len(intl)):
-        if interval_overlap(int1, intl[int2i]):
+        if int1.does_overlap(intl[int2i]):
             return int2i
     return -1
 
@@ -758,11 +759,13 @@ def sort_chrom_names(chromlist: List[str]) -> List[str]:
     return sorted(chromlist, key=sort_key)
 
 
-def get_intervals_from_seed_file(seed_file: io.TextIOWrapper) -> List:
+def get_intervals_from_seed_file(
+    seed_file: io.TextIOWrapper,
+) -> List[Interval]:
     intervals = []
     for line in seed_file:
         seed = line.strip().split()
-        intervals.append([seed[0], int(seed[1]), int(seed[2]), -1])
+        intervals.append(Interval(seed[0], int(seed[1]), int(seed[2])))
     return intervals
 
 

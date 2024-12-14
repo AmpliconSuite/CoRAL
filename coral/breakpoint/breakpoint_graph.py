@@ -14,7 +14,7 @@ import cvxopt  # type: ignore[import-untyped]
 import cvxopt.modeling  # type: ignore[import-untyped]
 import numpy as np
 
-from coral import types
+from coral import datatypes, types
 from coral.breakpoint.breakpoint_utilities import (
     check_valid_discordant_rc_partition,
     enumerate_partitions,
@@ -28,9 +28,7 @@ logger = logging.getLogger(__name__)
 class BreakpointGraph:
     """A container object for the breakpoint graphs."""
 
-    amplicon_intervals: list[types.AmpliconInterval] = field(
-        default_factory=list
-    )
+    amplicon_intervals: list[datatypes.Interval] = field(default_factory=list)
     sequence_edges: list[list[Any]] = field(default_factory=list)
     concordant_edges: list[list[Any]] = field(default_factory=list)
     discordant_edges: list[list[Any]] = field(default_factory=list)

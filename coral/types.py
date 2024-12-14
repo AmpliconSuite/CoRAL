@@ -2,7 +2,6 @@
 
 from typing import Any, List, Literal
 
-AmpliconInterval = List[Any]  # tuple[str, int, int, int]
 CnsInterval = Any  # tuple[str, int, int]
 
 EdgeType = Literal["e", "c", "d", "s", "t", "ns", "nt"]

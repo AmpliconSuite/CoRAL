@@ -133,7 +133,7 @@ def locate_hsrs(
     print("Fetched %d chimeric alignments." % len(chimeric_alignments))
 
     bp_list = []
-    for r in chimeric_alignments.keys():
+    for r in chimeric_alignments:
         cycle_flag = False
         r_int = chimeric_alignments[r][0]
         rr_int = chimeric_alignments[r][1]
