@@ -9,7 +9,7 @@ from typing import Annotated
 import pysam
 import typer
 
-from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
+from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons, scoring
 from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.datatypes import Solver
@@ -197,7 +197,7 @@ def cycle_decomposition_mode(
         lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
         lr_graph=[pickle.load(bp_graph)],
     )  # type: ignore[arg-type]
-    bb.fetch()
+    bb.fetch_breakpoint_reads()
     cycle_decomposition.reconstruct_cycles(
         output_dir,
         output_all_path_constraints,
@@ -358,4 +358,27 @@ def cycle2bed_mode(
     print(f"Performing cycle to bed mode with options: {ctx.params}")
     cycle2bed.convert_cycles_to_bed(
         cycle_file, output_file, rotate_to_min, num_cycles
+    )
+
+
+@coral_app.command(
+    name="score",
+    help="Score the quality of reconstructed cycles against ground truth.",
+)
+def score(
+    simulation_dir: Annotated[
+        pathlib.Path,
+        typer.Option(help="Path to directory containing simulations."),
+    ],
+    output_dir: Annotated[
+        pathlib.Path, typer.Option(help="Output directory path.")
+    ],
+    tolerance: int = typer.Option(
+        100, help="Tolerance in basepairs for matching regions."
+    ),
+    base_coverage: float = 13.0,
+    debug: str | None = typer.Option(None, help="Debug specific test."),
+) -> None:
+    scoring.score_simulation.score_simulations(
+        simulation_dir, output_dir, tolerance, base_coverage, debug
     )

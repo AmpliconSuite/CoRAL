@@ -451,13 +451,15 @@ def output_amplicon_cycles(
     ai_amplicon = [
         ai
         for ai in bb.amplicon_intervals
-        if bb.ccid2id[ai[3]] == amplicon_idx + 1
+        if bb.ccid2id[ai.amplicon_id] == amplicon_idx + 1
     ]
     ai_amplicon = sorted(
-        ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai[0]], ai[1])
+        ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai.chr_tag], ai.start)
     )
     for ai in ai_amplicon:
-        fp.write(f"Interval\t{interval_num}\t{ai[0]}\t{ai[1]}\t{ai[2]}\n")
+        fp.write(
+            f"Interval\t{interval_num}\t{ai.chr_tag}\t{ai.start}\t{ai.end}\n"
+        )
         interval_num += 1
 
     fp.write("List of cycle segments\n")
