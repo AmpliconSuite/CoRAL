@@ -22,6 +22,72 @@ T = TypeVar("T")
 
 
 @dataclass
+class Interval:
+    chr_tag: str
+    start: int
+    end: int
+    amplicon_id: int = -1
+
+    def __len__(self) -> int:
+        return self.end - self.start + 1
+
+    def does_overlap(self, other: Interval) -> bool:
+        """Check if two chromosome intervals overlap (share a subsequence).
+
+        Intervals are given in the form [chr, start, end], where:
+            chr: chromosome number
+            s: start position/index
+            e: end position/index
+        """
+        return (
+            self.chr_tag == other.chr_tag
+            and self.start <= other.end
+            and self.end >= other.start
+        )
+
+    def intersects(self, y: Interval, extend=0, margin=0.0) -> bool:
+        if margin > 0.0:
+            margin_offset = (1 - margin) * (y.end - y.start)
+            margin_interval = (
+                (y.start + margin_offset, y.end - margin_offset),
+                (self.start + margin_offset, self.end - margin_offset),
+            )
+
+            for start, end in margin_interval:
+                if (
+                    self.chr_tag == y.chr_tag
+                    and self.start <= end
+                    and self.end >= start
+                ):
+                    return True
+            return False
+
+        # Adjust the intervals with the extension
+        self_start, self_end = max(0, self.start - extend), self.end + extend
+        n_start, n_end = y.start, y.end
+
+        # Check for chromosome match and interval overlap
+        if self.chr_tag != y.chr_tag:
+            return False
+
+        return self_start <= n_end and self_end >= n_start
+
+    def intersection(self, y: Interval) -> Interval | None:
+        if not self.intersects(y):
+            return None
+        return Interval(
+            self.chr_tag, max(self.start, y.start), min(self.end, y.end)
+        )
+
+    def merge(self, y: Interval, extend=0) -> Interval | None:
+        if not self.intersects(y, extend):
+            return None
+        return Interval(
+            self.chr_tag, min(self.start, y.start), max(self.end, y.end)
+        )
+
+
+@dataclass
 class EdgeToCN:
     """Container class for mapping edge indices (by type) to CN (copy number) values."""
 
