@@ -5,17 +5,28 @@ Utilities for breakpoint graph inference.
 from __future__ import annotations
 
 import io
-from collections import Counter
+import logging
+from collections import Counter, defaultdict
 from typing import TYPE_CHECKING, Generator, List, Tuple, cast
 
 import numpy as np
+import pysam
 
-from coral import constants
+from coral import cigar_parsing, constants, datatypes
 from coral.constants import CHR_TAG_TO_IDX
-from coral.datatypes import Interval
+from coral.datatypes import (
+    AmpliconInterval,
+    BPReads,
+    Breakpoint,
+    ChimericAlignment,
+    Interval,
+    ReadInterval,
+)
 
 if TYPE_CHECKING:
     from coral.breakpoint.breakpoint_graph import BreakpointGraph
+
+logger = logging.getLogger(__name__)
 
 
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:
@@ -63,6 +74,19 @@ def interval_overlap_l(int1: Interval, intl: list[Interval]) -> int:
         if int1.does_overlap(intl[int2i]):
             return int2i
     return -1
+
+
+for int_ in rint:
+    for i_ in int_[-1]:
+        if (int_[0] != chr) or (i_ <= si or i_ >= ei):
+            try:
+                if i_ != -1:
+                    d1_segs[int_[0]][i_].add(r)
+            except:
+                if int_[0] not in d1_segs:
+                    d1_segs[int_[0]] = dict()
+                if i_ != -1:
+                    d1_segs[int_[0]][i_] = set([r])
 
 
 def interval_include_l(int1: list[int], intl: list[list[int]]) -> int:
@@ -163,49 +187,45 @@ def alignment2bp(
 
 
 def alignment2bp_nm(
-    rn,
-    chimeric_alignment,
-    min_bp_match_cutoff,
-    min_mapq,
-    max_nm,
-    intrvl1,
-    intrvl2,
-    gap_mapq=10,
+    rn: str,
+    alignments: list[datatypes.ChimericAlignment],
+    min_bp_match_cutoff: int,
+    min_mapq: float,
+    max_nm: float,
+    new_intv: Interval,
+    orig_intv: Interval,
+    gap_mapq: float = 10,
 ):
     bp_list = []
-    r_int = chimeric_alignment[0]
-    rr_int = chimeric_alignment[1]
-    q_ = chimeric_alignment[2]
-    nm = chimeric_alignment[3]
-    bassigned = [0 for i in range(len(rr_int) - 1)]
+    bassigned = [0 for i in range(len(alignments) - 1)]
 
     # Breakpoint from local alignment i and i + 1
-    for ri in range(len(rr_int) - 1):
+    for ri in range(len(alignments) - 1):
+        chimera1, chimera2 = alignments[ri], alignments[ri + 1]
+        query_gap = chimera2.query_ends.start - chimera1.query_ends.end
+        if not query_gap + min_bp_match_cutoff >= 0:
+            continue
+        if not chimera1.qual >= min_mapq or not chimera2.qual >= min_mapq:
+            continue
+        if not chimera1.edit_dist < max_nm or not chimera2.edit_dist < max_nm:
+            continue
+
+        ref_intv1, ref_intv2 = chimera1.ref_interval, chimera2.ref_interval
         if (
-            int(r_int[ri + 1][0]) - int(r_int[ri][1]) + min_bp_match_cutoff >= 0
-            and interval_overlap(rr_int[ri], intrvl1)
-            and interval_overlap(rr_int[ri + 1], intrvl2)
-            and q_[ri] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-            and nm[ri] < max_nm
-            and nm[ri + 1] < max_nm
+            ref_intv1.does_overlap(new_intv)
+            and ref_intv2.does_overlap(orig_intv)
         ) or (
-            int(r_int[ri + 1][0]) - int(r_int[ri][1]) + min_bp_match_cutoff >= 0
-            and interval_overlap(rr_int[ri + 1], intrvl1)
-            and interval_overlap(rr_int[ri], intrvl2)
-            and q_[ri] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-            and nm[ri] < max_nm
-            and nm[ri + 1] < max_nm
+            ref_intv2.does_overlap(new_intv)
+            and ref_intv1.does_overlap(orig_intv)
         ):
             bp_list.append(
                 interval2bp(
-                    rr_int[ri],
-                    rr_int[ri + 1],
+                    ref_intv1,
+                    ref_intv2,
                     (rn, ri, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri][1]),
+                    query_gap,
                 )
-                + [q_[ri], q_[ri + 1]]
+                + [chimera1.qual, chimera2.qual]
             )
             bassigned[ri] = 1
 
@@ -217,8 +237,8 @@ def alignment2bp_nm(
             and q_[ri] < gap_mapq
             and q_[ri - 1] >= min_mapq
             and q_[ri + 1] >= min_mapq
-            and interval_overlap(rr_int[ri - 1], intrvl1)
-            and interval_overlap(rr_int[ri + 1], intrvl2)
+            and interval_overlap(rr_int[ri - 1], new_intv)
+            and interval_overlap(rr_int[ri + 1], orig_intv)
             and nm[ri - 1] < max_nm
             and nm[ri + 1] < max_nm
         ) or (
@@ -227,8 +247,8 @@ def alignment2bp_nm(
             and q_[ri] < gap_mapq
             and q_[ri - 1] >= min_mapq
             and q_[ri + 1] >= min_mapq
-            and interval_overlap(rr_int[ri + 1], intrvl1)
-            and interval_overlap(rr_int[ri - 1], intrvl2)
+            and interval_overlap(rr_int[ri + 1], new_intv)
+            and interval_overlap(rr_int[ri - 1], orig_intv)
             and nm[ri - 1] < max_nm
             and nm[ri + 1] < max_nm
         ):
@@ -379,6 +399,21 @@ def alignment2bp_l(
                         + [q_[i - 1], q_[i + 1]]
                     )
     return bp_list
+
+
+def filter_low_support_breakpoints(
+    chr_to_cns_to_reads: dict[str, dict[int, set[str]]], min_support: int
+) -> dict[str, dict[int, set[str]]]:
+    """
+    Initial filtering of potential breakpoints of insufficient support.
+    """
+    chr_to_cns_to_reads_filtered: dict[str, dict[int, set[str]]] = dict()
+    for chr_, cns_to_reads in chr_to_cns_to_reads.items():
+        chr_to_cns_to_reads_filtered[chr_] = dict()
+        for cn, reads in cns_to_reads.items():
+            if len(reads) >= min_support:
+                chr_to_cns_to_reads_filtered[chr_][cn] = reads
+    return chr_to_cns_to_reads_filtered
 
 
 def alignment2bp_nm_l(
@@ -571,35 +606,41 @@ def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
     return bp_clusters
 
 
-def interval2bp(R1, R2, r=(), rgap=0):
+def interval2bp(
+    intv1: ReadInterval, intv2: ReadInterval, read_info: BPReads, gap: int = 0
+) -> Breakpoint:
     """
     Convert split/chimeric alignment to breakpoint
     """
-    if (CHR_TAG_TO_IDX[R2[0]] < CHR_TAG_TO_IDX[R1[0]]) or (
-        CHR_TAG_TO_IDX[R2[0]] == CHR_TAG_TO_IDX[R1[0]] and R2[1] < R1[2]
+    chr_idx1, chr_idx2 = (
+        CHR_TAG_TO_IDX[intv1.chr_tag],
+        CHR_TAG_TO_IDX[intv2.chr_tag],
+    )
+    if (chr_idx2 < chr_idx1) or (
+        chr_idx2 == chr_idx1 and intv2.start < intv1.end
     ):
-        return [
-            R1[0],
-            R1[2],
-            R1[3],
-            R2[0],
-            R2[1],
-            constants.INVERT_STRAND_DIRECTION[R2[3]],
-            r,
-            rgap,
-            0,
-        ]
-    return [
-        R2[0],
-        R2[1],
-        constants.INVERT_STRAND_DIRECTION[R2[3]],
-        R1[0],
-        R1[2],
-        R1[3],
-        (r[0], r[2], r[1]),
-        rgap,
-        1,
-    ]
+        return Breakpoint(
+            intv1.chr_tag,
+            intv1.end,
+            intv1.strand,
+            intv2.chr_tag,
+            intv2.start,
+            intv2.strand.inverse,
+            read_info,
+            gap,
+            False,
+        )
+    return Breakpoint(
+        intv2.chr_tag,
+        intv2.start,
+        intv2.strand.inverse,
+        intv1.chr_tag,
+        intv1.end,
+        intv1.strand,
+        BPReads(read_info.name, read_info.read2, read_info.read1),
+        gap,
+        True,
+    )
 
 
 def bpc2bp(bp_cluster, bp_distance_cutoff):
@@ -761,11 +802,11 @@ def sort_chrom_names(chromlist: List[str]) -> List[str]:
 
 def get_intervals_from_seed_file(
     seed_file: io.TextIOWrapper,
-) -> List[Interval]:
+) -> List[AmpliconInterval]:
     intervals = []
     for line in seed_file:
         seed = line.strip().split()
-        intervals.append(Interval(seed[0], int(seed[1]), int(seed[2])))
+        intervals.append(AmpliconInterval(seed[0], int(seed[1]), int(seed[2])))
     return intervals
 
 
@@ -987,3 +1028,47 @@ def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):
             fp.write(
                 f"{de[3]}\t{de[4]}\t{de[0]}\t{de[1]}\t{de[5]}{de[2]}\t{de[9]}\t{bp_stats[di]}\n"
             )
+
+
+# TODO: further modularize the utilities in this file
+def fetch_breakpoint_reads(
+    bam_file: pysam.AlignmentFile,
+) -> tuple[dict[str, list[ChimericAlignment]], datatypes.EditDistanceStats]:
+    read_name_to_length: dict[str, int] = {}
+    chimeric_strings: dict[str, list[str]] = defaultdict(list)
+    edit_dist_stats = datatypes.EditDistanceStats()
+
+    for read in bam_file.fetch():
+        rn: str = read.query_name  # type: ignore[assignment]
+        if read.flag < 256 and rn not in read_name_to_length:
+            read_name_to_length[rn] = read.query_length
+        try:
+            sa_list = read.get_tag("SA:Z:")[:-1].split(";")  # type: ignore
+            for sa in sa_list:
+                if sa not in chimeric_strings[rn]:
+                    chimeric_strings[rn].append(sa)
+        except:
+            # Highest mapq from minimap2 in BAM files, "most reliable" alignments
+            if read.mapping_quality == 60:
+                e = read.get_cigar_stats()[0][-1] / read.query_length
+                edit_dist_stats.observe(e)
+    logger.info(f"Fetched {len(chimeric_strings)} chimeric reads.")
+    reads_wo_primary_alignment = []
+    chimeric_alignments = {}
+    for r in chimeric_strings:
+        if r not in read_name_to_length:
+            logger.warning(
+                f"Found chimeric read name {r} without primary alignment; Read length: N/A."
+            )
+            logger.warning(f"All CIGAR strings: {chimeric_strings[r]}.")
+            reads_wo_primary_alignment.append(r)
+            continue
+        chimeric_alignments[r] = cigar_parsing.alignment_from_satags(
+            chimeric_strings[r], read_name_to_length[r]
+        )
+    for r in reads_wo_primary_alignment:
+        del chimeric_alignments[r]
+    logger.info(
+        f"Computed alignment intervals on all {len(chimeric_strings)} chimeric reads.",
+    )
+    return chimeric_alignments, edit_dist_stats

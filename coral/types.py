@@ -2,8 +2,6 @@
 
 from typing import Any, List, Literal
 
-CnsInterval = Any  # tuple[str, int, int]
-
 EdgeType = Literal["e", "c", "d", "s", "t", "ns", "nt"]
 EdgeIdx = int
 EdgeCount = int

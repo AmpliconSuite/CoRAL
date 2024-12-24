@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 class BreakpointGraph:
     """A container object for the breakpoint graphs."""
 
-    amplicon_intervals: list[datatypes.Interval] = field(default_factory=list)
+    amplicon_intervals: list[datatypes.AmpliconInterval] = field(
+        default_factory=list
+    )
     sequence_edges: list[list[Any]] = field(default_factory=list)
     concordant_edges: list[list[Any]] = field(default_factory=list)
     discordant_edges: list[list[Any]] = field(default_factory=list)

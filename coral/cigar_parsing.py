@@ -14,6 +14,14 @@ from __future__ import annotations
 import logging
 import re
 
+from coral import datatypes
+from coral.datatypes import (
+    ChimericAlignment,
+    CigarAlignment,
+    CigarEnds,
+    Strand,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +63,7 @@ def convert_pbmm2_to_bwa_mem(cigar_str):
     return "".join(converted_cigar)
 
 
-def query_ends_from_cigar(cigar_str, strand):
+def query_ends_from_cigar(cigar_str: str, strand: str) -> CigarAlignment:
     """
     Retrieve alignment ends and alignment length from cigar string
 
@@ -100,54 +108,57 @@ def query_ends_from_cigar(cigar_str, strand):
             ref_consumed += length
 
     query_end = query_start + query_consumed
-    query_alignment_length = query_consumed  # Query length consumed
     ref_alignment_length = ref_consumed  # Reference length consumed
 
-    return query_start, query_end, ref_alignment_length
+    return CigarAlignment(query_start, query_end, ref_alignment_length)
 
 
-def alignment_from_satags(sa_list, read_length):
+def alignment_from_satags(
+    sa_list: list[str], read_name: str
+) -> list[ChimericAlignment]:
     """
     Convert "SA:Z" a list of strings into a new chimeric alignment.
-    Require at least one (soft) clip and one match for each canonical alignment record in a chimeric alignment
+    Require at least one (soft) clip and one match for each canonical alignment
+    record in a chimeric alignment.
         If not, trigger a warning message in logger
 
     Args:
         sa_list: A list of "SA:Z" tags from bam
-        read_length: Read length
+        read_name: Read name
     Returns:
-        chimeric alignment in the form of qint, rint and qual list
-        Alignments sorted according to the starting positions on the read on positive strand
+        chimeric alignments in the form of qint, rint and qual list
+        Alignments sorted according to the starting positions on the read on
+        positive strand
     """
-    qint, rint, qual, nm = [], [], [], []
+    alignments = []
     for sa in sa_list:
         t = sa.split(",")
         if "S" not in t[3] or ("M" not in t[3] and "=" not in t[3]):
-            # Require a chimeric alignment record having at least some (soft)clips and matches
+            # Require a chimeric alignment record having at least some
+            # (soft)clips and matches
             logger.warning(
                 "Found chimeric alignment without match or soft clips."
             )
-            # logging.warning("Read name: %s; Read length: %d." %(r, read_length))
-            logger.warning("All CIGAR strings: %s." % (sa_list))
-            return ([], [], [])
-        # op = ''.join(c for c in t[3] if not c.isdigit())
-        # qs, qe, al = cigar2pos_ops[op](t[3], t[2], read_length)
+            logger.warning(f"All CIGAR strings: {sa_list}")
+            return []
+
         qs, qe, al = query_ends_from_cigar(t[3], t[2])
-        qint.append([qs, qe])
-        if t[2] == "+":
-            rint.append(
-                [t[0], int(t[1]) - 1, int(t[1]) + al - 2, "+"]
-            )  # converted to 0 based coordinates
+        chr_tag, pos, strand = t[0], int(t[1]), t[2]
+        # Convert to 0-based coordinates
+        if strand == "+":
+            read_interval = datatypes.ReadInterval(
+                chr_tag, pos - 1, pos + al - 2, Strand.FORWARD, read_name
+            )
         else:
-            rint.append(
-                [t[0], int(t[1]) + al - 2, int(t[1]) - 1, "-"]
-            )  # converted to 0 based coordinates
-        qual.append(int(t[4]))
-        nm.append(float(t[-1]))
-    qint_ind = sorted(range(len(qint)), key=lambda i: (qint[i][0], qint[i][1]))
-    qint = [qint[i] for i in qint_ind]
-    rint = [rint[i] for i in qint_ind]
-    qual = [qual[i] for i in qint_ind]
-    nm = [nm[i] for i in qint_ind]
-    nm = [nm[i] / (qint[i][1] - qint[i][0]) for i in range(len(nm))]
-    return (qint, rint, qual, nm)
+            read_interval = datatypes.ReadInterval(
+                chr_tag, pos + al - 2, pos - 1, Strand.REVERSE, read_name
+            )
+        alignments.append(
+            ChimericAlignment(
+                CigarEnds(qs, qe),
+                read_interval,
+                int(t[4]),
+                float(t[-1]) / (qe - qs),
+            )
+        )
+    return alignments

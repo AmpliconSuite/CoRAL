@@ -236,3 +236,11 @@ chr7	55610095	56049369	+	1	True	82.346163
 chr7	54763282	56049369	+	2	False	2.843655
 ```
 
+
+## FAQs
+- `call_cnvs.sh` didn't produce segmented CN calls in a .cns file?
+   - `cnvkit.py batch` contains multiple steps detailed in their 
+   [documentation](https://cnvkit.readthedocs.io/en/stable/pipeline.html). The 
+   errors from a particular stage don't always percolate up when running the
+   complete pipeline via `batch`, so try running each stage separately to 
+   pinpoint the root cause.

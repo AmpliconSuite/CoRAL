@@ -11,6 +11,8 @@ from typing import (
     TypeVar,
 )
 
+import intervaltree
+import numpy as np
 import pyomo.environ as pyo
 
 from coral import types
@@ -21,15 +23,83 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
+class Strand(str, enum.Enum):
+    FORWARD = "+"
+    REVERSE = "-"
+
+    @property
+    def inverse(self) -> Strand:
+        return Strand.FORWARD if self == Strand.REVERSE else Strand.REVERSE
+
+
+class CNSInterval(NamedTuple):
+    chr_tag: str
+    start: int
+    end: int
+    raw_cn: float
+
+
+@dataclass
+class EditDistanceStats:
+    """Stores edit distance from reference genome (NM tag) statistics."""
+
+    count: int = 0
+    total: int = 0
+    sum_of_squares: int = 0
+
+    def observe(self, value: int) -> None:
+        self.count += 1
+        self.total += value
+        self.sum_of_squares += np.pow(value, 2)
+
+    @property
+    def mean(self) -> float:
+        return self.total / self.count
+
+    @property
+    def std_dev(self) -> float:
+        return np.sqrt(self.sum_of_squares / self.count - np.pow(self.mean, 2))
+
+
+class CigarEnds(NamedTuple):
+    start: int
+    end: int
+
+
+class CigarAlignment(NamedTuple):
+    """
+    The start and end position on the read on positive strand, and the alignment
+    length on the reference genome.
+    """
+
+    start: int
+    end: int
+    ref_length: int  # Length on reference genome (!= read query length above)
+
+
 @dataclass
 class Interval:
     chr_tag: str
     start: int
     end: int
-    amplicon_id: int = -1
 
     def __len__(self) -> int:
         return self.end - self.start + 1
+
+    def __lt__(self, other: Interval) -> bool:
+        return (self.chr_tag, self.start, self.end) < (
+            other.chr_tag,
+            other.start,
+            other.end,
+        )
+
+    @property
+    def left(self) -> int:
+        return min(self.start, self.end)
+
+    @property
+    def right(self) -> int:
+        return max(self.start, self.end)
 
     def does_overlap(self, other: Interval) -> bool:
         """Check if two chromosome intervals overlap (share a subsequence).
@@ -44,6 +114,14 @@ class Interval:
             and self.start <= other.end
             and self.end >= other.start
         )
+
+    def is_adjacent(self, other: Interval) -> bool:
+        """Check if two intervals are adjacent to each other."""
+        if self.chr_tag != other.chr_tag:
+            return False
+        if self.start <= other.start:
+            return other.start == self.end + 1
+        return self.start == other.end + 1
 
     def intersects(self, y: Interval, extend=0, margin=0.0) -> bool:
         if margin > 0.0:
@@ -72,6 +150,7 @@ class Interval:
 
         return self_start <= n_end and self_end >= n_start
 
+    # Sourced from AA
     def intersection(self, y: Interval) -> Interval | None:
         if not self.intersects(y):
             return None
@@ -79,12 +158,69 @@ class Interval:
             self.chr_tag, max(self.start, y.start), min(self.end, y.end)
         )
 
+    # Sourced from AA
     def merge(self, y: Interval, extend=0) -> Interval | None:
         if not self.intersects(y, extend):
             return None
         return Interval(
             self.chr_tag, min(self.start, y.start), max(self.end, y.end)
         )
+
+
+@dataclass
+class ReadInterval(Interval):
+    """Reference genome interval that a read has been matched to."""
+
+    strand: Strand
+    name: str
+
+
+@dataclass
+class ChimericAlignment:
+    query_ends: CigarEnds
+    ref_interval: ReadInterval
+    qual: int
+    edit_dist: float
+
+    # Matching CN segment indices, if found
+    cns: set[int] = field(default_factory=set)
+
+    def __lt__(self, other: ChimericAlignment) -> bool:
+        return self.query_ends < other.query_ends
+
+
+@dataclass
+class AmpliconInterval(Interval):
+    amplicon_id: int = -1
+
+    def __str__(self) -> str:
+        return f"{self.amplicon_id} {self.chr_tag}:{self.start}-{self.end}"
+
+
+@dataclass
+class IntervalWithReads(Interval):
+    reads: set[str] = field(default_factory=set)
+
+
+class BPReads(NamedTuple):
+    """Container for storing reads that support a breakpoint."""
+
+    name: str
+    read1: int
+    read2: int
+
+
+@dataclass
+class Breakpoint:
+    chr1: str
+    start: int  # Start position of the breakpoint
+    strand: Strand
+    chr2: str
+    end: int  # End position of the breakpoint
+    strand2: Strand
+    read_info: BPReads
+    gap: int  # Gap between interval endpoints
+    was_reversed: bool
 
 
 @dataclass
@@ -182,3 +318,46 @@ class SolverOptions:
     output_dir: str = "models"
     model_prefix: str = "pyomo"
     solver: Solver = Solver.GUROBI
+
+
+class CNSIntervalTree(intervaltree.IntervalTree):
+    def pos2cni(self, chr_tag: str, pos: int) -> set[intervaltree.Interval]:
+        return self[chr_tag][pos]
+
+    def get_single_cns_idx(self, chr_tag: str, pos: int) -> int | None:
+        """Get the IntervalTree index (CN segment) for a given position."""
+        intervals = self.pos2cni(chr_tag, pos)
+        if len(intervals) > 1:
+            raise ValueError(f"Expected 1 interval, not {intervals=}")
+        if not intervals:
+            return None  # No matching segment found
+        return intervals.pop().data
+
+    def get_cns_ends(self, query_interval: Interval) -> tuple[int, int]:
+        """Assumes query interval fits within CN segments."""
+        left_seg_idx = self.get_single_cns_idx(
+            query_interval.chr_tag, query_interval.left
+        )
+        right_seg_idx = self.get_single_cns_idx(
+            query_interval.chr_tag, query_interval.right
+        )
+        if not left_seg_idx or not right_seg_idx:
+            raise KeyError(
+                f"Unable to match CNS ends for {query_interval=}, \
+                {left_seg_idx=}, {right_seg_idx=}"
+            )
+        return (left_seg_idx, right_seg_idx)
+
+    def get_cn_segment_indices(self, read_interval: ReadInterval) -> set[int]:
+        seg_idxs = set()
+        left_seg_idx = self.get_single_cns_idx(
+            read_interval.chr_tag, read_interval.left
+        )
+        right_seg_idx = self.get_single_cns_idx(
+            read_interval.chr_tag, read_interval.right
+        )
+        if left_seg_idx:
+            seg_idxs.add(left_seg_idx)
+        if right_seg_idx:
+            seg_idxs.add(right_seg_idx)
+        return seg_idxs
