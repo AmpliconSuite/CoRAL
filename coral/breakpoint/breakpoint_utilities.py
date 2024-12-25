@@ -19,6 +19,7 @@ from coral.datatypes import (
     BPReads,
     Breakpoint,
     ChimericAlignment,
+    ChrPairOrientation,
     Interval,
     ReadInterval,
 )
@@ -66,27 +67,16 @@ def interval_adjacent(int1: list[int], int2: list[int]) -> bool:
     return int1[1] == int2[2] + 1
 
 
-def interval_overlap_l(int1: Interval, intl: list[Interval]) -> int:
+def interval_overlap_l(
+    intv1: Interval, intv_list: list[Interval]
+) -> int | None:
     """
     Check if an interval in the form of [chr, s, e] overlaps with a list of intervals
     """
-    for int2i in range(len(intl)):
-        if int1.does_overlap(intl[int2i]):
-            return int2i
-    return -1
-
-
-for int_ in rint:
-    for i_ in int_[-1]:
-        if (int_[0] != chr) or (i_ <= si or i_ >= ei):
-            try:
-                if i_ != -1:
-                    d1_segs[int_[0]][i_].add(r)
-            except:
-                if int_[0] not in d1_segs:
-                    d1_segs[int_[0]] = dict()
-                if i_ != -1:
-                    d1_segs[int_[0]][i_] = set([r])
+    for intv2_idx, intv2 in enumerate(intv_list):
+        if intv1.does_overlap(intv2):
+            return intv2_idx
+    return None
 
 
 def interval_include_l(int1: list[int], intl: list[list[int]]) -> int:
@@ -115,99 +105,29 @@ def interval_exclusive(
 
 
 def alignment2bp(
-    rn,
-    chimeric_alignment,
-    min_bp_match_cutoff,
-    min_mapq,
-    intrvl1,
-    intrvl2,
-    gap_mapq=10,
-):
-    bp_list = []
-    r_int = chimeric_alignment[0]
-    rr_int = chimeric_alignment[1]
-    q_ = chimeric_alignment[2]
-    bassigned = [0 for i in range(len(rr_int) - 1)]
-
-    # Breakpoint from local alignment i and i + 1
-    for ri in range(len(rr_int) - 1):
-        if (
-            int(r_int[ri + 1][0]) - int(r_int[ri][1]) + min_bp_match_cutoff >= 0
-            and interval_overlap(rr_int[ri], intrvl1)
-            and interval_overlap(rr_int[ri + 1], intrvl2)
-            and q_[ri] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-        ) or (
-            int(r_int[ri + 1][0]) - int(r_int[ri][1]) + min_bp_match_cutoff >= 0
-            and interval_overlap(rr_int[ri + 1], intrvl1)
-            and interval_overlap(rr_int[ri], intrvl2)
-            and q_[ri] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-        ):
-            bp_list.append(
-                interval2bp(
-                    rr_int[ri],
-                    rr_int[ri + 1],
-                    (rn, ri, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri][1]),
-                )
-                + [q_[ri], q_[ri + 1]]
-            )
-            bassigned[ri] = 1
-
-    # Breakpoint from local alignment i - 1 and i + 1
-    for ri in range(1, len(rr_int) - 1):
-        if (
-            bassigned[ri - 1] == 0
-            and bassigned[ri] == 0
-            and q_[ri] < gap_mapq
-            and q_[ri - 1] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-            and interval_overlap(rr_int[ri - 1], intrvl1)
-            and interval_overlap(rr_int[ri + 1], intrvl2)
-        ) or (
-            bassigned[ri - 1] == 0
-            and bassigned[ri] == 0
-            and q_[ri] < gap_mapq
-            and q_[ri - 1] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-            and interval_overlap(rr_int[ri + 1], intrvl1)
-            and interval_overlap(rr_int[ri - 1], intrvl2)
-        ):
-            bp_list.append(
-                interval2bp(
-                    rr_int[ri - 1],
-                    rr_int[ri + 1],
-                    (rn, ri - 1, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri - 1][1]),
-                )
-                + [q_[ri - 1], q_[ri + 1]]
-            )
-    return bp_list
-
-
-def alignment2bp_nm(
     rn: str,
     alignments: list[datatypes.ChimericAlignment],
     min_bp_match_cutoff: int,
     min_mapq: float,
-    max_nm: float,
     new_intv: Interval,
     orig_intv: Interval,
     gap_mapq: float = 10,
+    max_nm: float | None = None,
 ):
-    bp_list = []
-    bassigned = [0 for i in range(len(alignments) - 1)]
+    bp_list: list[Breakpoint] = []
+    has_bp_assigned = [False] * (len(alignments) - 1)
 
     # Breakpoint from local alignment i and i + 1
     for ri in range(len(alignments) - 1):
         chimera1, chimera2 = alignments[ri], alignments[ri + 1]
         query_gap = chimera2.query_ends.start - chimera1.query_ends.end
-        if not query_gap + min_bp_match_cutoff >= 0:
+        if query_gap + min_bp_match_cutoff < 0:
             continue
-        if not chimera1.qual >= min_mapq or not chimera2.qual >= min_mapq:
+        if chimera1.mapq < min_mapq or chimera2.mapq < min_mapq:
             continue
-        if not chimera1.edit_dist < max_nm or not chimera2.edit_dist < max_nm:
+        if max_nm is not None and (
+            chimera1.edit_dist >= max_nm or chimera2.edit_dist >= max_nm
+        ):
             continue
 
         ref_intv1, ref_intv2 = chimera1.ref_interval, chimera2.ref_interval
@@ -220,129 +140,103 @@ def alignment2bp_nm(
         ):
             bp_list.append(
                 interval2bp(
-                    ref_intv1,
-                    ref_intv2,
-                    (rn, ri, ri + 1),
+                    chimera1,
+                    chimera2,
+                    BPReads(rn, ri, ri + 1),
                     query_gap,
                 )
-                + [chimera1.qual, chimera2.qual]
             )
-            bassigned[ri] = 1
+            has_bp_assigned[ri] = True
 
     # Breakpoint from local alignment i - 1 and i + 1
-    for ri in range(1, len(rr_int) - 1):
+    for ri in range(1, len(alignments) - 1):
+        prev_chimera, curr_chimera, next_chimera = (
+            alignments[ri - 1],
+            alignments[ri],
+            alignments[ri + 1],
+        )
+        if has_bp_assigned[ri - 1] or has_bp_assigned[ri]:
+            continue
         if (
-            bassigned[ri - 1] == 0
-            and bassigned[ri] == 0
-            and q_[ri] < gap_mapq
-            and q_[ri - 1] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-            and interval_overlap(rr_int[ri - 1], new_intv)
-            and interval_overlap(rr_int[ri + 1], orig_intv)
-            and nm[ri - 1] < max_nm
-            and nm[ri + 1] < max_nm
-        ) or (
-            bassigned[ri - 1] == 0
-            and bassigned[ri] == 0
-            and q_[ri] < gap_mapq
-            and q_[ri - 1] >= min_mapq
-            and q_[ri + 1] >= min_mapq
-            and interval_overlap(rr_int[ri + 1], new_intv)
-            and interval_overlap(rr_int[ri - 1], orig_intv)
-            and nm[ri - 1] < max_nm
-            and nm[ri + 1] < max_nm
+            curr_chimera.mapq >= gap_mapq
+            or prev_chimera.mapq < min_mapq
+            or next_chimera.mapq < min_mapq
         ):
+            continue
+        if max_nm is not None and (
+            prev_chimera.edit_dist >= max_nm or next_chimera.edit_dist >= max_nm
+        ):
+            continue
+        prev_intv, next_intv = (
+            prev_chimera.ref_interval,
+            next_chimera.ref_interval,
+        )
+        if (
+            prev_intv.does_overlap(new_intv)
+            and next_intv.does_overlap(orig_intv)
+        ) or (
+            next_intv.does_overlap(new_intv)
+            and prev_intv.does_overlap(orig_intv)
+        ):
+            query_gap = (
+                next_chimera.query_ends.start - prev_chimera.query_ends.end
+            )
+
             bp_list.append(
                 interval2bp(
-                    rr_int[ri - 1],
-                    rr_int[ri + 1],
-                    (rn, ri - 1, ri + 1),
-                    int(r_int[ri + 1][0]) - int(r_int[ri - 1][1]),
+                    prev_chimera,
+                    next_chimera,
+                    BPReads(rn, ri - 1, ri + 1),
+                    query_gap,
                 )
-                + [q_[ri - 1], q_[ri + 1]]
             )
     return bp_list
 
 
 def alignment2bp_l(
     rn,
-    chimeric_alignment,
+    alignments: list[datatypes.ChimericAlignment],
     min_bp_match_cutoff,
     min_mapq,
     gap_,
     intrvls,
     gap_mapq=10,
 ):
-    bp_list = []
-    r_int = chimeric_alignment[0]
-    rr_int = chimeric_alignment[1]
-    q_ = chimeric_alignment[2]
-    bassigned = [0 for i in range(len(rr_int) - 1)]
+    bp_list: list[Breakpoint] = []
+    has_bp_assigned = [False] * (len(alignments) - 1)
 
     """
 	Breakpoint from local alignment i and i + 1
 	"""
-    for i in range(len(rr_int) - 1):
+    for i in range(len(alignments) - 1):
         """
 		Add unmatched breakpoint to new_bp_list
 		"""
-        io1 = interval_overlap_l(rr_int[i], intrvls)
-        io2 = interval_overlap_l(rr_int[i + 1], intrvls)
-        if (
-            int(r_int[i + 1][0]) - int(r_int[i][1]) + min_bp_match_cutoff >= 0
-            and io1 >= 0
-            and io2 >= 0
-            and io1 == io2
-        ):
-            if rr_int[i + 1][3] != rr_int[i][3]:
-                if q_[i] >= min_mapq and q_[i + 1] >= min_mapq:
-                    bp_list.append(
-                        interval2bp(
-                            rr_int[i],
-                            rr_int[i + 1],
-                            (rn, i, i + 1),
-                            int(r_int[i + 1][0]) - int(r_int[i][1]),
-                        )
-                        + [q_[i], q_[i + 1]]
-                    )
-                    bassigned[i] = 1
-            elif rr_int[i + 1][3] == "+":
-                gr = int(r_int[i + 1][0]) - int(r_int[i][1])
-                grr = int(rr_int[i + 1][1]) - int(rr_int[i][2])
-                if (
-                    abs(gr - grr) > max(gap_, abs(gr * 0.2))
-                    and q_[i] >= min_mapq
-                    and q_[i + 1] >= min_mapq
-                ):
-                    bp_list.append(
-                        interval2bp(
-                            rr_int[i],
-                            rr_int[i + 1],
-                            (rn, i, i + 1),
-                            int(r_int[i + 1][0]) - int(r_int[i][1]),
-                        )
-                        + [q_[i], q_[i + 1]]
-                    )
-                    bassigned[i] = 1
-            elif rr_int[i + 1][3] == "-":
-                gr = int(r_int[i + 1][0]) - int(r_int[i][1])
-                grr = int(rr_int[i][2]) - int(rr_int[i + 1][1])
-                if (
-                    abs(gr - grr) > max(gap_, abs(gr * 0.2))
-                    and q_[i] >= min_mapq
-                    and q_[i + 1] >= min_mapq
-                ):
-                    bp_list.append(
-                        interval2bp(
-                            rr_int[i],
-                            rr_int[i + 1],
-                            (rn, i, i + 1),
-                            int(r_int[i + 1][0]) - int(r_int[i][1]),
-                        )
-                        + [q_[i], q_[i + 1]]
-                    )
-                    bassigned[i] = 1
+        chimera1, chimera2 = alignments[i], alignments[i + 1]
+        query_gap = chimera2.query_ends.start - chimera1.query_ends.end
+        if query_gap + min_bp_match_cutoff < 0:
+            continue
+        if chimera1.mapq < min_mapq or chimera2.mapq < min_mapq:
+            continue
+        if not (io1 := interval_overlap_l(chimera1.ref_interval, intrvls)):
+            continue
+        if not (io2 := interval_overlap_l(chimera2.ref_interval, intrvls)):
+            continue
+        if not (io1 == io2):
+            continue
+        ref_intv1, ref_intv2 = chimera1.ref_interval, chimera2.ref_interval
 
+        # TODO: verify that we can just do abs(grr) instead of flipping order based on strand
+        ref_gap = abs(ref_intv2.start - ref_intv1.end)
+        if ref_intv1.strand == ref_intv2.strand or (
+            abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
+        ):
+            bp_list.append(
+                interval2bp(
+                    chimera1, chimera2, BPReads(rn, i, i + 1), query_gap
+                )
+            )
+            has_bp_assigned[i] = True
     """
 	Breakpoint from local alignment i - 1 and i + 1
 	"""
@@ -566,31 +460,30 @@ def alignment2bp_nm_l(
     return bp_list
 
 
-def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
+def cluster_bp_list(
+    bp_list: list[Breakpoint], min_cluster_size: int, bp_distance_cutoff: int
+) -> list[list[Breakpoint]]:
     """
     Clustering the breakpoints in bp_list
     """
-    bp_dict = dict()
-    for bpi in range(len(bp_list)):
-        bp = bp_list[bpi]
-        try:
-            bp_dict[(bp[0], bp[3], bp[2], bp[5])].append(bpi)
-        except:
-            bp_dict[(bp[0], bp[3], bp[2], bp[5])] = [bpi]
+    bp_dict: dict[ChrPairOrientation, list[int]] = defaultdict(list)
+    for bpi, bp in enumerate(bp_list):
+        bp_dict[
+            ChrPairOrientation(bp.chr1, bp.chr2, bp.strand1, bp.strand2)
+        ].append(bpi)
 
     bp_clusters = []
-    for bp_chr_or in bp_dict:
-        if len(bp_dict[bp_chr_or]) >= min_cluster_size:
-            bp_clusters_ = []
-            for bpi in bp_dict[bp_chr_or]:
-                bp = bp_list[bpi]
+    for chr_pair, bp_idxs in bp_dict.items():
+        if len(bp_idxs) >= min_cluster_size:
+            bp_clusters_: list[list[Breakpoint]] = []
+            for bp_idx in bp_idxs:
+                bp = bp_list[bp_idx]
                 bpcim = -1
                 for bpci in range(len(bp_clusters_)):
                     for lbp in bp_clusters_[bpci]:
                         if (
-                            abs(int(bp[1]) - int(lbp[1])) < bp_distance_cutoff
-                            and abs(int(bp[4]) - int(lbp[4]))
-                            < bp_distance_cutoff
+                            abs(bp.start - lbp.start) < bp_distance_cutoff
+                            and abs(bp.end - lbp.end) < bp_distance_cutoff
                         ):
                             bpcim = bpci
                             break
@@ -602,16 +495,20 @@ def cluster_bp_list(bp_list, min_cluster_size, bp_distance_cutoff):
                     bp_clusters_.append([bp])
             bp_clusters += bp_clusters_
         else:
-            bp_clusters.append([bp_list[bpi] for bpi in bp_dict[bp_chr_or]])
+            bp_clusters.append([bp_list[bpi] for bpi in bp_dict[chr_pair]])
     return bp_clusters
 
 
 def interval2bp(
-    intv1: ReadInterval, intv2: ReadInterval, read_info: BPReads, gap: int = 0
+    chimera1: ChimericAlignment,
+    chimera2: ChimericAlignment,
+    read_info: BPReads,
+    gap: int = 0,
 ) -> Breakpoint:
     """
     Convert split/chimeric alignment to breakpoint
     """
+    intv1, intv2 = chimera1.ref_interval, chimera2.ref_interval
     chr_idx1, chr_idx2 = (
         CHR_TAG_TO_IDX[intv1.chr_tag],
         CHR_TAG_TO_IDX[intv2.chr_tag],
@@ -629,6 +526,8 @@ def interval2bp(
             read_info,
             gap,
             False,
+            chimera1.mapq,
+            chimera2.mapq,
         )
     return Breakpoint(
         intv2.chr_tag,
@@ -640,6 +539,8 @@ def interval2bp(
         BPReads(read_info.name, read_info.read2, read_info.read1),
         gap,
         True,
+        chimera1.mapq,
+        chimera2.mapq,
     )
 
 

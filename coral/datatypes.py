@@ -179,7 +179,7 @@ class ReadInterval(Interval):
 class ChimericAlignment:
     query_ends: CigarEnds
     ref_interval: ReadInterval
-    qual: int
+    mapq: int
     edit_dist: float
 
     # Matching CN segment indices, if found
@@ -210,17 +210,26 @@ class BPReads(NamedTuple):
     read2: int
 
 
+class ChrPairOrientation(NamedTuple):
+    chr1: str
+    chr2: str
+    strand1: Strand
+    strand2: Strand
+
+
 @dataclass
 class Breakpoint:
     chr1: str
     start: int  # Start position of the breakpoint
-    strand: Strand
+    strand1: Strand
     chr2: str
     end: int  # End position of the breakpoint
     strand2: Strand
     read_info: BPReads
     gap: int  # Gap between interval endpoints
     was_reversed: bool
+    mapq1: int
+    mapq2: int
 
 
 @dataclass

@@ -23,8 +23,8 @@ from coral.breakpoint.breakpoint_types import CNSSegData
 from coral.breakpoint.breakpoint_utilities import (
     alignment2bp,
     alignment2bp_l,
-    alignment2bp_nm,
     alignment2bp_nm_l,
+    alignment2bp_old,
     bpc2bp,
     cluster_bp_list,
     interval_adjacent,
@@ -674,27 +674,21 @@ class LongReadBamToBreakpointMetadata:
                     ne = self.cns_intervals_by_chr[nint_.chr_tag][nint_.end][2]
                     logger.debug(f"\t\tRefining new interval {[chr_, ns, ne]}.")
                     new_bp_list = []
-                    if self.nm_filter:
-                        for read_name in nint_.reads:
-                            new_bp_list += alignment2bp_nm(
-                                read_name,
-                                self.chimeric_alignments[read_name],
-                                self.min_bp_match_cutoff_,
-                                20,
-                                self.nm_stats[0] + 3 * self.nm_stats[1],
-                                [nint_.chr_tag, ns, ne],
-                                interval,
-                            )
-                    else:
-                        for read_name in nint_.reads:
-                            new_bp_list += alignment2bp(
-                                read_name,
-                                self.chimeric_alignments[read_name],
-                                self.min_bp_match_cutoff_,
-                                20,
-                                [nint_.chr_tag, ns, ne],
-                                interval,
-                            )
+
+                    for read_name in nint_.reads:
+                        new_bp_list += alignment2bp(
+                            read_name,
+                            self.chimeric_alignments[read_name],
+                            self.min_bp_match_cutoff_,
+                            20,
+                            Interval(nint_.chr_tag, ns, ne),
+                            interval,
+                            max_nm=(
+                                self.nm_stats[0] + 3 * self.nm_stats[1]
+                                if self.nm_filter
+                                else None
+                            ),
+                        )
                     logger.debug(
                         f"\t\tFound {len(new_bp_list)} reads connecting the two intervals."
                     )
