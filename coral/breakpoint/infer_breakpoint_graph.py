@@ -33,6 +33,7 @@ from coral.breakpoint.breakpoint_utilities import (
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
+    Breakpoint,
     ChimericAlignment,
     CNSInterval,
     CNSIntervalTree,
@@ -41,6 +42,7 @@ from coral.datatypes import (
     WalkData,
 )
 from coral.models import path_constraints
+from coral.types import Chr, CNSIdx, ReadName
 
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
@@ -110,7 +112,7 @@ class LongReadBamToBreakpointMetadata:
 
     ccid2id: dict[int, int] = field(default_factory=dict)
     # List of breakpoints (discordant edges)
-    new_bp_list: list[list[int]] = field(default_factory=list)
+    new_bp_list: list[Breakpoint] = field(default_factory=list)
     # Statistics of breakpoints (discordant edges)
     new_bp_stats: list[list[int]] = field(default_factory=list)
     new_bp_ccids: list[int] = field(default_factory=list)
@@ -442,7 +444,7 @@ class LongReadBamToBreakpointMetadata:
         for ai in range(len(self.amplicon_intervals)):
             logger.debug("\tAmplicon interval %s after merging." % interval)
 
-    def addbp(self, bp_, bpr_, bp_stats_, ccid):
+    def addbp(self, bp_: Breakpoint, bpr_, bp_stats_, ccid):
         for bpi in range(len(self.new_bp_list)):
             bp = self.new_bp_list[bpi]
             if (
@@ -462,60 +464,52 @@ class LongReadBamToBreakpointMetadata:
         return bpi
 
     def refine_breakpoints(
-        self, interval: AmpliconInterval, new_bp_refined: list[int]
+        self,
+        interval: AmpliconInterval,
+        cni_intv: Interval,
+        new_bpi_refined: list[int],
     ):
         nint_segs = []
         nint_segs_ = []
-        for bpi in new_bp_refined:
-            bp = self.new_bp_list[bpi][:6]
+        cni_chr = cni_intv.chr_tag
+        ns = self.cns_intervals_by_chr[cni_chr][cni_intv.start].start
+        ne = self.cns_intervals_by_chr[cni_chr][cni_intv.end].end
+        cns_intv = Interval(cni_chr, ns, ne)
+
+        for bpi in new_bpi_refined:
+            bp = self.new_bp_list[bpi]
             try:
-                if interval_overlap(
-                    [bp[0], bp[1], bp[1]],
-                    interval,
-                ) and interval_overlap(
-                    [bp[3], bp[4], bp[4]], [nint_[0], ns, ne]
+                if interval.contains(bp.chr1, bp.start) and cns_intv.contains(
+                    bp.chr2, bp.end
                 ):
+                    cns_tree = self.cns_tree[bp.chr2]
                     nint_segs.append(
-                        [
-                            list(self.pos2cni(bp[3], bp[4]))[0].data,
-                            bp[4],
-                            bpi,
-                        ],
+                        [cns_tree.get_single_cns_idx(bp.end), bp.end, bpi]
                     )
-                elif interval_overlap(
-                    [bp[3], bp[4], bp[4]],
-                    interval,
-                ) and interval_overlap(
-                    [bp[0], bp[1], bp[1]], [nint_[0], ns, ne]
+                elif interval.contains(bp.chr1, bp.start) and cns_intv.contains(
+                    bp.chr1, bp.start
                 ):
+                    cns_tree = self.cns_tree[bp.chr1]
                     nint_segs.append(
-                        [
-                            list(self.pos2cni(bp[0], bp[1]))[0].data,
-                            bp[1],
-                            bpi,
-                        ],
+                        [cns_tree.get_single_cns_idx(bp.start), bp.start, bpi]
                     )
                 else:
                     logger.warning(
-                        "\t\tExact breakpoint outside amplicon interval.",
+                        "\t\tExact breakpoint outside amplicon interval."
                     )
-                    logger.warning(
-                        "\t\tBreakpoint %s." % bp,
-                    )
-                    logger.warning(
-                        "\t\tCurrent interval %s." % interval,
-                    )
-                    logger.warning(
-                        "\t\tNew interval %s." % [nint_[0], ns, ne],
-                    )
+                    logger.warning("\t\tBreakpoint %s." % bp)
+                    logger.warning("\t\tCurrent interval %s." % interval)
+                    logger.warning(f"\t\tNew interval {cns_intv}.")
                     o1 = interval_overlap(
                         [bp[0], bp[1], bp[1]],
-                        [nint_.chr_tag, ns, ne],
+                        [cni_chr, ns, ne],
                     )
                     o2 = interval_overlap(
                         [bp[3], bp[4], bp[4]],
-                        [nint_.start, ns, ne],
+                        [cni_chr, ns, ne],
                     )
+                    contains_start = cni_intv.contains(bp.chr1, bp.start)
+                    contains_end = cni_intv.contains(bp.chr2, bp.end)
                     if o1 and o2:
                         nint_segs.append(
                             [
@@ -609,8 +603,8 @@ class LongReadBamToBreakpointMetadata:
                 continue
 
             # Chr -> CNS idxs sharing a chimerical alignment -> associated reads
-            d1_segs: dict[str, dict[int, set[str]]] = defaultdict(
-                lambda: defaultdict(set)
+            chr_to_cns_to_reads: dict[Chr, dict[CNSIdx, set[ReadName]]] = (
+                defaultdict(lambda: defaultdict(set))
             )
             for cns_idx in range(si, ei + 1):
                 if cns_idx in self.chr_cns_to_chimeras[chr]:
@@ -623,22 +617,24 @@ class LongReadBamToBreakpointMetadata:
 
                             for cns_idx1 in alignment.cns:
                                 if cns_idx1 <= si or cns_idx1 >= ei:
-                                    d1_segs[chr][cns_idx1].add(read_name)
+                                    chr_to_cns_to_reads[chr][cns_idx1].add(
+                                        read_name
+                                    )
 
-            d1_segs = breakpoint_utilities.filter_low_support_breakpoints(
-                d1_segs, self.min_cluster_cutoff
+            chr_to_cns_to_reads = (
+                breakpoint_utilities.filter_small_breakpoint_clusters(
+                    chr_to_cns_to_reads, self.min_cluster_cutoff
+                )
             )
 
             new_intervals_refined = []
             new_intervals_connections = []
-            for chr_ in d1_segs:
+            for chr_ in chr_to_cns_to_reads:
                 print(f"processing new d1 seg {chr_}")
                 logger.debug(f"\t\tFound new intervals on chr {chr_=}")
                 # Initial list of new amplicon intervals, based on CN seg idxs
-                cns_idx_intv_to_reads: dict[Interval, set[str]] = defaultdict(
-                    set
-                )
-                sorted_cns_idxs = sorted(d1_segs[chr_])
+                cni_intv_to_reads: dict[Interval, set[str]] = defaultdict(set)
+                sorted_cns_idxs = sorted(chr_to_cns_to_reads[chr_])
                 matching_reads = set()
                 lasti = 0
                 # Iterate through CN seg (index) pairs, step size 1
@@ -648,32 +644,29 @@ class LongReadBamToBreakpointMetadata:
                     nil = self.cns_intervals_by_chr[chr_][next_cni].start
                     lir = self.cns_intervals_by_chr[chr_][curr_cni].end
                     if next_cni - curr_cni > 2 or nil - lir > self.max_seq_len:
-                        matching_reads |= d1_segs[chr_][curr_cni]
-                        cns_idx_intv = Interval(
+                        matching_reads |= chr_to_cns_to_reads[chr_][curr_cni]
+                        cni_intv = Interval(
                             chr_,
                             sorted_cns_idxs[lasti],
                             curr_cni,
                         )
-                        cns_idx_intv_to_reads[cns_idx_intv] = matching_reads
+                        cni_intv_to_reads[cni_intv] = matching_reads
                         lasti = next_cni
                         matching_reads = set([])
                     else:
-                        matching_reads |= d1_segs[chr_][curr_cni]
-                cns_idx_intv = Interval(
+                        matching_reads |= chr_to_cns_to_reads[chr_][curr_cni]
+                cni_intv = Interval(
                     chr_, sorted_cns_idxs[lasti], sorted_cns_idxs[-1]
                 )
-                matching_reads |= d1_segs[chr_][sorted_cns_idxs[-1]]
-                cns_idx_intv_to_reads[cns_idx_intv] = matching_reads
+                matching_reads |= chr_to_cns_to_reads[chr_][sorted_cns_idxs[-1]]
+                cni_intv_to_reads[cni_intv] = matching_reads
 
                 # Refine initial intervals
-                for (
-                    cns_idx_intv,
-                    matching_reads,
-                ) in cns_idx_intv_to_reads.items():
+                for cni_intv, matching_reads in cni_intv_to_reads.items():
                     chr_tag, start_cns, end_cns = (
-                        cns_idx_intv.chr_tag,
-                        cns_idx_intv.start,
-                        cns_idx_intv.end,
+                        cni_intv.chr_tag,
+                        cni_intv.start,
+                        cni_intv.end,
                     )
                     ns = self.cns_intervals_by_chr[chr_tag][start_cns].start
                     ne = self.cns_intervals_by_chr[chr_tag][end_cns].end
@@ -753,7 +746,11 @@ class LongReadBamToBreakpointMetadata:
                     nint_segs = []
                     nint_segs_ = []
                     if len(new_bp_refined) > 0:
-                        self.refine_breakpoints()
+                        self.refine_breakpoints(
+                            self.amplicon_intervals[ai_],
+                            cni_intv,
+                            new_bp_refined,
+                        )
                         nint_segs = sorted(
                             nint_segs, key=lambda item: (item[0], item[1])
                         )

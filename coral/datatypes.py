@@ -28,13 +28,21 @@ class Strand(str, enum.Enum):
     REVERSE = "-"
 
     @property
+    def is_forward(self) -> bool:
+        return self == Strand.FORWARD
+
+    @property
+    def is_reverse(self) -> bool:
+        return self == Strand.REVERSE
+
+    @property
     def inverse(self) -> Strand:
         return Strand.FORWARD if self == Strand.REVERSE else Strand.REVERSE
 
 
 @dataclass
-class EditDistanceStats:
-    """Stores edit distance from reference genome (NM tag) statistics."""
+class BasicStatTracker:
+    """Calculates running statistics for a stream of numerical observations."""
 
     count: int = 0
     total: int = 0
@@ -51,6 +59,8 @@ class EditDistanceStats:
 
     @property
     def std_dev(self) -> float:
+        if not self.count:
+            return 0.0
         return np.sqrt(self.sum_of_squares / self.count - np.pow(self.mean, 2))
 
 
@@ -86,6 +96,9 @@ class Interval:
             other.end,
         )
 
+    def __str__(self) -> str:
+        return f"{self.chr_tag}:{self.start}-{self.end}"
+
     @property
     def left(self) -> int:
         return min(self.start, self.end)
@@ -93,6 +106,11 @@ class Interval:
     @property
     def right(self) -> int:
         return max(self.start, self.end)
+
+    def contains(self, chr_tag: str, pos: int) -> bool:
+        if self.chr_tag != chr_tag:
+            return False
+        return self.start <= pos <= self.end
 
     def does_overlap(self, other: Interval) -> bool:
         """Check if two chromosome intervals overlap (share a subsequence).
@@ -223,6 +241,39 @@ class Breakpoint:
     was_reversed: bool
     mapq1: int
     mapq2: int
+
+
+@dataclass
+class BreakpointStats:
+    bp_distance_cutoff: float
+    start: BasicStatTracker = field(default_factory=BasicStatTracker)
+    end: BasicStatTracker = field(default_factory=BasicStatTracker)
+    mapq1: float = 0.0
+    mapq2: float = 0.0
+
+    def observe(self, bp: Breakpoint) -> None:
+        self.start.observe(bp.start)
+        self.end.observe(bp.end)
+        if not bp.was_reversed:
+            self.mapq1 += bp.mapq1
+            self.mapq2 += bp.mapq2
+        else:
+            self.mapq1 += bp.mapq2
+            self.mapq2 += bp.mapq1
+
+    @property
+    def start_window(self) -> float:
+        default_window = self.bp_distance_cutoff / 2.99
+        if self.start.count == 0:
+            return default_window
+        return max(self.start.std_dev, default_window)
+
+    @property
+    def end_window(self) -> float:
+        default_window = self.bp_distance_cutoff / 2.99
+        if self.end.count == 0:
+            return default_window
+        return max(self.end.std_dev, default_window)
 
 
 @dataclass

@@ -6,3 +6,7 @@ EdgeType = Literal["e", "c", "d", "s", "t", "ns", "nt"]
 EdgeIdx = int
 EdgeCount = int
 AmpliconWalk = dict[tuple[EdgeType, EdgeIdx], EdgeCount]
+
+Chr = str
+CNSIdx = int
+ReadName = str
