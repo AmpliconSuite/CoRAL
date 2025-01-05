@@ -32,13 +32,6 @@ class Strand(str, enum.Enum):
         return Strand.FORWARD if self == Strand.REVERSE else Strand.REVERSE
 
 
-class CNSInterval(NamedTuple):
-    chr_tag: str
-    start: int
-    end: int
-    raw_cn: float
-
-
 @dataclass
 class EditDistanceStats:
     """Stores edit distance from reference genome (NM tag) statistics."""
@@ -61,7 +54,7 @@ class EditDistanceStats:
         return np.sqrt(self.sum_of_squares / self.count - np.pow(self.mean, 2))
 
 
-class CigarEnds(NamedTuple):
+class CigarBounds(NamedTuple):
     start: int
     end: int
 
@@ -168,6 +161,11 @@ class Interval:
 
 
 @dataclass
+class CNSInterval(Interval):
+    cn: float
+
+
+@dataclass
 class ReadInterval(Interval):
     """Reference genome interval that a read has been matched to."""
 
@@ -177,7 +175,7 @@ class ReadInterval(Interval):
 
 @dataclass
 class ChimericAlignment:
-    query_ends: CigarEnds
+    query_bounds: CigarBounds
     ref_interval: ReadInterval
     mapq: int
     edit_dist: float
@@ -186,7 +184,7 @@ class ChimericAlignment:
     cns: set[int] = field(default_factory=set)
 
     def __lt__(self, other: ChimericAlignment) -> bool:
-        return self.query_ends < other.query_ends
+        return self.query_bounds < other.query_bounds
 
 
 @dataclass
@@ -195,11 +193,6 @@ class AmpliconInterval(Interval):
 
     def __str__(self) -> str:
         return f"{self.amplicon_id} {self.chr_tag}:{self.start}-{self.end}"
-
-
-@dataclass
-class IntervalWithReads(Interval):
-    reads: set[str] = field(default_factory=set)
 
 
 class BPReads(NamedTuple):
@@ -330,12 +323,9 @@ class SolverOptions:
 
 
 class CNSIntervalTree(intervaltree.IntervalTree):
-    def pos2cni(self, chr_tag: str, pos: int) -> set[intervaltree.Interval]:
-        return self[chr_tag][pos]
-
-    def get_single_cns_idx(self, chr_tag: str, pos: int) -> int | None:
+    def get_single_cns_idx(self, pos: int) -> int | None:
         """Get the IntervalTree index (CN segment) for a given position."""
-        intervals = self.pos2cni(chr_tag, pos)
+        intervals = self[pos]
         if len(intervals) > 1:
             raise ValueError(f"Expected 1 interval, not {intervals=}")
         if not intervals:
@@ -344,12 +334,8 @@ class CNSIntervalTree(intervaltree.IntervalTree):
 
     def get_cns_ends(self, query_interval: Interval) -> tuple[int, int]:
         """Assumes query interval fits within CN segments."""
-        left_seg_idx = self.get_single_cns_idx(
-            query_interval.chr_tag, query_interval.left
-        )
-        right_seg_idx = self.get_single_cns_idx(
-            query_interval.chr_tag, query_interval.right
-        )
+        left_seg_idx = self.get_single_cns_idx(query_interval.left)
+        right_seg_idx = self.get_single_cns_idx(query_interval.right)
         if not left_seg_idx or not right_seg_idx:
             raise KeyError(
                 f"Unable to match CNS ends for {query_interval=}, \
@@ -359,14 +345,31 @@ class CNSIntervalTree(intervaltree.IntervalTree):
 
     def get_cn_segment_indices(self, read_interval: ReadInterval) -> set[int]:
         seg_idxs = set()
-        left_seg_idx = self.get_single_cns_idx(
-            read_interval.chr_tag, read_interval.left
-        )
-        right_seg_idx = self.get_single_cns_idx(
-            read_interval.chr_tag, read_interval.right
-        )
+        left_seg_idx = self.get_single_cns_idx(read_interval.left)
+        right_seg_idx = self.get_single_cns_idx(read_interval.right)
         if left_seg_idx:
             seg_idxs.add(left_seg_idx)
         if right_seg_idx:
             seg_idxs.add(right_seg_idx)
         return seg_idxs
+
+
+@dataclass
+class SingleArmInfo:
+    """Container for storing chromosome arm-specific CN segment information."""
+
+    interval: Interval
+    size: int
+    segs: list[CNSInterval] = field(default_factory=list)
+    ccn: float = 2.0  # TODO: verify meaning of CCN here + in `aggregate_arm_cn`
+
+    @property
+    def total_length(self) -> float:
+        return sum(len(seg) for seg in self.segs)
+
+
+@dataclass
+class ChrArmInfo:
+    interval: Interval  # Combined interval spanning p + q arms
+    p_arm: SingleArmInfo
+    q_arm: SingleArmInfo

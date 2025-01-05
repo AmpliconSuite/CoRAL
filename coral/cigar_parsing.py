@@ -18,7 +18,7 @@ from coral import datatypes
 from coral.datatypes import (
     ChimericAlignment,
     CigarAlignment,
-    CigarEnds,
+    CigarBounds,
     Strand,
 )
 
@@ -155,7 +155,7 @@ def alignment_from_satags(
             )
         alignments.append(
             ChimericAlignment(
-                CigarEnds(qs, qe),
+                CigarBounds(qs, qe),
                 read_interval,
                 int(t[4]),
                 float(t[-1]) / (qe - qs),
