@@ -7,7 +7,7 @@ from __future__ import annotations
 import io
 import logging
 from collections import Counter, defaultdict
-from typing import TYPE_CHECKING, Generator, List, Tuple, cast
+from typing import TYPE_CHECKING, Generator, List, Sequence, Tuple, cast
 
 import numpy as np
 import pysam
@@ -71,10 +71,11 @@ def interval_adjacent(int1: list[int], int2: list[int]) -> bool:
 
 
 def interval_overlap_l(
-    intv1: Interval, intv_list: list[Interval]
+    intv1: Interval, intv_list: Sequence[Interval]
 ) -> int | None:
     """
-    Check if an interval in the form of [chr, s, e] overlaps with a list of intervals
+    Check if an interval in the form of [chr, s, e] overlaps with any member of
+    a list of intervals.
     """
     for intv2_idx, intv2 in enumerate(intv_list):
         if intv1.does_overlap(intv2):
@@ -90,20 +91,28 @@ def interval_include_l(int1: list[int], intl: list[list[int]]) -> int:
 
 
 def interval_exclusive(
-    int1: list[int], intl: list[list[int]]
-) -> tuple[set[int], list[list[int]]]:
+    int1: AmpliconInterval, intl: list[AmpliconInterval]
+) -> tuple[set[int], list[AmpliconInterval]]:
     overlap_ints = set([])
-    intl_ = [[intj for intj in int1]]
+    intl_ = [int1]
     for int2i in range(len(intl)):
         for inti_ in range(len(intl_))[::-1]:
             int_ = intl_[inti_]
-            if interval_overlap(int_, intl[int2i]):
+            if int_.does_overlap(intl[int2i]):
                 overlap_ints.add(int2i)
                 del intl_[inti_]
-                if int_[1] < intl[int2i][1]:
-                    intl_.append([int_[0], int_[1], intl[int2i][1] - 1, -1])
-                if int_[2] > intl[int2i][2]:
-                    intl_.append([int_[0], intl[int2i][2] + 1, int_[2], -1])
+                if int_.start < intl[int2i].start:
+                    intl_.append(
+                        AmpliconInterval(
+                            int_.chr_tag, int_.start, intl[int2i].start - 1
+                        )
+                    )
+                if int_.end > intl[int2i].end:
+                    intl_.append(
+                        AmpliconInterval(
+                            int_.chr_tag, intl[int2i].end + 1, int_.end, -1
+                        )
+                    )
     return overlap_ints, intl_
 
 
@@ -444,7 +453,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
             bp.end = int(np.ceil(np.median(bp_ends)))
         else:
             bp.end = int(np.floor(np.median(bp_ends)))
-    bp_cluster_r = []
+    bp_cluster_r: list[Breakpoint] = []
 
     final_bp_stats = BreakpointStats(bp_distance_cutoff)
     for bp_ in bp_cluster:
@@ -728,12 +737,14 @@ def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):
     """Write the list of breakpoints to file"""
     with open(filename, "w") as fp:
         fp.write(
-            "chr1\tpos1\tchr2\tpos2\torientation\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
+            "chr1\tpos1\tchr2\tpos2\torientation\tlr_support\t"
+            "lr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
         )
         for di in range(len(g.discordant_edges)):
             de = g.discordant_edges[di]
             fp.write(
-                f"{de[3]}\t{de[4]}\t{de[0]}\t{de[1]}\t{de[5]}{de[2]}\t{de[9]}\t{bp_stats[di]}\n"
+                f"{de.chr2}\t{de.pos2}\t{de.chr1}\t{de.pos1}\t"
+                f"{de.strand2}{de.strand1}\t{de.lr_count}\t{bp_stats[di]}\n"
             )
 
 

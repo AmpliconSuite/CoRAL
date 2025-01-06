@@ -101,4 +101,7 @@ lint.pycodestyle.max-doc-length = 80
 [tool.mypy]
 enable_error_code = "possibly-undefined"
 disable_error_code = "import-untyped"
+exclude = [
+  "hsr.py"
+]
 # strict = true

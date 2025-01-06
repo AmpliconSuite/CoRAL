@@ -33,15 +33,17 @@ class BreakpointGraph:
     )
     sequence_edges: list[list[Any]] = field(default_factory=list)
     concordant_edges: list[list[Any]] = field(default_factory=list)
-    discordant_edges: list[list[Any]] = field(default_factory=list)
+    discordant_edges: list[datatypes.DiscordantEdge] = field(
+        default_factory=list
+    )
     source_edges: list[list[Any]] = field(default_factory=list)
 
     """
 	nodes: adjacent list - keys with format (chr, pos, orientation); 
 	vals = [[sequence edges], [concordant edges], [discordant edges], [source edges]]  
 	"""
-    nodes: dict[tuple, list[list]] = field(default_factory=dict)
-    endnodes: dict[tuple, list[list]] = field(default_factory=dict)
+    nodes: dict[datatypes.Node, list[list]] = field(default_factory=dict)
+    endnodes: dict[datatypes.Node, list[list]] = field(default_factory=dict)
     max_cn: float = 0.0
 
     @property
@@ -201,21 +203,21 @@ class BreakpointGraph:
         cn=0.0,
     ):
         """Add a discordant edge to the breakpoint graph."""
-        if (chr1, pos1, o1) not in self.nodes or (
-            chr2,
-            pos2,
-            o2,
-        ) not in self.nodes:
+
+        node1 = datatypes.Node(chr1, pos1, o1)
+        node2 = datatypes.Node(chr2, pos2, o2)
+        if node1 not in self.nodes or node2 not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
+
         ld = len(self.discordant_edges)
-        self.nodes[(chr1, pos1, o1)][2].append(ld)
-        self.nodes[(chr2, pos2, o2)][2].append(ld)
-        if (chr1, pos1, o1) in self.endnodes:
-            self.endnodes[(chr1, pos1, o1)].append(ld)
-        if (chr2, pos2, o2) in self.endnodes:
-            self.endnodes[(chr2, pos2, o2)].append(ld)
+        self.nodes[node1][2].append(ld)
+        self.nodes[node2][2].append(ld)
+        if node1 in self.endnodes:
+            self.endnodes[node1].append(ld)
+        if node2 in self.endnodes:
+            self.endnodes[node2].append(ld)
         self.discordant_edges.append(
-            [
+            datatypes.DiscordantEdge(
                 chr1,
                 pos1,
                 o1,
@@ -228,7 +230,7 @@ class BreakpointGraph:
                 lr_count,
                 reads,
                 cn,
-            ],
+            )
         )
 
     def del_discordant_edges(self, del_list, bpi_map):
@@ -465,7 +467,7 @@ class BreakpointGraph:
         wcn += [0.5 * normal_cov_lr for srci in range(lsrc)]
         wlncn = [-0.5 for seg in self.sequence_edges]
         wlncn += [ce[8] * 1.0 for ce in self.concordant_edges]
-        wlncn += [de[9] * 1.0 for de in self.discordant_edges]
+        wlncn += [de.lr_count * 1.0 for de in self.discordant_edges]
         wlncn += [-0.5 for srci in range(lsrc)]
         wlrseg = [
             (0.5 * se[6] ** 2 / (normal_cov_lr * se[7]))
@@ -562,11 +564,11 @@ class BreakpointGraph:
                     self.max_cn = max(sol["x"][lseq + ci] * 2, self.max_cn)
                 for di in range(ld):
                     de = self.discordant_edges[di]
-                    if de[0] == de[3] and de[1] == de[4] and de[2] == de[5]:
-                        self.discordant_edges[di][-1] = sol["x"][lseq + lc + di]
+                    if de.is_self_loop:
+                        self.discordant_edges[di].cn = sol["x"][lseq + lc + di]
                         self.max_cn = max(sol["x"][lseq + lc + di], self.max_cn)
                     else:
-                        self.discordant_edges[di][-1] = (
+                        self.discordant_edges[di].cn = (
                             sol["x"][lseq + lc + di] * 2
                         )
                         self.max_cn = max(
@@ -606,7 +608,7 @@ class BreakpointGraph:
         Return: a list of integers corresponding to the multiplicities of each
             discordant edge
         """
-        rc_list = [de[9] for de in self.discordant_edges]  # Read counts
+        rc_list = [de.lr_count for de in self.discordant_edges]  # Read counts
         if len(rc_list) == 0:
             return []
         rc_indices = np.argsort(rc_list)

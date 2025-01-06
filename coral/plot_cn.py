@@ -5,6 +5,7 @@ import matplotlib.axes
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import seaborn as sns
+import typer
 from matplotlib import rcParams
 
 from coral.cnv_seed import parse_centromere_arms
@@ -17,7 +18,7 @@ CHR_NAME_TO_IDX = {"X": 23, "Y": 24}
 CHR_IDX_TO_NAME = {23: "X", 24: "Y"}
 
 
-def parse_cnr_file(file: io.TextIOWrapper) -> list:
+def parse_cnr_file(file: typer.FileText) -> list:
     """
     Parses a CNR (Copy Number Ratio) file from CNVkit output.
 
@@ -108,6 +109,6 @@ def plot_cnr_data(cnr_data: list[dict], output_dir: str, name: str) -> None:
     plt.savefig(f"{output_dir}/{name}.pdf", dpi=30, bbox_inches="tight")
 
 
-def plot_cnr(cnr_file: io.TextIOWrapper, output_dir: str, name: str) -> None:
+def plot_cnr(cnr_file: typer.FileText, output_dir: str, name: str) -> None:
     parsed_data = parse_cnr_file(cnr_file)
     plot_cnr_data(parsed_data, output_dir, name)

@@ -236,11 +236,30 @@ class Breakpoint:
     chr2: str
     end: int  # End position of the breakpoint
     strand2: Strand
+
     read_info: BPReads
     gap: int  # Gap between interval endpoints
     was_reversed: bool
     mapq1: int
     mapq2: int
+    all_reads: set[BPReads] = field(default_factory=set)
+
+    def is_close(self, other: Breakpoint) -> bool:
+        if self.chr1 != other.chr1 or self.chr2 != other.chr2:
+            return False
+        if self.strand1 != other.strand1 or self.strand2 != other.strand2:
+            return False
+        if abs(self.start - other.start) >= 200:
+            return False
+        if abs(self.end - other.end) >= 200:
+            return False
+        return True
+
+    def __str__(self) -> str:
+        return (
+            f"{self.chr1}-{self.start}({self.strand1})___"
+            f"{self.chr2}-{self.end}({self.strand2})"
+        )
 
 
 @dataclass
@@ -295,7 +314,7 @@ class EdgeToCN:
                 i: edge[-1] for i, edge in enumerate(bp_graph.concordant_edges)
             },
             discordant={
-                i: edge[-1] for i, edge in enumerate(bp_graph.discordant_edges)
+                i: edge.cn for i, edge in enumerate(bp_graph.discordant_edges)
             },
             source={
                 i: edge[-1] for i, edge in enumerate(bp_graph.source_edges)
@@ -424,3 +443,71 @@ class ChrArmInfo:
     interval: Interval  # Combined interval spanning p + q arms
     p_arm: SingleArmInfo
     q_arm: SingleArmInfo
+
+
+class BPToCNI(NamedTuple):
+    """Container for storing breakpoint-to-CN segment index mappings."""
+
+    cni: types.CNSIdx  # CN segment index within CNS Interval Tree
+    pos: int  # Breakpoint position (start/end) that falls within the CN segment
+    bp_idx: types.BPIdx  # Breakpoint index
+
+
+class BPToChrCNI(NamedTuple):
+    """Container for storing breakpoint-to-CN segment index mappings, along with
+    chromosome specification. Necessary for breakpoints that span multiple
+    chromosomes."""
+
+    chr: types.ChrTag  # Chromosome tag
+    cni: types.CNSIdx  # CN segment index within CNS Interval Tree
+    pos: int  # Breakpoint position (start/end) that falls within the CN segment
+    bp_idx: types.BPIdx  # Breakpoint index
+
+
+class Node(NamedTuple):
+    """Container for storing info about a specific genomic point."""
+
+    chr: types.ChrTag
+    pos: int
+    strand: Strand
+
+    def __str__(self) -> str:
+        return f"{self.chr}-{self.pos}({self.strand})"
+
+
+@dataclass
+class DiscordantEdge:
+    """Container for storing discordant edge information."""
+
+    chr1: str
+    pos1: int
+    strand1: Strand
+    chr2: str
+    pos2: int
+    strand2: Strand
+
+    sr_count: int  # Short read count
+    sr_flag: str  # Short read flag
+    sr_cn: float  # Short read Copy Number
+
+    lr_count: int  # Long read count
+    reads: set[BPReads] = field(default_factory=set)
+    cn: float = 0.0  # Edge Copy Number
+
+    @property
+    def is_self_loop(self) -> bool:
+        return (
+            self.chr1 == self.chr2
+            and self.strand1 == self.strand2
+            and self.pos1 == self.pos2
+        )
+
+    def matches_bp(self, bp: Breakpoint) -> bool:
+        return (
+            self.chr1 == bp.chr1
+            and self.chr2 == bp.chr2
+            and self.strand1 == bp.strand1
+            and self.strand2 == bp.strand2
+            and self.pos1 == bp.start
+            and self.pos2 == bp.end
+        )

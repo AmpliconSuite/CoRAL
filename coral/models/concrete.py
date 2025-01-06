@@ -238,11 +238,7 @@ def get_model(
     for i in range(k):
         for di in range(bp_graph.num_disc_edges):
             dedge = bp_graph.discordant_edges[di]
-            if (
-                dedge[0] == dedge[3]
-                and dedge[1] == dedge[4]
-                and dedge[2] == dedge[5]
-            ):  # exclude self loops
+            if dedge.is_self_loop:  # exclude self loops
                 model.ConstraintXY1D.add(
                     model.y1[
                         (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di),

@@ -353,7 +353,7 @@ def set_copy_number_constraints(
     p_bp_cn: float = 0.9,
     is_post: bool = False,
     is_greedy: bool = False,
-    resolution: float = 0.1 # Only used by greedy model
+    resolution: float = 0.1,  # Only used by greedy model
 ) -> None:
     # CN constraints (all quadratic)
     # Use EdgeToCN for constraints rather than directly accessing BreakpointGraph in order to support greedy model
@@ -411,11 +411,12 @@ def set_copy_number_constraints(
     if is_greedy:
         model.ConstraintDiscordantGreedy = pyo.ConstraintList()
         for di in range(bp_graph.num_disc_edges):
-            if bp_graph.discordant_edges[di][-1] < resolution:
+            if bp_graph.discordant_edges[di].cn < resolution:
                 logger.debug(f"Ignored discordant edge {di} in greedy model")
                 model.ConstraintDiscordantGreedy.add(
                     model.x[
-                        (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di), 0
+                        (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di),
+                        0,
                     ]
                     == 0.0
                 )

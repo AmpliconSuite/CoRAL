@@ -368,12 +368,11 @@ def cycle2bed_mode(
 def plot_cn_mode(
     ctx: typer.Context,
     cnr: Annotated[
-        typer.FileText | None,
+        typer.FileText,
         typer.Option(help="CNVkit-generated .cnr (Copy Number Ratio) file."),
     ],
     output_dir: OutputDirArg,
     name: Annotated[str, typer.Option(help="Name of sample.")],
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
-    output_path = f"{output_dir}/{name}.pdf"
     plot_cn.plot_cnr(cnr, output_dir, name)

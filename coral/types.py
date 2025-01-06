@@ -7,6 +7,7 @@ EdgeIdx = int
 EdgeCount = int
 AmpliconWalk = dict[tuple[EdgeType, EdgeIdx], EdgeCount]
 
-Chr = str
+ChrTag = str  # Chromosome identifier, in the form `chr<name>`
 CNSIdx = int
 ReadName = str
+BPIdx = int

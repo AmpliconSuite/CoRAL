@@ -124,7 +124,7 @@ def minimize_cycles_post(
     amplicon_id: int,
     bp_graph: BreakpointGraph,
     total_weights: float,
-    node_order: Dict[tuple[Any, Any, Any], int],
+    node_order: Dict[datatypes.Node, int],
     pc_list: list,
     init_sol: datatypes.InitialSolution,
     p_total_weight: float = 0.9,
@@ -292,7 +292,7 @@ def maximize_weights_greedy(
     amplicon_id: int,
     bp_graph: BreakpointGraph,
     total_weights: float,
-    node_order: Dict[tuple[Any, Any, Any], int],
+    node_order: Dict[datatypes.Node, int],
     pc_list: List,
     cycle_id: int,
     alpha: float = 0.01,
@@ -429,7 +429,7 @@ def maximize_weights_greedy(
         logger.debug(f"{is_pc_unsatisfied=}")
 
         # Update greedy stop conditions based on latest solution
-        next_w = curr_walk_weight
+        next_w = curr_walk_weight  # type: ignore[possibly-undefined]
         num_unsatisfied_pc = len(pc_list) - len(full_solution.satisfied_pc_set)
         for pi in curr_sol.satisfied_pc_set:
             is_pc_unsatisfied[pi] = False
@@ -701,7 +701,7 @@ def postprocess_solution(
     amplicon_idx: int,
     bam_to_bps: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
     total_weights: float,
-    node_order: Dict[tuple[Any, Any, Any], int],
+    node_order: Dict[datatypes.Node, int],
     p_total_weight: float,
     resolution: float,
     lp_solution: datatypes.CycleSolution,
