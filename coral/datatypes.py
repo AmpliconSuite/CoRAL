@@ -44,6 +44,8 @@ class Strand(str, enum.Enum):
 class BasicStatTracker:
     """Calculates running statistics for a stream of numerical observations."""
 
+    # TODO: fix algo to avoid catastrophic cancellation
+
     count: int = 0
     total: int = 0
     sum_of_squares: int = 0
@@ -207,7 +209,7 @@ class ChimericAlignment:
 
 @dataclass
 class AmpliconInterval(Interval):
-    amplicon_id: int = -1
+    amplicon_id: int = -1  # TODO: update to None for more obvious behavior
 
     def __str__(self) -> str:
         return f"{self.amplicon_id} {self.chr_tag}:{self.start}-{self.end}"

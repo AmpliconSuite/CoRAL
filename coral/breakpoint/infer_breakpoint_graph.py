@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import io
 import logging
 import pathlib
 import pickle
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, List, Sequence
+from typing import Any, List, Sequence, cast
 
 import intervaltree  # type: ignore[import-untyped]
 import numpy as np
+import numpy.typing as npt
 import pysam
 import typer
 
@@ -95,9 +98,9 @@ class LongReadBamToBreakpointMetadata:
 
     # AA amplicon intervals
     amplicon_intervals: list[AmpliconInterval] = field(default_factory=list)
-    amplicon_interval_connections: dict[
-        tuple[int, int], set[AmpliconInterval]
-    ] = field(default_factory=lambda: defaultdict(set))
+    amplicon_interval_connections: dict[tuple[int, int], set[int]] = field(
+        default_factory=lambda: defaultdict(set)
+    )
 
     cns_intervals: list[CNSInterval] = field(
         default_factory=list
@@ -145,46 +148,34 @@ class LongReadBamToBreakpointMetadata:
         self.set_raw_cns_data(CNSSegData.from_file(cns_file))
 
         logger.debug(f"Total num LR copy number segments:{len(self.log2_cn)}.")
-        log2_cn_order = np.argsort(self.log2_cn)
-        cns_intervals_median = []
+        log2_cn_order = cast(list[int], np.argsort(self.log2_cn))
+        cns_intervals_median: list[CNSInterval] = []
         log2_cn_median = []
         im = int(len(log2_cn_order) / 2.4)
         ip = im + 1
         total_int_len = 0
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[ip]])
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[im]])
+
+        ip_intv = self.cns_intervals[log2_cn_order[ip]]
+        im_intv = self.cns_intervals[log2_cn_order[im]]
+
+        cns_intervals_median.append(ip_intv)
+        cns_intervals_median.append(im_intv)
         log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
         log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-        total_int_len += (
-            self.cns_intervals[log2_cn_order[ip]][2]
-            - self.cns_intervals[log2_cn_order[ip]][1]
-            + 1
-        )
-        total_int_len += (
-            self.cns_intervals[log2_cn_order[im]][2]
-            - self.cns_intervals[log2_cn_order[im]][1]
-            + 1
-        )
+        total_int_len += len(ip_intv) + len(im_intv)
+
         i = 1
         while total_int_len < 10000000:
-            cns_intervals_median.append(
-                self.cns_intervals[log2_cn_order[ip + i]]
+            next_p_intv = self.cns_intervals[log2_cn_order[ip + i]]
+            prev_m_intv = self.cns_intervals[log2_cn_order[im - i]]
+            cns_intervals_median.extend([next_p_intv, prev_m_intv])
+            log2_cn_median.extend(
+                [
+                    self.log2_cn[log2_cn_order[ip]],
+                    self.log2_cn[log2_cn_order[im]],
+                ]
             )
-            cns_intervals_median.append(
-                self.cns_intervals[log2_cn_order[im - i]]
-            )
-            log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-            log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-            total_int_len += (
-                self.cns_intervals[log2_cn_order[ip + i]][2]
-                - self.cns_intervals[log2_cn_order[ip + i]][1]
-                + 1
-            )
-            total_int_len += (
-                self.cns_intervals[log2_cn_order[im - i]][2]
-                - self.cns_intervals[log2_cn_order[im - i]][1]
-                + 1
-            )
+            total_int_len += len(next_p_intv) + len(prev_m_intv)
             i += 1
         logger.debug(
             f"Use {len(cns_intervals_median)} LR copy number segments."
@@ -192,16 +183,17 @@ class LongReadBamToBreakpointMetadata:
         logger.debug(
             f"Total length of LR copy number segments: {total_int_len}."
         )
-        logger.debug(f"Average LR copy number: {np.average(log2_cn_median)}.")
+        logger.debug(f"Average LR copy number: {np.average(log2_cn_median)}.")  # type: ignore
         nnc = 0
         for i in range(len(cns_intervals_median)):
+            median_intv = cns_intervals_median[i]
             nnc += sum(
                 [
                     sum(nc)
                     for nc in self.lr_bamfh.count_coverage(
-                        cns_intervals_median[i][0],
-                        cns_intervals_median[i][1],
-                        cns_intervals_median[i][2] + 1,
+                        median_intv.chr_tag,
+                        median_intv.start,
+                        median_intv.end + 1,
                         quality_threshold=0,
                         read_callback="nofilter",
                     )
@@ -402,13 +394,13 @@ class LongReadBamToBreakpointMetadata:
         logger.debug("Begin merging adjacent intervals.")
         self.merge_amplicon_intervals()
 
-        self.amplicon_intervals = [
-            amplicon_intervals_sorted[ai]
-            for ai in range(len(amplicon_intervals_sorted))
-        ]
-        ind_map = {
-            sorted_ai_indices[i]: i for i in range(len(sorted_ai_indices))
-        }
+        # self.amplicon_intervals = [
+        #     amplicon_intervals_sorted[ai]
+        #     for ai in range(len(amplicon_intervals_sorted))
+        # ]
+        # ind_map = {
+        #     sorted_ai_indices[i]: i for i in range(len(sorted_ai_indices))
+        # }
         connection_map = {
             connection: (
                 min(ind_map[connection[0]], ind_map[connection[1]]),
@@ -450,10 +442,10 @@ class LongReadBamToBreakpointMetadata:
         for bpi in range(len(self.new_bp_list)):
             bp = self.new_bp_list[bpi]
             if bp.is_close(bp_):
-                self.new_bp_list[bpi][-1] |= set(bpr_)
+                self.new_bp_list[bpi].all_reads |= set(bpr_)
                 return bpi
         bpi = len(self.new_bp_list)
-        self.new_bp_list.append(bp_ + [bpr_])
+        self.new_bp_list.append(bp_)
         self.new_bp_ccids.append(ccid)
         self.new_bp_stats.append(bp_stats_)
         return bpi
@@ -586,7 +578,7 @@ class LongReadBamToBreakpointMetadata:
             logger.debug(f"\t\tFixed new interval: {refined_intv}.")
 
             new_intervals_connections.append(
-                [nint_segs[i_].bp_idx for i_ in range(prev_i, i + 1)]
+                [nint_segs[i_].bp_idx for i_ in range(prev_i, len(nint_segs))]
             )
             logger.debug(
                 "\t\tList of breakpoints connected to the new interval:",
@@ -684,7 +676,7 @@ class LongReadBamToBreakpointMetadata:
 
     def refine_initial_interval(
         self,
-        interval: AmpliconInterval,
+        interval: Interval,
         ccid: int,
         chr_: ChrTag,
         cni_intv: Interval,
@@ -750,7 +742,7 @@ class LongReadBamToBreakpointMetadata:
 
     def get_refined_cni_intvs(
         self,
-        interval: AmpliconInterval,
+        interval: Interval,
         cni_intv: Interval,
         new_bpi_refined: list[int],
     ) -> tuple[Sequence[BPToCNI], Sequence[BPToChrCNI]]:
@@ -874,44 +866,62 @@ class LongReadBamToBreakpointMetadata:
             )
 
             new_intervals_refined: list[AmpliconInterval] = []
-            new_intervals_connections = []
+            new_intervals_connections: list[list[BPIdx]] = []
 
             for chr_ in chr_to_cns_to_reads:
                 print(f"processing new d1 seg {chr_}")
                 logger.debug(f"\t\tFound new intervals on chr {chr_=}")
                 # Initial list of new amplicon intervals, based on CN seg idxs
-                cni_intv_to_reads: dict[Interval, set[str]] = defaultdict(set)
+                cni_intv_to_reads: dict[
+                    tuple[ChrTag, CNSIdx, CNSIdx], set[str]
+                ] = defaultdict(set)
                 sorted_cns_idxs = sorted(chr_to_cns_to_reads[chr_])
-                matching_reads = set()
-                prev_i = 0
-                # Iterate through CN seg (index) pairs, step size 1
-                for curr_cni, next_cni in zip(
-                    sorted_cns_idxs, sorted_cns_idxs[1:]
-                ):
-                    nil = self.cns_intervals_by_chr[chr_][next_cni].start
-                    lir = self.cns_intervals_by_chr[chr_][curr_cni].end
-                    if next_cni - curr_cni > 2 or nil - lir > self.max_seq_len:
-                        matching_reads |= chr_to_cns_to_reads[chr_][curr_cni]
-                        cni_intv = Interval(
-                            chr_,
-                            sorted_cns_idxs[prev_i],
-                            curr_cni,
-                        )
-                        cni_intv_to_reads[cni_intv] = matching_reads
-                        prev_i = next_cni
-                        matching_reads = set()
-                    else:
-                        matching_reads |= chr_to_cns_to_reads[chr_][curr_cni]
-                cni_intv = Interval(
-                    chr_, sorted_cns_idxs[prev_i], sorted_cns_idxs[-1]
-                )
-                matching_reads |= chr_to_cns_to_reads[chr_][sorted_cns_idxs[-1]]
-                cni_intv_to_reads[cni_intv] = matching_reads
+                # Verify if there are any CN segments on this chr
+                if sorted_cns_idxs:
+                    matching_reads = set()
+                    prev_i = 0
+                    # Iterate through CN seg (index) pairs, step size 1
+                    for curr_cni, next_cni in zip(
+                        sorted_cns_idxs, sorted_cns_idxs[1:]
+                    ):
+                        nil = self.cns_intervals_by_chr[chr_][next_cni].start
+                        lir = self.cns_intervals_by_chr[chr_][curr_cni].end
+                        if (
+                            next_cni - curr_cni > 2
+                            or nil - lir > self.max_seq_len
+                        ):
+                            matching_reads |= chr_to_cns_to_reads[chr_][
+                                curr_cni
+                            ]
+                            cni_intv_to_reads[
+                                (
+                                    chr_,
+                                    sorted_cns_idxs[prev_i],
+                                    curr_cni,
+                                )
+                            ] = matching_reads
+                            prev_i = next_cni
+                            matching_reads = set()
+                        else:
+                            matching_reads |= chr_to_cns_to_reads[chr_][
+                                curr_cni
+                            ]
+                    matching_reads |= chr_to_cns_to_reads[chr_][
+                        sorted_cns_idxs[-1]
+                    ]
+                    cni_intv_to_reads[
+                        (chr_, sorted_cns_idxs[prev_i], sorted_cns_idxs[-1])
+                    ] = matching_reads
 
                 # Refine initial intervals
                 for cni_intv, matching_reads in cni_intv_to_reads.items():
                     new_intvs, new_conns = self.refine_initial_interval(
-                        interval, ccid, chr_, cni_intv, matching_reads
+                        interval,
+                        ccid,
+                        chr_,
+                        # Convert tuple (used for dict key) to Interval
+                        Interval(*cni_intv),
+                        matching_reads,
                     )
                     new_intervals_refined.extend(new_intvs)
                     new_intervals_connections.extend(new_conns)
@@ -931,18 +941,15 @@ class LongReadBamToBreakpointMetadata:
                         "\t\tNew interval %s overlaps with existing interval %s."
                         % (new_intervals_refined[ni], ei_str),
                     )
-                    e_intv = self.amplicon_intervals[ei_]
                     for bpi in new_intervals_connections[ni]:
                         bp = self.new_bp_list[bpi]
                         for ei_ in eis:
                             connection = (min(ai_, ei_), max(ai_, ei_))
+                            e_intv = self.amplicon_intervals[ei_]
                             if (
                                 ei_ != ai_
                                 and e_intv.contains(bp.chr1, bp.start)
-                                or interval_overlap(
-                                    [bp[3], bp[4], bp[4]],
-                                    self.amplicon_intervals[ei_],
-                                )
+                                or e_intv.contains(bp.chr2, bp.end)
                             ):
                                 try:
                                     self.amplicon_interval_connections[
@@ -953,7 +960,8 @@ class LongReadBamToBreakpointMetadata:
                                         connection
                                     ] = set([bpi])
                     for ei_ in eis:
-                        if ei_ != ai_ and self.amplicon_intervals[ei_][3] < 0:
+                        e_intv = self.amplicon_intervals[ei_]
+                        if ei_ != ai_ and e_intv.amplicon_id < 0:
                             interval_queue.append(ei_)
                 else:
                     for int_ in intl:
@@ -963,27 +971,22 @@ class LongReadBamToBreakpointMetadata:
                             "\t\tAdded new interval %s to the amplicon interval list."
                             % int_,
                         )
-                        logger.debug(
-                            "\t\tNew interval index: %d." % nai,
-                        )
+                        logger.debug(f"\t\tNew interval index: {nai}")
                         self.amplicon_interval_connections[(ai_, nai)] = set([])
-                        if len(ei) == 0:
+                        if len(eis) == 0:
                             for bpi in new_intervals_connections[ni]:
                                 self.amplicon_interval_connections[
                                     (ai_, nai)
                                 ].add(bpi)
                         else:
                             for bpi in new_intervals_connections[ni]:
-                                bp = self.new_bp_list[bpi][:6]
-                                for ei_ in ei:
+                                bp = self.new_bp_list[bpi]
+                                for ei_ in eis:
+                                    e_intv = self.amplicon_intervals[ei_]
                                     connection = (min(ai_, ei_), max(ai_, ei_))
-                                    if interval_overlap(
-                                        [bp[0], bp[1], bp[1]],
-                                        self.amplicon_intervals[ei_],
-                                    ) or interval_overlap(
-                                        [bp[3], bp[4], bp[4]],
-                                        self.amplicon_intervals[ei_],
-                                    ):
+                                    if e_intv.contains(
+                                        bp.chr1, bp.start
+                                    ) or e_intv.contains(bp.chr2, bp.end):
                                         try:
                                             self.amplicon_interval_connections[
                                                 connection
@@ -2084,13 +2087,16 @@ def reconstruct_graph(
 
     b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
+    start = time.time()
     chimeric_alignments, edit_dist_stats = (
         breakpoint_utilities.fetch_breakpoint_reads(bam_file)
     )
+    logger.error(f"Time to fetch breakpoint reads: {time.time() - start}")
     logger.info("Completed fetching reads containing breakpoints.")
     chimeric_alignments_by_read, chr_cns_to_chimeric_alignments = (
         b2bn.hash_alignment_to_seg(chimeric_alignments)
     )
+    logger.error(f"Time to hash reads: {time.time() - start}")
     b2bn.find_amplicon_intervals()
     logger.info("Completed finding amplicon intervals.")
     b2bn.find_smalldel_breakpoints()

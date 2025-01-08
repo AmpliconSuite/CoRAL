@@ -56,51 +56,50 @@ def parse_cnr_file(file: typer.FileText) -> list:
 
 def plot_cnr_data(cnr_data: list[dict], output_dir: str, name: str) -> None:
     chr_arms = parse_centromere_arms()
-    fig, ax = plt.subplots(nrows=6, ncols=4, figsize=(20, 30))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 30))
     fig.suptitle(f"{name} CN Plots", fontsize=30)
     fig.supylabel("Copy Number")
     fig.supxlabel("Position")
     # rows = 6
     # column = 4
     # grid = plt.GridSpec(rows, column, wspace=0.25, hspace=0.25)
-    for i in range(24):
-        row, col = divmod(i, 4)
-        selected_x = []
-        selected_y = []
-        chr_idx = i + 1  # Chromosomes are 1-indexed
-        for record in cnr_data:
-            if record["chromosome"] == chr_idx:
-                selected_x.append((record["start"] + record["end"]) / 2)
-                selected_y.append(record["log2"])
+    # for i in range(24):
+    i = 9
+    row, col = divmod(i, 4)
+    selected_x = []
+    selected_y = []
+    chr_idx = i + 1  # Chromosomes are 1-indexed
+    for record in cnr_data:
+        if record["chromosome"] == chr_idx:
+            selected_x.append((record["start"] + record["end"]) / 2)
+            selected_y.append(record["log2"])
 
-        subplot: matplotlib.axes.Axes = ax[row, col]
-        subplot.set_ylim((0, 10))
-        subplot.xaxis.set_major_formatter(ticker.EngFormatter())
-        subplot.scatter(
-            x=selected_x, y=selected_y, alpha=0.5, s=0.11, c="#0072b2"
-        )
+    subplot: matplotlib.axes.Axes = ax
+    subplot.set_ylim((0, 10))
+    subplot.xaxis.set_major_formatter(ticker.EngFormatter())
+    subplot.scatter(x=selected_x, y=selected_y, alpha=0.5, s=10, c="#0072b2")
 
-        chr_name = "chr" + str(CHR_IDX_TO_NAME.get(chr_idx, chr_idx))
-        centromere_intv = chr_arms[chr_name].interval
-        centromere_midpt = (centromere_intv.start + centromere_intv.end) / 2
+    chr_name = "chr" + str(CHR_IDX_TO_NAME.get(chr_idx, chr_idx))
+    centromere_intv = chr_arms[chr_name].interval
+    centromere_midpt = (centromere_intv.start + centromere_intv.end) / 2
+    subplot.axvline(
+        x=centromere_midpt, color="red", linestyle="--", label="Centromere"
+    )
+    if chr_name == "chr8":
         subplot.axvline(
-            x=centromere_midpt, color="red", linestyle="--", label="Centromere"
+            x=128643133, color="purple", linestyle="--", label="MYC"
         )
-        if chr_name == "chr8":
-            subplot.axvline(
-                x=128643133, color="purple", linestyle="--", label="MYC"
-            )
-            handles, labels = subplot.get_legend_handles_labels()
-            fig.legend(
-                handles=handles,
-                labels=labels,
-                loc="upper right",
-                # bbox_to_anchor=(1, -0.1),
-                ncol=len(labels),
-                bbox_transform=fig.transFigure,
-            )
+        handles, labels = subplot.get_legend_handles_labels()
+        fig.legend(
+            handles=handles,
+            labels=labels,
+            loc="upper right",
+            # bbox_to_anchor=(1, -0.1),
+            ncol=len(labels),
+            bbox_transform=fig.transFigure,
+        )
 
-        subplot.set_title(chr_name)
+    subplot.set_title(chr_name)
 
     # labels = ["Centromere", "MYC"]
 

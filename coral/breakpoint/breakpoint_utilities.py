@@ -440,6 +440,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
             bp.start = int(np.ceil(np.median(bp_starts)))
         else:
             bp.start = int(np.floor(np.median(bp_starts)))
+
     if len(bp_ends) > 0:
         bp_end_ctr = Counter(bp_ends)
         if (

@@ -104,4 +104,6 @@ disable_error_code = "import-untyped"
 exclude = [
   "hsr.py"
 ]
+plugins = "numpy.typing.mypy_plugin"
+
 # strict = true
