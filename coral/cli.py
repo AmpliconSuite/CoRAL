@@ -9,7 +9,14 @@ from typing import Annotated
 import pysam
 import typer
 
-from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons, plot_cn
+from coral import (
+    bam_types,
+    cycle2bed,
+    cycle_decomposition,
+    hsr,
+    plot_amplicons,
+    plot_cn,
+)
 from coral.breakpoint import infer_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.datatypes import Solver
@@ -195,6 +202,7 @@ def cycle_decomposition_mode(
     os.makedirs(output_dir, exist_ok=True)
     bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
         lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
+        bam=bam_types.BAMWrapper(str(lr_bam), "rb"),
         lr_graph=[pickle.load(bp_graph)],
     )  # type: ignore[arg-type]
     # bb.fetch_breakpoint_reads()

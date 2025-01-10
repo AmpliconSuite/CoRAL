@@ -464,7 +464,7 @@ def cycle_decomposition(
 
         total_weights = 0.0
         for sseg in bp_graph.sequence_edges:
-            total_weights += sseg[7] * sseg[-1]  # type: ignore[operator]
+            total_weights += sseg.gap * sseg.cn
         logger.info(f"Begin cycle decomposition for amplicon{amplicon_idx +1}.")
         logger.info(f"Total CN weights = {total_weights}.")
 

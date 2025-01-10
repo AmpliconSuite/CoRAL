@@ -4,11 +4,17 @@ import logging
 import random
 from typing import Any, Dict
 
-from coral import constants
+from coral import constants, types
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
-from coral.datatypes import Node, Strand
+from coral.datatypes import (
+    ConcordantEdge,
+    DiscordantEdge,
+    Node,
+    Strand,
+    WalkData,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +69,14 @@ def eulerian_cycle_t(
         eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
         while len(edges_cur) > 0:
             seq_edge = g.sequence_edges[last_seq_edge]
-            node = Node(seq_edge[0], seq_edge[2], Strand.FORWARD)
+            node = Node(seq_edge.chr, seq_edge.end, Strand.FORWARD)
             if last_edge_dir == "-":
-                node = Node(seq_edge[0], seq_edge[1], Strand.REVERSE)
+                node = Node(seq_edge.chr, seq_edge.start, Strand.REVERSE)
             eulerian_cycle.append(node)
             next_bp_edges = []  # Since cycle, only consider discordant edges and concordant edges
-            for ci in g.nodes[node][1]:
+            for ci in g.nodes[node].concordant:
                 next_bp_edges.append(("c", ci))
-            for di in g.nodes[node][2]:
+            for di in g.nodes[node].discordant:
                 next_bp_edges.append(("d", di))
             del_list = [
                 i
@@ -82,6 +88,7 @@ def eulerian_cycle_t(
             if len(next_bp_edges) == 0:
                 valid = 0
                 break
+            bp_edge: ConcordantEdge | DiscordantEdge
             if len(next_bp_edges) == 1:  # No branching on the path
                 eulerian_cycle.append(next_bp_edges[0])
                 edges_cur[next_bp_edges[0]] = (
@@ -89,16 +96,15 @@ def eulerian_cycle_t(
                 )
                 if edges_cur[next_bp_edges[0]] == 0:
                     del edges_cur[next_bp_edges[0]]
-                bp_edge = []
                 if next_bp_edges[0][0] == "c":
-                    bp_edge = g.concordant_edges[next_bp_edges[0][1]][:6]
+                    bp_edge = g.concordant_edges[next_bp_edges[0][1]]
                 else:
-                    bp_edge = g.discordant_edges[next_bp_edges[0][1]][:6]
-                node_ = Node(bp_edge[0], bp_edge[1], bp_edge[2])
-                if node == (bp_edge[0], bp_edge[1], bp_edge[2]):
-                    node_ = Node(bp_edge[3], bp_edge[4], bp_edge[5])
+                    bp_edge = g.discordant_edges[next_bp_edges[0][1]]
+                node_ = bp_edge.node1
+                if node == node_:
+                    node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
-                last_seq_edge = g.nodes[node_][0][0]
+                last_seq_edge = g.nodes[node_].sequence[0]
                 eulerian_cycle.append(("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
@@ -119,16 +125,15 @@ def eulerian_cycle_t(
                 )
                 if edges_cur[next_bp_edges[r]] == 0:
                     del edges_cur[next_bp_edges[r]]
-                bp_edge = []
                 if next_bp_edges[r][0] == "c":
-                    bp_edge = g.concordant_edges[next_bp_edges[r][1]][:6]
+                    bp_edge = g.concordant_edges[next_bp_edges[r][1]]
                 else:
-                    bp_edge = g.discordant_edges[next_bp_edges[r][1]][:6]
-                node_ = Node(bp_edge[0], bp_edge[1], bp_edge[2])
-                if node == (bp_edge[0], bp_edge[1], bp_edge[2]):
-                    node_ = Node(bp_edge[3], bp_edge[4], bp_edge[5])
+                    bp_edge = g.discordant_edges[next_bp_edges[r][1]]
+                node_ = bp_edge.node1
+                if node == node_:
+                    node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
-                last_seq_edge = g.nodes[node_][0][0]
+                last_seq_edge = g.nodes[node_].sequence[0]
                 eulerian_cycle.append(("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
@@ -209,7 +214,7 @@ def eulerian_cycle_t(
 
 def eulerian_path_t(
     g: BreakpointGraph,
-    edges_next_path,
+    edges_next_path: types.AmpliconWalk,
     path_constraints_next_path,
     path_constraints_support,
 ):
@@ -252,26 +257,24 @@ def eulerian_path_t(
         eulerian_path = []
         eulerian_path_ = []
         edges_cur = edges_next_path.copy()
-        src_edge = ()
         last_seq_edge = lseg
         last_edge_dir = "+"
-        for edge in edges_cur.keys():  # Start with the edge with smallest index
+
+        src_edge: tuple[types.EdgeType, types.EdgeIdx]
+        edge: tuple[types.EdgeType, types.EdgeIdx]
+        for edge in edges_cur:  # Start with the edge with smallest index
             if edge[0] == "s" or edge[0] == "t":
                 src_edge = edge
-                node = Node(
-                    g.source_edges[edge[1]][3],
-                    g.source_edges[edge[1]][4],
-                    g.source_edges[edge[1]][5],
-                )
+                node = g.source_edges[edge[1]].node
                 if len(eulerian_path) == 0:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path.append(("$", -1))
                     eulerian_path.append(node)
-                    last_seq_edge = g.nodes[node][0][0]
-                elif g.nodes[node][0][0] < last_seq_edge:
+                    last_seq_edge = g.nodes[node].sequence[0]
+                elif g.nodes[node].sequence[0] < last_seq_edge:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path[-1] = node
-                    last_seq_edge = g.nodes[node][0][0]
+                    last_seq_edge = g.nodes[node].sequence[0]
             elif edge[0] == "ns" or edge[0] == "nt":
                 src_edge = edge
                 node = endnode_list[edge[1]]
@@ -279,11 +282,11 @@ def eulerian_path_t(
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path.append(("$", -1))
                     eulerian_path.append(node)
-                    last_seq_edge = g.nodes[node][0][0]
-                elif g.nodes[node][0][0] < last_seq_edge:
+                    last_seq_edge = g.nodes[node].sequence[0]
+                elif g.nodes[node].sequence[0] < last_seq_edge:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path[-1] = node
-                    last_seq_edge = g.nodes[node][0][0]
+                    last_seq_edge = g.nodes[node].sequence[0]
         del edges_cur[src_edge]
         eulerian_path.append(("s", last_seq_edge))
         if last_edge_dir == "+":
@@ -297,9 +300,9 @@ def eulerian_path_t(
             del edges_cur[("e", last_seq_edge)]
         while len(edges_cur) > 0:
             seq_edge = g.sequence_edges[last_seq_edge]
-            node = Node(seq_edge[0], seq_edge[2], Strand.FORWARD)
+            node = Node(seq_edge.chr, seq_edge.end, Strand.FORWARD)
             if last_edge_dir == "-":
-                node = Node(seq_edge[0], seq_edge[1], Strand.REVERSE)
+                node = Node(seq_edge.chr, seq_edge.start, Strand.REVERSE)
             eulerian_path.append(node)
             if len(edges_cur) == 1 and (
                 list(edges_cur.keys())[0][0] == "s"
@@ -309,10 +312,12 @@ def eulerian_path_t(
             ):
                 eulerian_path.append(("$", -1))
                 break
-            next_bp_edges = []  # Since cycle, only consider discordant edges and concordant edges
-            for ci in g.nodes[node][1]:
+            next_bp_edges: list[
+                tuple[types.EdgeType, types.EdgeIdx]
+            ] = []  # Since cycle, only consider discordant edges and concordant edges
+            for ci in g.nodes[node].concordant:
                 next_bp_edges.append(("c", ci))
-            for di in g.nodes[node][2]:
+            for di in g.nodes[node].discordant:
                 next_bp_edges.append(("d", di))
             del_list = [
                 i
@@ -324,6 +329,8 @@ def eulerian_path_t(
             if len(next_bp_edges) == 0:
                 valid = 0
                 break
+
+            bp_edge: ConcordantEdge | DiscordantEdge
             if len(next_bp_edges) == 1:  # No branching on the path
                 eulerian_path.append(next_bp_edges[0])
                 edges_cur[next_bp_edges[0]] = (
@@ -331,16 +338,15 @@ def eulerian_path_t(
                 )
                 if edges_cur[next_bp_edges[0]] == 0:
                     del edges_cur[next_bp_edges[0]]
-                bp_edge = []
                 if next_bp_edges[0][0] == "c":
-                    bp_edge = g.concordant_edges[next_bp_edges[0][1]][:6]
+                    bp_edge = g.concordant_edges[next_bp_edges[0][1]]
                 else:
-                    bp_edge = g.discordant_edges[next_bp_edges[0][1]][:6]
-                node_ = Node(bp_edge[0], bp_edge[1], bp_edge[2])
-                if node == Node(bp_edge[0], bp_edge[1], bp_edge[2]):
-                    node_ = Node(bp_edge[3], bp_edge[4], bp_edge[5])
+                    bp_edge = g.discordant_edges[next_bp_edges[0][1]]
+                node_ = bp_edge.node1
+                if node == node_:
+                    node_ = bp_edge.node2
                 eulerian_path.append(node_)
-                last_seq_edge = g.nodes[node_][0][0]
+                last_seq_edge = g.nodes[node_].sequence[0]
                 eulerian_path.append(("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
@@ -361,16 +367,15 @@ def eulerian_path_t(
                 )
                 if edges_cur[next_bp_edges[r]] == 0:
                     del edges_cur[next_bp_edges[r]]
-                bp_edge = []
                 if next_bp_edges[r][0] == "c":
-                    bp_edge = g.concordant_edges[next_bp_edges[r][1]][:6]
+                    bp_edge = g.concordant_edges[next_bp_edges[r][1]]
                 else:
-                    bp_edge = g.discordant_edges[next_bp_edges[r][1]][:6]
-                node_ = Node(bp_edge[0], bp_edge[1], bp_edge[2])
-                if node == Node(bp_edge[0], bp_edge[1], bp_edge[2]):
-                    node_ = Node(bp_edge[3], bp_edge[4], bp_edge[5])
+                    bp_edge = g.discordant_edges[next_bp_edges[r][1]]
+                node_ = bp_edge.node1
+                if node == node_:
+                    node_ = bp_edge.node2
                 eulerian_path.append(node_)
-                last_seq_edge = g.nodes[node_][0][0]
+                last_seq_edge = g.nodes[node_].sequence[0]
                 eulerian_path.append(("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
@@ -455,18 +460,16 @@ def output_amplicon_cycles(
         if bb.ccid2id[ai.amplicon_id] == amplicon_idx + 1
     ]
     ai_amplicon = sorted(
-        ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai.chr_tag], ai.start)
+        ai_amplicon, key=lambda ai: (CHR_TAG_TO_IDX[ai.chr], ai.start)
     )
     for ai in ai_amplicon:
-        fp.write(
-            f"Interval\t{interval_num}\t{ai.chr_tag}\t{ai.start}\t{ai.end}\n"
-        )
+        fp.write(f"Interval\t{interval_num}\t{ai.chr}\t{ai.start}\t{ai.end}\n")
         interval_num += 1
 
     fp.write("List of cycle segments\n")
     for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
         sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
-        fp.write(f"Segment\t{seqi + 1}\t{sseg[0]}\t{sseg[1]}\t{sseg[2]}\n")
+        fp.write(f"Segment\t{seqi + 1}\t{sseg}\n")
     if output_all_paths:
         fp.write("List of all subpath constraints\n")
         for pathi in range(len(bb.path_constraints[amplicon_idx][0])):

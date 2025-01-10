@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from typing import Any
+
 from coral.breakpoint import breakpoint_utilities
 
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
@@ -546,20 +549,19 @@ def chimeric_alignment_to_path(g, rints, ai_list, bp_list):
     return path_
 
 
-def longest_path_dict(path_constraints_):
+def longest_path_dict(
+    path_constraints_: list[list[Any]],
+) -> list[list[Any]]:
     """Convert paths from a list of alternating nodes and edges into a dict of edges.
     Only keep the longest paths, i.e., those which are not a subpath of any other path
     """
-    res_paths = [[], [], []]
+    res_paths: list[list[Any]] = [[], [], []]
     for pathi in range(len(path_constraints_[0])):
         path = path_constraints_[0][pathi]
-        path_constraint = dict()
+        path_constraint: dict[int, int] = defaultdict(int)
         for ei in range(len(path)):
             if ei % 2 == 0:
-                try:
-                    path_constraint[path[ei]] += 1
-                except:
-                    path_constraint[path[ei]] = 1
+                path_constraint[path[ei]] += 1
         res_paths[0].append(path_constraint)
         res_paths[1].append(pathi)
         res_paths[2].append(path_constraints_[1][pathi])

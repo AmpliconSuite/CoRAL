@@ -105,5 +105,17 @@ exclude = [
   "hsr.py"
 ]
 plugins = "numpy.typing.mypy_plugin"
-
 # strict = true
+
+[tool.pyright]
+# include = ["src"]
+exclude = ["**/node_modules",
+    "**/__pycache__"
+]
+defineConstant = { DEBUG = true }
+
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+
+pythonVersion = "3.12"
+pythonPlatform = "Linux"

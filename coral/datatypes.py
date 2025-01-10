@@ -9,6 +9,7 @@ from typing import (
     NamedTuple,
     Set,
     TypeVar,
+    Union,
 )
 
 import intervaltree
@@ -47,10 +48,10 @@ class BasicStatTracker:
     # TODO: fix algo to avoid catastrophic cancellation
 
     count: int = 0
-    total: int = 0
-    sum_of_squares: int = 0
+    total: float = 0
+    sum_of_squares: float = 0
 
-    def observe(self, value: int) -> None:
+    def observe(self, value: float) -> None:
         self.count += 1
         self.total += value
         self.sum_of_squares += np.pow(value, 2)
@@ -82,9 +83,27 @@ class CigarAlignment(NamedTuple):
     ref_length: int  # Length on reference genome (!= read query length above)
 
 
+class Node(NamedTuple):
+    """Container for storing info about a specific genomic point."""
+
+    chr: types.ChrTag
+    pos: int
+    strand: Strand
+
+    def __str__(self) -> str:
+        return f"{self.chr}-{self.pos}({self.strand})"
+
+
+@dataclass
+class SplitInterval:
+    start: int
+    end: int
+    strand: Strand
+
+
 @dataclass
 class Interval:
-    chr_tag: str
+    chr: str
     start: int
     end: int
 
@@ -92,14 +111,14 @@ class Interval:
         return self.end - self.start + 1
 
     def __lt__(self, other: Interval) -> bool:
-        return (self.chr_tag, self.start, self.end) < (
-            other.chr_tag,
+        return (self.chr, self.start, self.end) < (
+            other.chr,
             other.start,
             other.end,
         )
 
     def __str__(self) -> str:
-        return f"{self.chr_tag}:{self.start}-{self.end}"
+        return f"{self.chr}:{self.start}-{self.end}"
 
     @property
     def left(self) -> int:
@@ -110,9 +129,14 @@ class Interval:
         return max(self.start, self.end)
 
     def contains(self, chr_tag: str, pos: int) -> bool:
-        if self.chr_tag != chr_tag:
+        if self.chr != chr_tag:
             return False
         return self.start <= pos <= self.end
+
+    def contains_node(self, node: Node) -> bool:
+        if self.chr != node.chr:
+            return False
+        return self.start < node.pos < self.end  # Non-inclusive
 
     def does_overlap(self, other: Interval) -> bool:
         """Check if two chromosome intervals overlap (share a subsequence).
@@ -123,14 +147,14 @@ class Interval:
             e: end position/index
         """
         return (
-            self.chr_tag == other.chr_tag
+            self.chr == other.chr
             and self.start <= other.end
             and self.end >= other.start
         )
 
     def is_adjacent(self, other: Interval) -> bool:
         """Check if two intervals are adjacent to each other."""
-        if self.chr_tag != other.chr_tag:
+        if self.chr != other.chr:
             return False
         if self.start <= other.start:
             return other.start == self.end + 1
@@ -146,7 +170,7 @@ class Interval:
 
             for start, end in margin_interval:
                 if (
-                    self.chr_tag == y.chr_tag
+                    self.chr == y.chr
                     and self.start <= end
                     and self.end >= start
                 ):
@@ -158,7 +182,7 @@ class Interval:
         n_start, n_end = y.start, y.end
 
         # Check for chromosome match and interval overlap
-        if self.chr_tag != y.chr_tag:
+        if self.chr != y.chr:
             return False
 
         return self_start <= n_end and self_end >= n_start
@@ -168,7 +192,7 @@ class Interval:
         if not self.intersects(y):
             return None
         return Interval(
-            self.chr_tag, max(self.start, y.start), min(self.end, y.end)
+            self.chr, max(self.start, y.start), min(self.end, y.end)
         )
 
     # Sourced from AA
@@ -176,7 +200,7 @@ class Interval:
         if not self.intersects(y, extend):
             return None
         return Interval(
-            self.chr_tag, min(self.start, y.start), max(self.end, y.end)
+            self.chr, min(self.start, y.start), max(self.end, y.end)
         )
 
 
@@ -194,6 +218,14 @@ class ReadInterval(Interval):
 
 
 @dataclass
+class AmpliconInterval(Interval):
+    amplicon_id: int = -1  # TODO: update to None for more obvious behavior
+
+    def __str__(self) -> str:
+        return f"Amplicon{self.amplicon_id}>{self.chr}:{self.start}-{self.end}"
+
+
+@dataclass
 class ChimericAlignment:
     query_bounds: CigarBounds
     ref_interval: ReadInterval
@@ -208,11 +240,15 @@ class ChimericAlignment:
 
 
 @dataclass
-class AmpliconInterval(Interval):
-    amplicon_id: int = -1  # TODO: update to None for more obvious behavior
+class LargeIndelAlignment:
+    # TODO: add better docstring
 
-    def __str__(self) -> str:
-        return f"{self.amplicon_id} {self.chr_tag}:{self.start}-{self.end}"
+    chr_tag: types.ChrTag
+    next_start: int
+    curr_end: int
+    read_start: int
+    read_end: int
+    mapq: int  # Read mapping quality
 
 
 class BPReads(NamedTuple):
@@ -232,12 +268,9 @@ class ChrPairOrientation(NamedTuple):
 
 @dataclass
 class Breakpoint:
-    chr1: str
-    start: int  # Start position of the breakpoint
-    strand1: Strand
-    chr2: str
-    end: int  # End position of the breakpoint
-    strand2: Strand
+    # TODO: refactor as node1, node2 for easier integration with edge types
+    node1: Node
+    node2: Node
 
     read_info: BPReads
     gap: int  # Gap between interval endpoints
@@ -246,21 +279,45 @@ class Breakpoint:
     mapq2: int
     all_reads: set[BPReads] = field(default_factory=set)
 
+    @property
+    def chr1(self) -> types.ChrTag:
+        return self.node1.chr
+
+    @property
+    def chr2(self) -> types.ChrTag:
+        return self.node2.chr
+
+    @property
+    def pos1(self) -> int:
+        return self.node1.pos
+
+    @property
+    def pos2(self) -> int:
+        return self.node2.pos
+
+    @property
+    def strand1(self) -> Strand:
+        return self.node1.strand
+
+    @property
+    def strand2(self) -> Strand:
+        return self.node2.strand
+
     def is_close(self, other: Breakpoint) -> bool:
         if self.chr1 != other.chr1 or self.chr2 != other.chr2:
             return False
         if self.strand1 != other.strand1 or self.strand2 != other.strand2:
             return False
-        if abs(self.start - other.start) >= 200:
+        if abs(self.pos1 - other.pos1) >= 200:
             return False
-        if abs(self.end - other.end) >= 200:
+        if abs(self.pos2 - other.pos2) >= 200:
             return False
         return True
 
     def __str__(self) -> str:
         return (
-            f"{self.chr1}-{self.start}({self.strand1})___"
-            f"{self.chr2}-{self.end}({self.strand2})"
+            f"{self.chr1}-{self.pos1}({self.strand1})___"
+            f"{self.chr2}-{self.pos2}({self.strand2})"
         )
 
 
@@ -273,8 +330,8 @@ class BreakpointStats:
     mapq2: float = 0.0
 
     def observe(self, bp: Breakpoint) -> None:
-        self.start.observe(bp.start)
-        self.end.observe(bp.end)
+        self.start.observe(bp.pos1)
+        self.end.observe(bp.pos2)
         if not bp.was_reversed:
             self.mapq1 += bp.mapq1
             self.mapq2 += bp.mapq2
@@ -310,17 +367,15 @@ class EdgeToCN:
     def from_graph(bp_graph: BreakpointGraph):
         return EdgeToCN(
             sequence={
-                i: edge[-1] for i, edge in enumerate(bp_graph.sequence_edges)
+                i: edge.cn for i, edge in enumerate(bp_graph.sequence_edges)
             },
             concordant={
-                i: edge[-1] for i, edge in enumerate(bp_graph.concordant_edges)
+                i: edge.cn for i, edge in enumerate(bp_graph.concordant_edges)
             },
             discordant={
                 i: edge.cn for i, edge in enumerate(bp_graph.discordant_edges)
             },
-            source={
-                i: edge[-1] for i, edge in enumerate(bp_graph.source_edges)
-            },
+            source={i: edge.cn for i, edge in enumerate(bp_graph.source_edges)},
         )
 
 
@@ -466,50 +521,83 @@ class BPToChrCNI(NamedTuple):
     bp_idx: types.BPIdx  # Breakpoint index
 
 
-class Node(NamedTuple):
-    """Container for storing info about a specific genomic point."""
+@dataclass
+class SourceEdge:
+    """Container for storing source edge information."""
 
-    chr: types.ChrTag
-    pos: int
-    strand: Strand
+    node: Node
 
-    def __str__(self) -> str:
-        return f"{self.chr}-{self.pos}({self.strand})"
+    # TODO: previously available, but never used anywhere?
+    # sr_count: int  # Short read count
+    # sr_flag: str  # Short read flag
+    # sr_cn: float  # Short read Copy Number
+    # lr_cn: float  # Long read Copy Number
+    cn: float = 0.0  # Edge Copy Number
 
 
 @dataclass
 class DiscordantEdge:
     """Container for storing discordant edge information."""
 
-    chr1: str
-    pos1: int
-    strand1: Strand
-    chr2: str
-    pos2: int
-    strand2: Strand
+    node1: Node
+    node2: Node
 
     sr_count: int  # Short read count
     sr_flag: str  # Short read flag
     sr_cn: float  # Short read Copy Number
-
     lr_count: int  # Long read count
+
     reads: set[BPReads] = field(default_factory=set)
     cn: float = 0.0  # Edge Copy Number
 
     @property
     def is_self_loop(self) -> bool:
-        return (
-            self.chr1 == self.chr2
-            and self.strand1 == self.strand2
-            and self.pos1 == self.pos2
-        )
+        return self.node1 == self.node2
 
     def matches_bp(self, bp: Breakpoint) -> bool:
-        return (
-            self.chr1 == bp.chr1
-            and self.chr2 == bp.chr2
-            and self.strand1 == bp.strand1
-            and self.strand2 == bp.strand2
-            and self.pos1 == bp.start
-            and self.pos2 == bp.end
-        )
+        return self.node1 == bp.node1 and self.node2 == bp.node2
+
+
+@dataclass
+class SequenceEdge:
+    chr: types.ChrTag
+    start: int
+    end: int
+
+    sr_count: int  # Short read count
+    sr_flag: str  # Short read flag
+
+    lr_nc: float  # Long read Normal Coverage
+    lr_count: int  # Long read count
+
+    cn: float = 0.0  # Edge Copy Number
+
+    @property
+    def gap(self) -> int:
+        return self.end - self.start + 1
+
+
+@dataclass
+class ConcordantEdge:
+    node1: Node
+    node2: Node
+
+    sr_count: int  # Short read count
+    sr_flag: str  # Short read flag
+    lr_count: int  # Long read count
+
+    reads: set[BPReads] = field(default_factory=set)
+    cn: float = 0.0  # Edge Copy Number
+
+
+Edge = Union[SourceEdge, DiscordantEdge, SequenceEdge, ConcordantEdge]
+
+
+@dataclass
+class AdjacencyMatrix:
+    """Container for storing adjacency matrix information."""
+
+    sequence: list[int] = field(default_factory=list)
+    concordant: list[int] = field(default_factory=list)
+    discordant: list[int] = field(default_factory=list)
+    source: list[int] = field(default_factory=list)

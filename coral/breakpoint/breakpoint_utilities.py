@@ -7,12 +7,20 @@ from __future__ import annotations
 import io
 import logging
 from collections import Counter, defaultdict
-from typing import TYPE_CHECKING, Generator, List, Sequence, Tuple, cast
+from typing import (
+    TYPE_CHECKING,
+    Generator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    cast,
+)
 
 import numpy as np
 import pysam
 
-from coral import cigar_parsing, constants, datatypes
+from coral import bam_types, cigar_parsing, constants, datatypes, types
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
@@ -23,6 +31,7 @@ from coral.datatypes import (
     ChrPairOrientation,
     CNSInterval,
     Interval,
+    Node,
     ReadInterval,
     Strand,
 )
@@ -71,15 +80,15 @@ def interval_adjacent(int1: list[int], int2: list[int]) -> bool:
 
 
 def interval_overlap_l(
-    intv1: Interval, intv_list: Sequence[Interval]
+    intv: Interval, other_intvs: Sequence[Interval]
 ) -> int | None:
     """
     Check if an interval in the form of [chr, s, e] overlaps with any member of
     a list of intervals.
     """
-    for intv2_idx, intv2 in enumerate(intv_list):
-        if intv1.does_overlap(intv2):
-            return intv2_idx
+    for other_intv_idx, other_intv in enumerate(other_intvs):
+        if intv.does_overlap(other_intv):
+            return other_intv_idx
     return None
 
 
@@ -104,13 +113,13 @@ def interval_exclusive(
                 if int_.start < intl[int2i].start:
                     intl_.append(
                         AmpliconInterval(
-                            int_.chr_tag, int_.start, intl[int2i].start - 1
+                            int_.chr, int_.start, intl[int2i].start - 1
                         )
                     )
                 if int_.end > intl[int2i].end:
                     intl_.append(
                         AmpliconInterval(
-                            int_.chr_tag, intl[int2i].end + 1, int_.end, -1
+                            int_.chr, intl[int2i].end + 1, int_.end, -1
                         )
                     )
     return overlap_ints, intl_
@@ -211,10 +220,10 @@ def alignment2bp_l(
     min_bp_match_cutoff: int,
     min_mapq: int,
     gap_: int,
-    intrvls: list[Interval],
+    intrvls: Sequence[Interval],
     gap_mapq: int = 10,
     max_nm: float | None = None,
-):
+) -> list[Breakpoint]:
     bp_list: list[Breakpoint] = []
     has_bp_assigned = [False] * (len(alignments) - 1)
 
@@ -323,7 +332,9 @@ def cluster_bp_list(
     bp_dict: dict[ChrPairOrientation, list[int]] = defaultdict(list)
     for bpi, bp in enumerate(bp_list):
         bp_dict[
-            ChrPairOrientation(bp.chr1, bp.chr2, bp.strand1, bp.strand2)
+            ChrPairOrientation(
+                bp.node1.chr, bp.node2.chr, bp.node1.strand, bp.node2.strand
+            )
         ].append(bpi)
 
     bp_clusters: list[list[Breakpoint]] = []
@@ -336,8 +347,10 @@ def cluster_bp_list(
                 for bpci in range(len(bp_clusters_)):
                     for lbp in bp_clusters_[bpci]:
                         if (
-                            abs(bp.start - lbp.start) < bp_distance_cutoff
-                            and abs(bp.end - lbp.end) < bp_distance_cutoff
+                            abs(bp.node1.pos - lbp.node1.pos)
+                            < bp_distance_cutoff
+                            and abs(bp.node2.pos - lbp.node2.pos)
+                            < bp_distance_cutoff
                         ):
                             bpcim = bpci
                             break
@@ -364,19 +377,15 @@ def interval2bp(
     """
     intv1, intv2 = chimera1.ref_interval, chimera2.ref_interval
     chr_idx1, chr_idx2 = (
-        CHR_TAG_TO_IDX[intv1.chr_tag],
-        CHR_TAG_TO_IDX[intv2.chr_tag],
+        CHR_TAG_TO_IDX[intv1.chr],
+        CHR_TAG_TO_IDX[intv2.chr],
     )
     if (chr_idx2 < chr_idx1) or (
         chr_idx2 == chr_idx1 and intv2.start < intv1.end
     ):
         return Breakpoint(
-            intv1.chr_tag,
-            intv1.end,
-            intv1.strand,
-            intv2.chr_tag,
-            intv2.start,
-            intv2.strand.inverse,
+            Node(intv1.chr, intv1.end, intv1.strand),
+            Node(intv2.chr, intv2.start, intv2.strand.inverse),
             read_info,
             gap,
             False,
@@ -384,12 +393,8 @@ def interval2bp(
             chimera2.mapq,
         )
     return Breakpoint(
-        intv2.chr_tag,
-        intv2.start,
-        intv2.strand.inverse,
-        intv1.chr_tag,
-        intv1.end,
-        intv1.strand,
+        Node(intv2.chr, intv2.start, intv2.strand.inverse),
+        Node(intv1.chr, intv1.end, intv1.strand),
         BPReads(read_info.name, read_info.read2, read_info.read1),
         gap,
         True,
@@ -403,8 +408,10 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
     Call exact breakpoint from a breakpoint cluster
     """
     bp: Breakpoint = bp_cluster[0]  # [:-2]
-    bp.start = 0 if bp.strand1 == Strand.FORWARD else 1_000_000_000
-    bp.end = 0 if bp.strand2 == Strand.FORWARD else 1_000_000_000
+    pos1 = 0 if bp.strand1 == Strand.FORWARD else 1_000_000_000
+    pos2 = 0 if bp.strand2 == Strand.FORWARD else 1_000_000_000
+    bp.node1 = Node(bp.node1.chr, pos1, bp.node1.strand)
+    bp.node2 = Node(bp.node2.chr, pos2, bp.node2.strand)
     bpr: list[BPReads] = []
 
     # Calculate basic dist. stats (mean/std) for breakpoints
@@ -415,17 +422,18 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
     bp_starts = []
     bp_ends = []
     for bp_ in bp_cluster:
-        if bp_.start > bp_stats.start.mean + 3 * bp_stats.start_window:
+        if bp_.pos1 > bp_stats.start.mean + 3 * bp_stats.start_window:
             continue
-        if bp_.start < bp_stats.start.mean - 3 * bp_stats.start_window:
+        if bp_.pos1 < bp_stats.start.mean - 3 * bp_stats.start_window:
             continue
-        if bp_.end > bp_stats.end.mean + 3 * bp_stats.end_window:
+        if bp_.pos2 > bp_stats.end.mean + 3 * bp_stats.end_window:
             continue
-        if bp_.end < bp_stats.end.mean - 3 * bp_stats.end_window:
+        if bp_.pos2 < bp_stats.end.mean - 3 * bp_stats.end_window:
             continue
-        bp_starts.append(bp_.start)
-        bp_ends.append(bp_.end)
+        bp_starts.append(bp_.pos1)
+        bp_ends.append(bp_.pos2)
 
+    pos1 = bp.pos1
     if len(bp_starts) > 0:
         bp_start_ctr = Counter(bp_starts)
         if (
@@ -433,27 +441,33 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
             or bp_start_ctr.most_common(2)[0][1]
             > bp_start_ctr.most_common(2)[1][1]
         ):
-            bp.start = bp_start_ctr.most_common(2)[0][0]
+            pos1 = bp_start_ctr.most_common(2)[0][0]
         elif len(bp_starts) % 2 == 1:
-            bp.start = int(np.median(bp_starts))
-        elif bp_.strand1.is_forward:
-            bp.start = int(np.ceil(np.median(bp_starts)))
+            pos1 = int(np.median(bp_starts))
+        elif bp_cluster[
+            -1
+        ].strand1.is_forward:  # TODO: using last BP seems strange and below, but maintaining prev behavior
+            pos1 = int(np.ceil(np.median(bp_starts)))
         else:
-            bp.start = int(np.floor(np.median(bp_starts)))
+            pos1 = int(np.floor(np.median(bp_starts)))
 
+    pos2 = bp.pos2
     if len(bp_ends) > 0:
         bp_end_ctr = Counter(bp_ends)
         if (
             len(bp_end_ctr.most_common(2)) == 1
             or bp_end_ctr.most_common(2)[0][1] > bp_end_ctr.most_common(2)[1][1]
         ):
-            bp.end = bp_end_ctr.most_common(2)[0][0]
+            pos2 = bp_end_ctr.most_common(2)[0][0]
         elif len(bp_ends) % 2 == 1:
-            bp.end = int(np.median(bp_ends))
-        elif bp_.strand2.is_forward:
-            bp.end = int(np.ceil(np.median(bp_ends)))
+            pos2 = int(np.median(bp_ends))
+        elif bp_cluster[-1].strand2.is_forward:
+            pos2 = int(np.ceil(np.median(bp_ends)))
         else:
-            bp.end = int(np.floor(np.median(bp_ends)))
+            pos2 = int(np.floor(np.median(bp_ends)))
+    bp.node1 = Node(bp.node1.chr, pos1, bp.node1.strand)
+    bp.node2 = Node(bp.node2.chr, pos2, bp.node2.strand)
+
     bp_cluster_r: list[Breakpoint] = []
 
     final_bp_stats = BreakpointStats(bp_distance_cutoff)
@@ -481,30 +495,30 @@ def bp_match(
         return False
     if rgap <= 0:
         return (
-            abs(bp1.start - bp2.start) < bp_dist_cutoff
-            and abs(bp1.end - bp2.end) < bp_dist_cutoff
+            abs(bp1.pos1 - bp2.pos1) < bp_dist_cutoff
+            and abs(bp1.pos2 - bp2.pos2) < bp_dist_cutoff
         )
 
     rgap_ = rgap
     consume_rgap = [0, 0]
-    if bp1.strand1.is_forward and bp1.start <= bp2.start - bp_dist_cutoff:
-        rgap_ -= bp2.start - bp_dist_cutoff - bp1.start + 1
+    if bp1.strand1.is_forward and bp1.pos1 <= bp2.pos1 - bp_dist_cutoff:
+        rgap_ -= bp2.pos1 - bp_dist_cutoff - bp1.pos1 + 1
         consume_rgap[0] = 1
-    if bp1.strand1.is_reverse and bp1.start >= bp2.start + bp_dist_cutoff:
-        rgap_ -= bp1.start - bp2.start - bp_dist_cutoff + 1
+    if bp1.strand1.is_reverse and bp1.pos1 >= bp2.pos1 + bp_dist_cutoff:
+        rgap_ -= bp1.pos1 - bp2.pos1 - bp_dist_cutoff + 1
         consume_rgap[0] = 1
-    if bp1.strand2.is_forward and bp1.end <= bp2.end - bp_dist_cutoff:
-        rgap_ -= bp2.end - bp_dist_cutoff - bp1.end + 1
+    if bp1.strand2.is_forward and bp1.pos2 <= bp2.pos2 - bp_dist_cutoff:
+        rgap_ -= bp2.pos2 - bp_dist_cutoff - bp1.pos2 + 1
         consume_rgap[1] = 1
-    if bp1.strand2.is_reverse and bp1.end >= bp2.end + bp_dist_cutoff:
-        rgap_ -= bp1.end - bp2.end - bp_dist_cutoff + 1
+    if bp1.strand2.is_reverse and bp1.pos2 >= bp2.pos2 + bp_dist_cutoff:
+        rgap_ -= bp1.pos2 - bp2.pos2 - bp_dist_cutoff + 1
         consume_rgap[1] = 1
     return (
         (consume_rgap[0] == 1 and rgap_ >= 0)
-        or (abs(bp1.start - bp2.start)) < bp_dist_cutoff
+        or (abs(bp1.pos1 - bp2.pos1)) < bp_dist_cutoff
     ) and (
         (consume_rgap[1] == 1 and rgap_ >= 0)
-        or (abs(bp1.end - bp2.end)) < bp_dist_cutoff
+        or (abs(bp1.pos2 - bp2.pos2)) < bp_dist_cutoff
     )
 
 
@@ -744,8 +758,8 @@ def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):
         for di in range(len(g.discordant_edges)):
             de = g.discordant_edges[di]
             fp.write(
-                f"{de.chr2}\t{de.pos2}\t{de.chr1}\t{de.pos1}\t"
-                f"{de.strand2}{de.strand1}\t{de.lr_count}\t{bp_stats[di]}\n"
+                f"{de.node2.chr}\t{de.node2.pos}\t{de.node1.chr}\t{de.node1.pos}\t"
+                f"{de.node2.strand}{de.node1.strand}\t{de.lr_count}\t{bp_stats[di]}\n"
             )
 
 
@@ -757,7 +771,8 @@ def fetch_breakpoint_reads(
     chimeric_strings: dict[str, list[str]] = defaultdict(list)
     edit_dist_stats = datatypes.BasicStatTracker()
 
-    for read in bam_file.fetch():
+    read: bam_types.BAMRead
+    for read in bam_file.fetch():  # type: ignore[assignment]
         rn: str = read.query_name  # type: ignore[assignment]
         if read.flag < 256 and rn not in read_name_to_length:
             read_name_to_length[rn] = read.query_length
@@ -798,3 +813,42 @@ def get_cns_idx_intv_to_reads(
     cns_intervals_by_chr: dict[str, list[CNSInterval]],
 ):
     pass
+
+
+def get_indel_alignments_from_read(
+    chr_tag: types.ChrTag,
+    read: bam_types.SAMSegment,
+    min_del_len: int,
+    nm_threshold: Optional[float] = None,
+) -> list[datatypes.LargeIndelAlignment]:
+    if read.mapping_quality < 20:
+        return []
+    indel_alignments = []
+    blocks = read.get_blocks()
+
+    passes_edit_filter = True
+    if nm_threshold is not None:
+        agg_del = 0
+        for block, next_block in zip(blocks, blocks[1:]):
+            gap = abs(next_block[0] - block[1])
+            if gap > min_del_len:
+                agg_del += gap
+        read_nm = read.get_cigar_stats()[0][-1]  # Edit dist
+        read_nm = (read_nm - agg_del) / read.query_length  # type: ignore[assignment]
+        passes_edit_filter = read_nm < nm_threshold
+
+    if passes_edit_filter:
+        for block, next_block in zip(blocks, blocks[1:]):
+            gap = abs(next_block[0] - block[1])
+            if gap > min_del_len:
+                indel_alignments.append(
+                    datatypes.LargeIndelAlignment(
+                        chr_tag,
+                        next_block[0],
+                        block[1],
+                        blocks[0][0],
+                        blocks[-1][1],
+                        read.mapping_quality,
+                    )
+                )
+    return indel_alignments

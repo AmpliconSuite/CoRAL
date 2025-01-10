@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import warnings
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,6 +21,13 @@ from coral.breakpoint.breakpoint_utilities import (
     enumerate_partitions,
 )
 from coral.constants import CHR_TAG_TO_IDX
+from coral.datatypes import (
+    AdjacencyMatrix,
+    ConcordantEdge,
+    Node,
+    SequenceEdge,
+    Strand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +39,23 @@ class BreakpointGraph:
     amplicon_intervals: list[datatypes.AmpliconInterval] = field(
         default_factory=list
     )
-    sequence_edges: list[list[Any]] = field(default_factory=list)
-    concordant_edges: list[list[Any]] = field(default_factory=list)
+    sequence_edges: list[datatypes.SequenceEdge] = field(default_factory=list)
+    concordant_edges: list[datatypes.ConcordantEdge] = field(
+        default_factory=list
+    )
     discordant_edges: list[datatypes.DiscordantEdge] = field(
         default_factory=list
     )
-    source_edges: list[list[Any]] = field(default_factory=list)
+    source_edges: list[datatypes.SourceEdge] = field(default_factory=list)
 
     """
-	nodes: adjacent list - keys with format (chr, pos, orientation); 
+	nodes: adjacent list - keys with format Node(chr, pos, orientation); 
 	vals = [[sequence edges], [concordant edges], [discordant edges], [source edges]]  
 	"""
-    nodes: dict[datatypes.Node, list[list]] = field(default_factory=dict)
-    endnodes: dict[datatypes.Node, list[list]] = field(default_factory=dict)
+    nodes: dict[datatypes.Node, AdjacencyMatrix] = field(
+        default_factory=lambda: defaultdict(AdjacencyMatrix)
+    )
+    endnodes: dict[datatypes.Node, list[int]] = field(default_factory=dict)
     max_cn: float = 0.0
 
     @property
@@ -80,38 +92,19 @@ class BreakpointGraph:
     def num_nonsrc_edges(self) -> int:
         return self.num_seq_edges + self.num_conc_edges + self.num_disc_edges
 
-    def add_node(self, node_):
-        """Add a new node to the breakpoint graph.
-
-        Args:
-                node_: A breakpoint node.
-
-        """
-        if type(node_) != tuple or len(node_) != 3:
-            raise Exception(
-                "Breakpoint node must be of form (chr, pos, orientation)."
-            )
-        if node_ in self.nodes:
-            pass
-        self.nodes[node_] = [[], [], [], []]
-
-    def add_endnode(self, node_):
+    def add_endnode(self, node_: datatypes.Node):
         """Add a new node to the list corresponding to interval ends.
 
         Args:
                 node_: A breakpoint node.
 
         """
-        if type(node_) != tuple or len(node_) != 3:
-            raise Exception(
-                "Breakpoint node must be of form (chr, pos, orientation)."
-            )
         if node_ not in self.endnodes:
             self.endnodes[node_] = []
         else:
             warnings.warn("Node corresponding to interval end already exists.")
 
-    def del_endnode(self, node_):
+    def del_endnode(self, node_: datatypes.Node):
         """Delete a node corresponding to interval ends.
 
         Args:
@@ -133,26 +126,34 @@ class BreakpointGraph:
             del self.endnodes[node]
 
     def add_sequence_edge(
-        self, chr, l, r, sr_count=-1, sr_flag="d", lr_count=-1, lr_nc=0, cn=0.0
-    ):
+        self,
+        chr: types.ChrTag,
+        l: int,
+        r: int,
+        sr_count=-1,
+        sr_flag="d",
+        lr_count=-1,
+        lr_nc=0,
+        cn=0.0,
+    ) -> None:
         """Add a sequence edge to the graph."""
-        if (chr, l, "-") not in self.nodes or (chr, r, "+") not in self.nodes:
+        node1, node2 = (
+            Node(chr, l, Strand.REVERSE),
+            Node(chr, r, Strand.FORWARD),
+        )
+        if node1 not in self.nodes or node2 not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
         lseq = len(self.sequence_edges)
-        self.nodes[(chr, l, "-")][0].append(lseq)
-        self.nodes[(chr, r, "+")][0].append(lseq)
+        self.nodes[node1].sequence.append(lseq)
+        self.nodes[node2].sequence.append(lseq)
         self.sequence_edges.append(
-            [chr, l, r, sr_count, sr_flag, lr_count, lr_nc, r - l + 1, cn]
+            SequenceEdge(chr, l, r, sr_count, sr_flag, lr_nc, lr_count, cn)
         )
 
     def add_concordant_edge(
         self,
-        chr1,
-        pos1,
-        o1,
-        chr2,
-        pos2,
-        o2,
+        node1: Node,
+        node2: Node,
         sr_count=-1,
         sr_flag="d",
         lr_count=-1,
@@ -160,75 +161,53 @@ class BreakpointGraph:
         cn=0.0,
     ):
         """Add a concordant edge to the graph."""
-        if chr1 != chr2 or pos2 != pos1 + 1 or o1 != "+" or o2 != "-":
+        if (
+            node1.chr != node2.chr
+            or node2.pos != node1.pos + 1
+            or node1.strand != Strand.FORWARD
+            or node2.strand != Strand.REVERSE
+        ):
             raise Exception("Invalid concordant edge.")
-        if (chr1, pos1, o1) not in self.nodes or (
-            chr2,
-            pos2,
-            o2,
-        ) not in self.nodes:
+        if node1 not in self.nodes or node2 not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
         lc = len(self.concordant_edges)
-        self.nodes[(chr1, pos1, o1)][1].append(lc)
-        self.nodes[(chr2, pos2, o2)][1].append(lc)
+        self.nodes[node1].concordant.append(lc)
+        self.nodes[node2].concordant.append(lc)
         self.concordant_edges.append(
-            [
-                chr1,
-                pos1,
-                o1,
-                chr2,
-                pos2,
-                o2,
-                sr_count,
-                sr_flag,
-                lr_count,
-                reads,
-                cn,
-            ],
+            ConcordantEdge(node1, node2, sr_count, sr_flag, lr_count, reads, cn)
         )
 
     def add_discordant_edge(
         self,
-        chr1,
-        pos1,
-        o1,
-        chr2,
-        pos2,
-        o2,
+        bp: datatypes.Breakpoint,
         sr_count=-1,
         sr_flag="d",
         sr_cn=0.0,
-        lr_count=-1,
-        reads=set([]),
         cn=0.0,
     ):
         """Add a discordant edge to the breakpoint graph."""
 
-        node1 = datatypes.Node(chr1, pos1, o1)
-        node2 = datatypes.Node(chr2, pos2, o2)
+        node1 = datatypes.Node(bp.chr1, bp.pos1, bp.strand1)
+        node2 = datatypes.Node(bp.chr2, bp.pos2, bp.strand2)
         if node1 not in self.nodes or node2 not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
 
         ld = len(self.discordant_edges)
-        self.nodes[node1][2].append(ld)
-        self.nodes[node2][2].append(ld)
+        self.nodes[node1].discordant.append(ld)
+        self.nodes[node2].discordant.append(ld)
         if node1 in self.endnodes:
             self.endnodes[node1].append(ld)
         if node2 in self.endnodes:
             self.endnodes[node2].append(ld)
         self.discordant_edges.append(
             datatypes.DiscordantEdge(
-                chr1,
-                pos1,
-                o1,
-                chr2,
-                pos2,
-                o2,
+                bp.node1,
+                bp.node2,
                 sr_count,
                 sr_flag,
                 sr_cn,
-                lr_count,
-                reads,
+                len(bp.all_reads),
+                bp.all_reads,
                 cn,
             )
         )
@@ -245,42 +224,21 @@ class BreakpointGraph:
                 else:
                     self.endnodes[node][i] = bpi_map[self.endnodes[node][i]]
         for node in self.nodes.keys():
-            for i in range(len(self.nodes[node][2])):
-                if self.nodes[node][2][i] in sorted_del_list:
-                    del self.nodes[node][2][i]
+            node_adjacency = self.nodes[node]
+            adj_discordant_edges = node_adjacency.discordant
+            for i in range(len(adj_discordant_edges)):
+                disc_edge = adj_discordant_edges[i]
+                if disc_edge in sorted_del_list:
+                    del self.nodes[node].discordant[i]
                 else:
-                    self.nodes[node][2][i] = bpi_map[self.nodes[node][2][i]]
+                    self.nodes[node].discordant[i] = bpi_map[disc_edge]
 
-    def add_source_edge(
-        self,
-        chr1,
-        pos1,
-        o1,
-        sr_count=0,
-        sr_flag="d",
-        sr_cn=0.0,
-        lr_cn=0.0,
-        cn=0.0,
-    ):
+    def add_source_edge(self, node: datatypes.Node):
         """Adds a source edge to the graph."""
-        if (chr1, pos1, o1) not in self.nodes:
+        if node not in self.nodes:
             raise Exception("Breakpoint node must be added first.")
-        self.nodes[(chr1, pos1, o1)][3].append(len(self.source_edges))
-        self.source_edges.append(
-            [
-                "source",
-                -1,
-                "-",
-                chr1,
-                pos1,
-                o1,
-                sr_count,
-                sr_flag,
-                sr_cn,
-                lr_cn,
-                cn,
-            ],
-        )
+        self.nodes[node].source.append(len(self.source_edges))
+        self.source_edges.append(datatypes.SourceEdge(node))
 
     def del_source_edges(self, del_list, srci_map):
         """Delete a list source edges from the graph."""
@@ -301,8 +259,8 @@ class BreakpointGraph:
         del_list = []
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            node1 = (sseg[0], sseg[1], "-")
-            node2 = (sseg[0], sseg[2], "+")
+            node1 = Node(sseg[0], sseg[1], Strand.REVERSE)
+            node2 = Node(sseg[0], sseg[2], Strand.FORWARD)
             s1 = (
                 len(self.nodes[node1][1])
                 + len(self.nodes[node1][2])
@@ -319,8 +277,8 @@ class BreakpointGraph:
             ai = self.sequence_edges[seqi][:3]
             if ai in self.amplicon_intervals:
                 del self.amplicon_intervals[self.amplicon_intervals.index(ai)]
-            node1 = (ai[0], ai[1], "-")
-            node2 = (ai[0], ai[2], "+")
+            node1 = (ai[0], ai[1], Strand.REVERSE)
+            node2 = (ai[0], ai[2], Strand.FORWARD)
             del self.sequence_edges[seqi]
             del self.nodes[node1]
             del self.nodes[node2]
@@ -328,8 +286,8 @@ class BreakpointGraph:
             self.del_endnode(node2)
         for seqi in range(len(self.self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            node1 = (sseg[0], sseg[1], "-")
-            node2 = (sseg[0], sseg[2], "+")
+            node1 = (sseg[0], sseg[1], Strand.REVERSE)
+            node2 = (sseg[0], sseg[2], Strand.FORWARD)
             self.nodes[node1][0][0] = seqi
             self.nodes[node2][0][0] = seqi
 
@@ -388,8 +346,8 @@ class BreakpointGraph:
             del self.concordant_edges[ci]
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            node1 = (sseg[0], sseg[1], "-")
-            node2 = (sseg[0], sseg[2], "+")
+            node1 = (sseg[0], sseg[1], Strand.REVERSE)
+            node2 = (sseg[0], sseg[2], Strand.FORWARD)
             self.nodes[node1][0][0] = seqi
             self.nodes[node2][0][0] = seqi
         for ci in range(len(self.concordant_edges)):
@@ -412,8 +370,8 @@ class BreakpointGraph:
 
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            self.nodes[(sseg[0], sseg[1], "-")][0] = [seqi]
-            self.nodes[(sseg[0], sseg[2], "+")][0] = [seqi]
+            self.nodes[(sseg[0], sseg[1], Strand.REVERSE)][0] = [seqi]
+            self.nodes[(sseg[0], sseg[2], Strand.FORWARD)][0] = [seqi]
         for ci in range(len(self.concordant_edges)):
             ce = self.concordant_edges[ci]
             self.nodes[(ce[0], ce[1], ce[2])][1] = [ci]
@@ -461,22 +419,22 @@ class BreakpointGraph:
         wcn = []
         wlncn = []
         wlrseg = []
-        wcn = [0.5 * normal_cov_lr * se[7] for se in self.sequence_edges]
+        wcn = [0.5 * normal_cov_lr * se.gap for se in self.sequence_edges]
         wcn += [normal_cov_lr for eci in range(lc)]
         wcn += [normal_cov_lr for edi in range(ld)]
         wcn += [0.5 * normal_cov_lr for srci in range(lsrc)]
         wlncn = [-0.5 for seg in self.sequence_edges]
-        wlncn += [ce[8] * 1.0 for ce in self.concordant_edges]
+        wlncn += [ce.lr_count * 1.0 for ce in self.concordant_edges]
         wlncn += [de.lr_count * 1.0 for de in self.discordant_edges]
         wlncn += [-0.5 for srci in range(lsrc)]
         wlrseg = [
-            (0.5 * se[6] ** 2 / (normal_cov_lr * se[7]))
+            (0.5 * se.lr_nc**2 / (normal_cov_lr * se.gap))
             for se in self.sequence_edges
         ]
         wlrseg += [0.0 for eci in range(lc)]
         wlrseg += [0.0 for edi in range(ld)]
         wlrseg += [
-            (0.5 * self.source_edges[srci][-1] ** 2 / normal_cov_lr)
+            (0.5 * self.source_edges[srci].cn ** 2 / normal_cov_lr)
             for srci in range(lsrc)
         ]
         wcn = cvxopt.matrix(wcn)
@@ -487,13 +445,13 @@ class BreakpointGraph:
         balance_constraints = np.zeros([nconstraints, nvariables])
         for node in self.nodes:
             if node not in self.endnodes:
-                for seqi in self.nodes[node][0]:
+                for seqi in self.nodes[node].sequence:
                     balance_constraints[cidx][seqi] = 1
-                for eci in self.nodes[node][1]:
+                for eci in self.nodes[node].concordant:
                     balance_constraints[cidx][lseq + eci] = -1
-                for edi in self.nodes[node][2]:
+                for edi in self.nodes[node].discordant:
                     balance_constraints[cidx][lseq + lc + edi] = -1
-                for srci in self.nodes[node][3]:
+                for srci in self.nodes[node].sequence:
                     balance_constraints[cidx][lseq + lc + ld + srci] = -1
                 cidx += 1
         balance_constraints = cvxopt.matrix(balance_constraints)
@@ -557,10 +515,10 @@ class BreakpointGraph:
                     "dual infeasibility = %f" % (sol["dual infeasibility"]),
                 )
                 for seqi in range(lseq):
-                    self.sequence_edges[seqi][-1] = sol["x"][seqi] * 2
+                    self.sequence_edges[seqi].cn = sol["x"][seqi] * 2
                     self.max_cn = max(sol["x"][seqi] * 2, self.max_cn)
                 for ci in range(lc):
-                    self.concordant_edges[ci][-1] = sol["x"][lseq + ci] * 2
+                    self.concordant_edges[ci].cn = sol["x"][lseq + ci] * 2
                     self.max_cn = max(sol["x"][lseq + ci] * 2, self.max_cn)
                 for di in range(ld):
                     de = self.discordant_edges[di]
@@ -575,7 +533,7 @@ class BreakpointGraph:
                             sol["x"][lseq + lc + di] * 2, self.max_cn
                         )
                 for srci in range(lsrc):
-                    self.source_edges[srci][-1] = (
+                    self.source_edges[srci].cn = (
                         sol["x"][lseq + lc + ld + srci] * 2
                     )
                     self.max_cn = max(
@@ -586,8 +544,8 @@ class BreakpointGraph:
             logger.debug("Skipped convex optimization.")
             for seqi in range(lseq):
                 se = self.sequence_edges[seqi]
-                cn_seqi = se[6] * 2.0 / (normal_cov_lr * se[7])
-                self.sequence_edges[seqi][-1] = cn_seqi
+                cn_seqi = se.lr_nc * 2.0 / (normal_cov_lr * se.gap)
+                self.sequence_edges[seqi].cn = cn_seqi
                 self.max_cn = max(cn_seqi, self.max_cn)
         self.max_cn += 1.0
 

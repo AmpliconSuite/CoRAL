@@ -27,7 +27,7 @@ def get_minimize_objective(
             obj_value -= (
                 model.x[seqi, i]
                 * model.w[i]
-                * bp_graph.sequence_edges[seqi][-2]
+                * bp_graph.sequence_edges[seqi].gap
                 / total_weights
             )
     if is_post:
@@ -47,7 +47,7 @@ def get_greedy_objective(
     obj_value = 0.0
     for seqi in range(bp_graph.num_seq_edges):
         obj_value += (
-            model.x[seqi, 0] * model.w[0] * bp_graph.sequence_edges[seqi][-2]
+            model.x[seqi, 0] * model.w[0] * bp_graph.sequence_edges[seqi].gap
         )
     for pi in range(len(pc_list)):
         if is_pc_unsatisfied[pi]:

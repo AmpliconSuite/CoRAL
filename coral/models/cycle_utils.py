@@ -181,7 +181,7 @@ def parse_solver_output(
                 parsed_sol.total_weights_included += (
                     model.x[seqi, i].value
                     * model.w[i].value
-                    * bp_graph.sequence_edges[seqi][-2]
+                    * bp_graph.sequence_edges[seqi].gap
                 )
 
     logger.debug(

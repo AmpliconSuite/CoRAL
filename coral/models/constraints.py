@@ -21,7 +21,7 @@ def get_total_weight_constraint(
             total_weight_expr += (
                 model.x[seqi, i]
                 * model.w[i]
-                * bp_graph.sequence_edges[seqi][-2]
+                * bp_graph.sequence_edges[seqi].gap
             )
     return pyo.Constraint(expr=total_weight_expr >= weight_threshold)
 
@@ -61,21 +61,21 @@ def get_eulerian_node_constraints(
                 )
                 eulerian_node_constraints.append(
                     model.x[edge_idx, i] + model.x[edge_idx + 1, i]
-                    == model.x[bp_graph.nodes[node][0][0], i]
+                    == model.x[bp_graph.nodes[node].sequence[0], i]
                 )
         else:
             for i in range(k):
                 ec_expr = 0.0
-                for seqi in bp_graph.nodes[node][0]:
+                for seqi in bp_graph.nodes[node].sequence:
                     ec_expr += model.x[seqi, i]
-                for ci in bp_graph.nodes[node][1]:
+                for ci in bp_graph.nodes[node].concordant:
                     ec_expr -= model.x[(bp_graph.num_seq_edges + ci), i]
-                for di in bp_graph.nodes[node][2]:
+                for di in bp_graph.nodes[node].discordant:
                     ec_expr -= model.x[
                         (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di),
                         i,
                     ]
-                for srci in bp_graph.nodes[node][3]:
+                for srci in bp_graph.nodes[node].source:
                     ec_expr -= model.x[
                         (bp_graph.num_nonsrc_edges + 2 * srci), i
                     ]  # connected to s
@@ -111,11 +111,11 @@ def get_spanning_tree_constraints(
             expr_y = 0.0  # linear
             expr_xc = 0.0  # quad
             expr_yd = 0.0  # quad
-            for seqi in bp_graph.nodes[node][0]:
+            for seqi in bp_graph.nodes[node].sequence:
                 sseg = bp_graph.sequence_edges[seqi]
-                node_ = (sseg[0], sseg[1], "-")
+                node_ = (sseg.chr, sseg.start, "-")
                 if node_ == node:
-                    node_ = (sseg[0], sseg[2], "+")
+                    node_ = (sseg.chr, sseg.end, "+")
                 expr_x += model.x[seqi, i]
                 expr_xc += model.x[seqi, i] * model.c[node_order[node], i]
                 if node_order[node_] <= node_order[node]:
@@ -157,8 +157,7 @@ def get_spanning_tree_constraints(
             t_expr_x += model.x[idx_offset + 1, i]
             t_expr_y += model.y1[idx_offset + 1, i]
             t_expr_yd += model.y1[idx_offset + 1, i] * (
-                model.dt[i]
-                - model.d[node_order[(srce[3], srce[4], srce[5])], i]
+                model.dt[i] - model.d[node_order[srce.node], i]
             )
         constraints.append(t_expr_x * (bp_graph.num_nodes + 2) >= model.dt[i])
         constraints.append(t_expr_y <= 1.0)
@@ -180,11 +179,11 @@ def get_spanning_tree_constraints__non_endnode(
                 expr_y = 0.0
                 expr_xc = 0.0
                 expr_yd = 0.0
-                for seqi in bp_graph.nodes[node][0]:
+                for seqi in bp_graph.nodes[node].sequence:
                     sseg = bp_graph.sequence_edges[seqi]
-                    node_ = (sseg[0], sseg[1], "-")
+                    node_ = (sseg.chr, sseg.start, "-")
                     if node_ == node:
-                        node_ = (sseg[0], sseg[2], "+")
+                        node_ = (sseg.chr, sseg.end, "+")
                     expr_x += model.x[seqi, i]
                     expr_xc += model.x[seqi, i] * model.c[node_order[node], i]
                     if node_order[node_] <= node_order[node]:
@@ -199,11 +198,11 @@ def get_spanning_tree_constraints__non_endnode(
                             model.d[node_order[node], i]
                             - model.d[node_order[node_], i]
                         )
-                for ci in bp_graph.nodes[node][1]:
+                for ci in bp_graph.nodes[node].concordant:
                     cedge = bp_graph.concordant_edges[ci]
-                    node_ = (cedge[0], cedge[1], cedge[2])
+                    node_ = cedge.node1
                     if node_ == node:
-                        node_ = (cedge[3], cedge[4], cedge[5])
+                        node_ = cedge.node2
                     expr_x += model.x[(bp_graph.num_seq_edges + ci), i]
                     expr_xc += (
                         model.x[(bp_graph.num_seq_edges + ci), i]
@@ -225,11 +224,11 @@ def get_spanning_tree_constraints__non_endnode(
                             model.d[node_order[node], i]
                             - model.d[node_order[node_], i]
                         )
-                for di in bp_graph.nodes[node][2]:
+                for di in bp_graph.nodes[node].discordant:
                     dedge = bp_graph.discordant_edges[di]
-                    node_ = (dedge[0], dedge[1], dedge[2])
+                    node_ = dedge.node1
                     if node_ == node:
-                        node_ = (dedge[3], dedge[4], dedge[5])
+                        node_ = dedge.node2
                     idx_offset = (
                         bp_graph.num_seq_edges + bp_graph.num_conc_edges + di
                     )
@@ -249,7 +248,7 @@ def get_spanning_tree_constraints__non_endnode(
                             model.d[node_order[node], i]
                             - model.d[node_order[node_], i]
                         )
-                for srci in bp_graph.nodes[node][3]:
+                for srci in bp_graph.nodes[node].source:
                     idx_offset = (
                         bp_graph.num_seq_edges
                         + bp_graph.num_conc_edges
@@ -480,13 +479,13 @@ def get_single_bp_edge_constraint(
             return pyo.Constraint.Skip
         should_skip = True  #  need to skip if no components to avoid trivial constraint error
         for node in bp_graph.nodes:
-            for ci in set(bp_graph.nodes[node][1]):
+            for ci in set(bp_graph.nodes[node].concordant):
                 expr_xc += (
                     model.c[node_order[node], i]
                     * model.x[(bp_graph.num_seq_edges + ci), i]
                 )
                 should_skip = False
-            for di in set(bp_graph.nodes[node][2]):
+            for di in set(bp_graph.nodes[node].discordant):
                 expr_xc += (
                     model.c[node_order[node], i]
                     * model.x[
