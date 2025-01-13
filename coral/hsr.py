@@ -43,7 +43,6 @@ def fetch(lr_bamfh):
             read_length[rn] = read.query_length
         try:
             sa_list = read.get_tag("SA:Z:")[:-1].split(";")
-            breakpoint()
             for sa in sa_list:
                 try:
                     if sa not in chimeric_alignments[rn]:

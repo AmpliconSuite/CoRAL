@@ -137,8 +137,11 @@ def alignment2bp(
 ):
     bp_list: list[Breakpoint] = []
     has_bp_assigned = [False] * (len(alignments) - 1)
-
+    alignments.sort(key=lambda x: x.query_bounds.start)
     # Breakpoint from local alignment i and i + 1
+    # if "9214_F_30" in rn:  #
+    #     breakpoint()
+    # == 9214_F_30_7676_8', 1, 0), 0, 1, 60, 60]
     for ri in range(len(alignments) - 1):
         chimera1, chimera2 = alignments[ri], alignments[ri + 1]
         query_gap = chimera2.query_bounds.start - chimera1.query_bounds.end
@@ -257,6 +260,10 @@ def alignment2bp_l(
         if ref_intv1.strand == ref_intv2.strand or (
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
+            bp_to_add = interval2bp(
+                chimera1, chimera2, BPReads(rn, i, i + 1), query_gap
+            )
+            logger.info(f"{bp_to_add=}")
             bp_list.append(
                 interval2bp(
                     chimera1, chimera2, BPReads(rn, i, i + 1), query_gap
@@ -300,6 +307,11 @@ def alignment2bp_l(
         if prev_intv.strand == next_intv.strand or (
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
+            bp_to_add = interval2bp(
+                prev, next, BPReads(rn, i - 1, i + 1), query_gap
+            )
+            logger.info(f"{bp_to_add=}")
+
             bp_list.append(
                 interval2bp(prev, next, BPReads(rn, i - 1, i + 1), query_gap)
             )

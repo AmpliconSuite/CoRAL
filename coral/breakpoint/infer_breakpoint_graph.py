@@ -228,18 +228,13 @@ class LongReadBamToBreakpointMetadata:
         for alignments in chimeras_by_read.values():
             for alignment in alignments:
                 read_interval = alignment.ref_interval
-                try:
-                    if (chr_tag := read_interval.chr) in self.cns_tree:
-                        cn_seg_idxs = self.cns_tree[
-                            chr_tag
-                        ].get_cn_segment_indices(read_interval)
-                        alignment.cns = cn_seg_idxs
-                        for cni in cn_seg_idxs:
-                            chr_cns_to_chimeras[chr_tag][cni].append(
-                                read_interval
-                            )
-                except:
-                    breakpoint()
+                if (chr_tag := read_interval.chr) in self.cns_tree:
+                    cn_seg_idxs = self.cns_tree[chr_tag].get_cn_segment_indices(
+                        read_interval
+                    )
+                    alignment.cns = cn_seg_idxs
+                    for cni in cn_seg_idxs:
+                        chr_cns_to_chimeras[chr_tag][cni].append(read_interval)
         logger.info("Completed hashing chimeric reads to CN segments.")
         self.chr_cns_to_chimeras = chr_cns_to_chimeras
         self.chimeric_alignments = chimeras_by_read
@@ -312,54 +307,55 @@ class LongReadBamToBreakpointMetadata:
                         interval.amplicon_id = start_intv.amplicon_id
                         logger.debug(
                             "Reset ccid of amplicon interval %d to %d."
-                            % (
-                                ai_,
-                                start_intv.amplicon_id,
-                            ),
+                            % (ai_, start_intv.amplicon_id),
                         )
                         logger.debug(f"Updated amplicon interval: {interval}")
             # Modify interval connections
             connection_map = {}
             for connection in self.amplicon_interval_connections:
                 connection_map[connection] = connection
-            for ai in range(ai1 + 1, ai2 + 1):
-                for connection in connection_map:
-                    if ai == connection_map[connection][0]:
-                        connection_map[connection] = (
-                            ai1,
-                            connection_map[connection][1],
-                        )
-                    if ai == connection_map[connection][1]:
-                        connection_map[connection] = (
-                            connection_map[connection][0],
-                            ai1,
-                        )
+
+            merged_idx = ai1
+            num_removed_intvs = ai2 - ai1
+            for ai in range(ai1, ai2 + 1):
+                for prev_conn in connection_map:
+                    prev_src, prev_dst = connection_map[prev_conn]
+
+                    # Update connections from prev interval to merged interval
+                    if ai == prev_src:
+                        if prev_dst > ai2:
+                            dst = prev_dst - num_removed_intvs
+                        else:
+                            dst = prev_dst
+                        connection_map[prev_conn] = (merged_idx, dst)
+                    if ai == prev_dst:
+                        connection_map[prev_conn] = (prev_src, merged_idx)
+
+                    # Re-order connections as ascending
                     if (
-                        connection_map[connection][1]
-                        < connection_map[connection][0]
+                        connection_map[prev_conn][1]
+                        < connection_map[prev_conn][0]
                     ):
-                        connection_map[connection] = (
-                            connection_map[connection][1],
-                            connection_map[connection][0],
+                        connection_map[prev_conn] = (
+                            connection_map[prev_conn][1],
+                            connection_map[prev_conn][0],
                         )
-            for connection in connection_map:
-                if connection != connection_map[connection]:
+
+            for prev_conn in connection_map:
+                new_conn = connection_map[prev_conn]
+                if prev_conn != new_conn:
                     logger.debug(
                         f"Reset connection between amplicon intervals "
-                        f"{connection} to {connection_map[connection]}."
+                        f"{prev_conn} to {new_conn}."
                     )
-                    self.amplicon_interval_connections[
-                        connection_map[connection]
-                    ] |= self.amplicon_interval_connections[connection]
+                    self.amplicon_interval_connections[new_conn] |= (
+                        self.amplicon_interval_connections[prev_conn]
+                    )
+                    del self.amplicon_interval_connections[prev_conn]
 
-                    del self.amplicon_interval_connections[connection]
-                    if (
-                        connection_map[connection][0]
-                        == connection_map[connection][1]
-                    ):
-                        del self.amplicon_interval_connections[
-                            connection_map[connection]
-                        ]
+                    if new_conn[0] == new_conn[1]:
+                        del self.amplicon_interval_connections[new_conn]
+
             # Delete intervals
             for ai in range(ai1 + 1, ai2 + 1)[::-1]:
                 intv = self.amplicon_intervals[ai]
@@ -399,6 +395,8 @@ class LongReadBamToBreakpointMetadata:
         # ind_map = {
         #     sorted_ai_indices[i]: i for i in range(len(sorted_ai_indices))
         # }
+        logger.info(f"start {self.amplicon_interval_connections=} ")
+
         connection_map = {
             connection: (
                 min(connection[0], connection[1]),
@@ -412,6 +410,8 @@ class LongReadBamToBreakpointMetadata:
             ]
             for connection in self.amplicon_interval_connections
         }
+        logger.info(f"pre-reset {self.amplicon_interval_connections=}")
+
         # Reset ccids
         ai_explored = np.zeros(len(self.amplicon_intervals))
         for ai, interval in enumerate(self.amplicon_intervals):
@@ -687,9 +687,10 @@ class LongReadBamToBreakpointMetadata:
         )
         ns = self.cns_intervals_by_chr[chr_tag][start_cns].start
         ne = self.cns_intervals_by_chr[chr_tag][end_cns].end
-        logger.debug(f"\t\tRefining new interval {[chr_, ns, ne]}.")
+        logger.debug(
+            f"\t\tRefining new interval {[chr_, ns, ne]}, # reads = {len(reads)}."
+        )
 
-        cns_tree = self.cns_tree[chr_tag]
         new_bp_list = []
 
         for read_name in reads:
@@ -736,6 +737,7 @@ class LongReadBamToBreakpointMetadata:
             )
             new_intervals_refined.extend(new_intvs)
             new_intervals_connections.extend(new_conns)
+        logger.info(f"found {new_intervals_connections=}")
         return new_intervals_refined, new_intervals_connections
 
     def get_refined_cni_intvs(
@@ -865,7 +867,6 @@ class LongReadBamToBreakpointMetadata:
             new_intervals_connections: list[list[BPIdx]] = []
 
             for chr_ in chr_to_cns_to_reads:
-                print(f"processing new d1 seg {chr_}")
                 logger.debug(f"\t\tFound new intervals on chr {chr_=}")
                 # Initial list of new amplicon intervals, based on CN seg idxs
                 cni_intv_to_reads: dict[
@@ -947,14 +948,9 @@ class LongReadBamToBreakpointMetadata:
                                 and e_intv.contains(bp.chr1, bp.pos1)
                                 or e_intv.contains(bp.chr2, bp.pos2)
                             ):
-                                try:
-                                    self.amplicon_interval_connections[
-                                        connection
-                                    ].add(bpi)
-                                except:
-                                    self.amplicon_interval_connections[
-                                        connection
-                                    ] = set([bpi])
+                                self.amplicon_interval_connections[
+                                    connection
+                                ].add(bpi)
                     for ei_ in eis:
                         e_intv = self.amplicon_intervals[ei_]
                         if ei_ != ai_ and e_intv.amplicon_id < 0:
@@ -983,16 +979,9 @@ class LongReadBamToBreakpointMetadata:
                                     if e_intv.contains(
                                         bp.chr1, bp.pos1
                                     ) or e_intv.contains(bp.chr2, bp.pos2):
-                                        try:
-                                            self.amplicon_interval_connections[
-                                                connection
-                                            ].add(bpi)
-                                        except:
-                                            self.amplicon_interval_connections[
-                                                connection
-                                            ] = set(
-                                                [bpi],
-                                            )
+                                        self.amplicon_interval_connections[
+                                            connection
+                                        ].add(bpi)
                                     else:
                                         self.amplicon_interval_connections[
                                             (ai_, nai)
@@ -1064,6 +1053,7 @@ class LongReadBamToBreakpointMetadata:
                         io2 = interval_overlap_l(
                             bp_end_intv, self.amplicon_intervals
                         )
+                        print(bp_start_intv, bp_end_intv)
                         if io1 and io2:
                             assert (
                                 self.amplicon_intervals[io1].amplicon_id
@@ -1078,6 +1068,9 @@ class LongReadBamToBreakpointMetadata:
                             self.amplicon_interval_connections[
                                 (min(io1, io2), max(io1, io2))
                             ].add(bpi)
+                            print(
+                                f"Added connection {bpi} between {io1} and {io2}."
+                            )
                     else:
                         logger.debug(
                             f"\tDiscarded the subcluster {num_subcluster}."
@@ -1275,7 +1268,7 @@ class LongReadBamToBreakpointMetadata:
             io2 = interval_overlap_l(
                 Interval(bp.chr2, bp.pos2, bp.pos2), self.amplicon_intervals
             )
-            assert io1 and io2
+            assert io1 is not None and io2 is not None
             assert (
                 self.amplicon_intervals[io1].amplicon_id
                 == self.amplicon_intervals[io2].amplicon_id
@@ -1324,66 +1317,56 @@ class LongReadBamToBreakpointMetadata:
         for amplicon_idx in range(len(self.lr_graph)):
             for seqi in range(len(self.lr_graph[amplicon_idx].sequence_edges)):
                 seg = self.lr_graph[amplicon_idx].sequence_edges[seqi]
-                if seg[5] == -1:
-                    logger.debug(f"Finding LR cov for sequence edge {seg[:3]}.")
+                if seg.lr_count == -1:
+                    logger.debug(f"Finding LR cov for sequence edge {seg}.")
                     """
 					For long read, use the total number of nucleotides
 					"""
                     rl_list = [
                         read
                         for read in self.lr_bamfh.fetch(
-                            seg[0], seg[1], seg[2] + 1
+                            seg.chr, seg.start, seg.end + 1
                         )
                         if read.infer_read_length()
                     ]
-                    self.lr_graph[amplicon_idx].sequence_edges[seqi][5] = len(
-                        rl_list
-                    )
-                    self.lr_graph[amplicon_idx].sequence_edges[seqi][6] = sum(
+                    self.lr_graph[amplicon_idx].sequence_edges[
+                        seqi
+                    ].lr_count = len(rl_list)
+                    self.lr_graph[amplicon_idx].sequence_edges[
+                        seqi
+                    ].lr_nc = sum(
                         [
                             sum(nc)
                             for nc in self.lr_bamfh.count_coverage(
-                                seg[0],
-                                seg[1],
-                                seg[2] + 1,
+                                seg.chr,
+                                seg.start,
+                                seg.end + 1,
                                 quality_threshold=0,
                                 read_callback="nofilter",
                             )
                         ],
                     )
-                    logger.debug(
-                        f"LR cov assigned for sequence edge {seg[:3]}."
-                    )
+                    logger.debug(f"LR cov assigned for sequence edge {seg}.")
         """
 		Extract the long read coverage from bam file, if missing, for each concordant edge 
 		"""
         for amplicon_idx in range(len(self.lr_graph)):
             for eci in range(len(self.lr_graph[amplicon_idx].concordant_edges)):
                 ec = self.lr_graph[amplicon_idx].concordant_edges[eci]
-                logger.debug(f"Finding cov for concordant edge {ec[:6]}.")
-                rls = set(
-                    [
-                        read.query_name
-                        for read in self.lr_bamfh.fetch(
-                            contig=ec[0], start=ec[1], stop=ec[1] + 1
-                        )
-                    ],
-                )
-                rrs = set(
-                    [
-                        read.query_name
-                        for read in self.lr_bamfh.fetch(
-                            contig=ec[3], start=ec[4], stop=ec[4] + 1
-                        )
-                    ],
-                )
+                logger.debug(f"Finding cov for concordant edge {ec}.")
+                rls = {
+                    read.query_name for read in self.bam.fetch_node(ec.node1)
+                }
+                rrs = {
+                    read.query_name for read in self.bam.fetch_node(ec.node2)
+                }
                 rls1 = set(
                     [
                         read.query_name
                         for read in self.lr_bamfh.fetch(
-                            contig=ec[0],
-                            start=ec[1] - self.min_bp_match_cutoff_ - 1,
-                            stop=ec[1] - self.min_bp_match_cutoff_,
+                            contig=ec.node1.chr,
+                            start=ec.node1.pos - self.min_bp_match_cutoff_ - 1,
+                            stop=ec.node1.pos - self.min_bp_match_cutoff_,
                         )
                     ],
                 )
@@ -1391,32 +1374,36 @@ class LongReadBamToBreakpointMetadata:
                     [
                         read.query_name
                         for read in self.lr_bamfh.fetch(
-                            contig=ec[3],
-                            start=ec[4] + self.min_bp_match_cutoff_,
-                            stop=ec[4] + self.min_bp_match_cutoff_ + 1,
+                            contig=ec.node2.chr,
+                            start=ec.node2.pos + self.min_bp_match_cutoff_,
+                            stop=ec.node2.pos + self.min_bp_match_cutoff_ + 1,
                         )
                     ],
                 )
                 rbps = set([])
-                for bpi in self.lr_graph[amplicon_idx].nodes[
-                    Node(ec[0], ec[1], ec[2])
-                ][2]:
-                    for r in self.lr_graph[amplicon_idx].discordant_edges[bpi][
-                        10
-                    ]:
+                for bpi in (
+                    self.lr_graph[amplicon_idx].nodes[ec.node1].concordant
+                ):
+                    for r in (
+                        self.lr_graph[amplicon_idx].discordant_edges[bpi].reads
+                    ):
                         rbps.add(r[0])
-                for bpi in self.lr_graph[amplicon_idx].nodes[
-                    Node(ec[3], ec[4], ec[5])
-                ][2]:
-                    for r in self.lr_graph[amplicon_idx].discordant_edges[bpi][
-                        10
-                    ]:
+                for bpi in (
+                    self.lr_graph[amplicon_idx].nodes[ec.node2].concordant
+                ):
+                    for r in (
+                        self.lr_graph[amplicon_idx].discordant_edges[bpi].reads
+                    ):
                         rbps.add(r[0])
-                self.lr_graph[amplicon_idx].concordant_edges[eci][9] = rls | rrs
-                self.lr_graph[amplicon_idx].concordant_edges[eci][8] = len(
+                self.lr_graph[amplicon_idx].concordant_edges[eci].reads = (
+                    rls | rrs
+                )
+                self.lr_graph[amplicon_idx].concordant_edges[
+                    eci
+                ].lr_count = len(
                     (rls & rrs & rls1 & rrs1) - rbps,
                 )
-                logger.debug(f"LR cov assigned for concordant edge {ec[:6]}.")
+                logger.debug(f"LR cov assigned for concordant edge {ec}.")
 
     def compute_path_constraints(self):
         """Convert reads mapped within the amplicons into subpath constraints"""

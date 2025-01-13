@@ -4,7 +4,7 @@ from typing import Generator, Protocol
 
 import pysam
 
-from coral.datatypes import Interval
+from coral.datatypes import Interval, Node
 
 
 class BAMReadProtocol(Protocol):
@@ -72,6 +72,9 @@ class BAMWrapper(pysam.AlignmentFile):
         self, interval: Interval
     ) -> Generator[SAMSegment, None, None]:
         return self.fetch(interval.chr, interval.start, interval.end + 1)  # type: ignore
+
+    def fetch_node(self, node: Node) -> Generator[SAMSegment, None, None]:
+        return self.fetch(node.chr, node.pos, node.pos + 1)  # type: ignore
 
 
 # class TypedBAM(pysam.AlignmentFile, BAMProtocol):

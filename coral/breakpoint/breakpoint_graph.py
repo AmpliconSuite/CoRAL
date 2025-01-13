@@ -141,8 +141,6 @@ class BreakpointGraph:
             Node(chr, l, Strand.REVERSE),
             Node(chr, r, Strand.FORWARD),
         )
-        if node1 not in self.nodes or node2 not in self.nodes:
-            raise Exception("Breakpoint node must be added first.")
         lseq = len(self.sequence_edges)
         self.nodes[node1].sequence.append(lseq)
         self.nodes[node2].sequence.append(lseq)
@@ -168,8 +166,6 @@ class BreakpointGraph:
             or node2.strand != Strand.REVERSE
         ):
             raise Exception("Invalid concordant edge.")
-        if node1 not in self.nodes or node2 not in self.nodes:
-            raise Exception("Breakpoint node must be added first.")
         lc = len(self.concordant_edges)
         self.nodes[node1].concordant.append(lc)
         self.nodes[node2].concordant.append(lc)
@@ -189,8 +185,6 @@ class BreakpointGraph:
 
         node1 = datatypes.Node(bp.chr1, bp.pos1, bp.strand1)
         node2 = datatypes.Node(bp.chr2, bp.pos2, bp.strand2)
-        if node1 not in self.nodes or node2 not in self.nodes:
-            raise Exception("Breakpoint node must be added first.")
 
         ld = len(self.discordant_edges)
         self.nodes[node1].discordant.append(ld)
@@ -246,11 +240,13 @@ class BreakpointGraph:
         for srci in sorted_del_list:
             del self.source_edges[srci]
         for node in self.nodes.keys():
-            for i in range(len(self.nodes[node][3])):
-                if self.nodes[node][3][i] in sorted_del_list:
-                    del self.nodes[node][3][i]
+            for i in range(len(self.nodes[node].source)):
+                if self.nodes[node].source[i] in sorted_del_list:
+                    del self.nodes[node].source[i]
                 else:
-                    self.nodes[node][3][i] = srci_map[self.nodes[node][3][i]]
+                    self.nodes[node].source[i] = srci_map[
+                        self.nodes[node].source[i]
+                    ]
 
     def del_redundant_sequence_edges(self):
         """Delete redundant sequence edges after merging."""
@@ -259,17 +255,17 @@ class BreakpointGraph:
         del_list = []
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            node1 = Node(sseg[0], sseg[1], Strand.REVERSE)
-            node2 = Node(sseg[0], sseg[2], Strand.FORWARD)
+            node1 = Node(sseg.chr, sseg.start, Strand.REVERSE)
+            node2 = Node(sseg.chr, sseg.end, Strand.FORWARD)
             s1 = (
-                len(self.nodes[node1][1])
-                + len(self.nodes[node1][2])
-                + len(self.nodes[node1][3])
+                len(self.nodes[node1].concordant)
+                + len(self.nodes[node1].discordant)
+                + len(self.nodes[node1].source)
             )
             s2 = (
-                len(self.nodes[node2][1])
-                + len(self.nodes[node2][2])
-                + len(self.nodes[node2][3])
+                len(self.nodes[node2].concordant)
+                + len(self.nodes[node2].discordant)
+                + len(self.nodes[node2].source)
             )
             if s1 + s2 == 0:
                 del_list.append(seqi)
@@ -277,19 +273,17 @@ class BreakpointGraph:
             ai = self.sequence_edges[seqi][:3]
             if ai in self.amplicon_intervals:
                 del self.amplicon_intervals[self.amplicon_intervals.index(ai)]
-            node1 = (ai[0], ai[1], Strand.REVERSE)
-            node2 = (ai[0], ai[2], Strand.FORWARD)
+            node1 = Node(ai.chr, ai.start, Strand.REVERSE)
+            node2 = Node(ai.chr, ai.end, Strand.FORWARD)
             del self.sequence_edges[seqi]
             del self.nodes[node1]
             del self.nodes[node2]
             self.del_endnode(node1)
             self.del_endnode(node2)
-        for seqi in range(len(self.self.sequence_edges)):
+        for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            node1 = (sseg[0], sseg[1], Strand.REVERSE)
-            node2 = (sseg[0], sseg[2], Strand.FORWARD)
-            self.nodes[node1][0][0] = seqi
-            self.nodes[node2][0][0] = seqi
+            self.nodes[sseg.start_node].sequence[0] = seqi
+            self.nodes[sseg.end_node].sequence[0] = seqi
 
     def merge_edges(self):
         """Merge sequence edges connected only by concordant edges;
@@ -299,16 +293,16 @@ class BreakpointGraph:
         seq_del_list = []  # The list of sequence edges to be deleted
         for ci in range(len(self.concordant_edges)):
             ce = self.concordant_edges[ci]
-            node1 = (ce[0], ce[1], ce[2])
-            node2 = (ce[3], ce[4], ce[5])
+            node1 = ce.node1
+            node2 = ce.node2
             if (
-                len(self.nodes[node1][2]) == 0
-                and len(self.nodes[node2][2]) == 0
-                and len(self.nodes[node1][3]) == 0
-                and len(self.nodes[node2][3]) == 0
+                len(self.nodes[node1].discordant) == 0
+                and len(self.nodes[node2].discordant) == 0
+                and len(self.nodes[node1].source) == 0
+                and len(self.nodes[node2].source) == 0
             ):
-                seqi1 = self.nodes[node1][0][0]
-                seqi2 = self.nodes[node2][0][0]
+                seqi1 = self.nodes[node1].sequence[0]
+                seqi2 = self.nodes[node2].sequence[0]
                 seq_del_list.append(seqi1)
                 del self.nodes[node1]
                 del self.nodes[node2]
@@ -346,36 +340,28 @@ class BreakpointGraph:
             del self.concordant_edges[ci]
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            node1 = (sseg[0], sseg[1], Strand.REVERSE)
-            node2 = (sseg[0], sseg[2], Strand.FORWARD)
-            self.nodes[node1][0][0] = seqi
-            self.nodes[node2][0][0] = seqi
+            self.nodes[sseg.start_node].sequence[0] = seqi
+            self.nodes[sseg.end_node].sequence[0] = seqi
         for ci in range(len(self.concordant_edges)):
             ce = self.concordant_edges[ci]
-            node1 = (ce[0], ce[1], ce[2])
-            node2 = (ce[3], ce[4], ce[5])
-            self.nodes[node1][1][0] = ci
-            self.nodes[node2][1][0] = ci
+            self.nodes[ce.node1].concordant[0] = ci
+            self.nodes[ce.node2].concordant[0] = ci
 
     def sort_edges(self):
         """Sort sequence and concordant edges according to chromosome and position
         Reset adjacent list
         """
-        self.sequence_edges.sort(
-            key=lambda sseg: (CHR_TAG_TO_IDX[sseg[0]], sseg[1])
-        )
-        self.concordant_edges.sort(
-            key=lambda ce: (CHR_TAG_TO_IDX[ce[0]], ce[1])
-        )
+        self.sequence_edges.sort()
+        self.concordant_edges.sort()
 
         for seqi in range(len(self.sequence_edges)):
             sseg = self.sequence_edges[seqi]
-            self.nodes[(sseg[0], sseg[1], Strand.REVERSE)][0] = [seqi]
-            self.nodes[(sseg[0], sseg[2], Strand.FORWARD)][0] = [seqi]
+            self.nodes[sseg.start_node].sequence = [seqi]
+            self.nodes[sseg.end_node].sequence = [seqi]
         for ci in range(len(self.concordant_edges)):
             ce = self.concordant_edges[ci]
-            self.nodes[(ce[0], ce[1], ce[2])][1] = [ci]
-            self.nodes[(ce[3], ce[4], ce[5])][1] = [ci]
+            self.nodes[ce.node1].concordant = [ci]
+            self.nodes[ce.node2].concordant = [ci]
 
     def compute_cn_lr(self, normal_cov_lr: float) -> None:
         """Estimate CN (copy number) for each edge, using only long reads.

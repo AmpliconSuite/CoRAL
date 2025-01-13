@@ -17,6 +17,7 @@ import numpy as np
 import pyomo.environ as pyo
 
 from coral import types
+from coral.constants import CHR_TAG_TO_IDX
 
 if TYPE_CHECKING:
     from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -91,7 +92,10 @@ class Node(NamedTuple):
     strand: Strand
 
     def __str__(self) -> str:
-        return f"{self.chr}-{self.pos}({self.strand})"
+        return f"{self.chr}-{self.pos:,d}[{self.strand.value}]"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 @dataclass
@@ -111,14 +115,14 @@ class Interval:
         return self.end - self.start + 1
 
     def __lt__(self, other: Interval) -> bool:
-        return (self.chr, self.start, self.end) < (
-            other.chr,
+        return (CHR_TAG_TO_IDX[self.chr], self.start, self.end) < (
+            CHR_TAG_TO_IDX[other.chr],
             other.start,
             other.end,
         )
 
     def __str__(self) -> str:
-        return f"{self.chr}:{self.start}-{self.end}"
+        return f"{self.chr}:{self.start:,d}-{self.end:,d}"
 
     @property
     def left(self) -> int:
@@ -222,7 +226,7 @@ class AmpliconInterval(Interval):
     amplicon_id: int = -1  # TODO: update to None for more obvious behavior
 
     def __str__(self) -> str:
-        return f"Amplicon{self.amplicon_id}>{self.chr}:{self.start}-{self.end}"
+        return f"Amplicon{self.amplicon_id}>{super()}"
 
 
 @dataclass
@@ -315,10 +319,10 @@ class Breakpoint:
         return True
 
     def __str__(self) -> str:
-        return (
-            f"{self.chr1}-{self.pos1}({self.strand1})___"
-            f"{self.chr2}-{self.pos2}({self.strand2})"
-        )
+        return f"BP({self.node1}___{self.node2}, {self.read_info})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 @dataclass
@@ -572,9 +576,27 @@ class SequenceEdge:
 
     cn: float = 0.0  # Edge Copy Number
 
+    def __str__(self) -> str:
+        return f"SeqEdge({self.chr}-{self.start:,d}-{self.end:,d})"
+
+    def __lt__(self, other: SequenceEdge) -> bool:
+        return (CHR_TAG_TO_IDX[self.chr], self.start, self.end) < (
+            CHR_TAG_TO_IDX[self.chr],
+            other.start,
+            other.end,
+        )
+
     @property
     def gap(self) -> int:
         return self.end - self.start + 1
+
+    @property
+    def start_node(self) -> Node:
+        return Node(self.chr, self.start, Strand.REVERSE)
+
+    @property
+    def end_node(self) -> Node:
+        return Node(self.chr, self.end, Strand.FORWARD)
 
 
 @dataclass
@@ -589,6 +611,12 @@ class ConcordantEdge:
     reads: set[BPReads] = field(default_factory=set)
     cn: float = 0.0  # Edge Copy Number
 
+    def __lt__(self, other: ConcordantEdge) -> bool:
+        return (CHR_TAG_TO_IDX[self.node1.chr], self.node1.pos) < (
+            CHR_TAG_TO_IDX[other.node1.chr],
+            other.node1.pos,
+        )
+
 
 Edge = Union[SourceEdge, DiscordantEdge, SequenceEdge, ConcordantEdge]
 
@@ -601,3 +629,7 @@ class AdjacencyMatrix:
     concordant: list[int] = field(default_factory=list)
     discordant: list[int] = field(default_factory=list)
     source: list[int] = field(default_factory=list)
+
+    @property
+    def num_nonsrc_edges(self) -> int:
+        return len(self.sequence) + len(self.concordant) + len(self.discordant)
