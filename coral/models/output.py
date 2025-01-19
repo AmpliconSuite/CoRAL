@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import io
 import logging
 import random
 from typing import Any, Dict
 
-from coral import constants, types
+import coral.datatypes
+from coral import constants, datatypes, types
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
+    AmpliconWalk,
     ConcordantEdge,
     DiscordantEdge,
+    EdgeId,
     Node,
+    PathConstraint,
     Strand,
+    Walk,
     WalkData,
 )
 
@@ -21,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 def eulerian_cycle_t(
     g: BreakpointGraph,
-    edges_next_cycle,
-    path_constraints_next_cycle,
-    path_constraints_support,
-):
+    edge_counts_next_cycle: dict[EdgeId, int],
+    path_constraints_next_cycle: list[Walk],
+    path_constraints_support: list[int],
+) -> Walk:
     """Return an eulerian traversal of a cycle, represented by a dict of edges
 
     g: breakpoint graph (object)
@@ -59,13 +65,13 @@ def eulerian_cycle_t(
         num_trials += 1
         eulerian_cycle = []
         eulerian_cycle_ = []
-        edges_cur = edges_next_cycle.copy()
+        edges_cur = edge_counts_next_cycle.copy()
         last_seq_edge = lseg  # Start with the edge with smallest index and on the positive strand
-        for edge in edges_cur.keys():
+        for edge in edges_cur:
             if edge[0] == "e":
                 last_seq_edge = min(last_seq_edge, edge[1])
         last_edge_dir = "+"
-        eulerian_cycle.append(("s", last_seq_edge))
+        eulerian_cycle.append(EdgeId("s", last_seq_edge))
         eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
         while len(edges_cur) > 0:
             seq_edge = g.sequence_edges[last_seq_edge]
@@ -74,10 +80,10 @@ def eulerian_cycle_t(
                 node = Node(seq_edge.chr, seq_edge.start, Strand.REVERSE)
             eulerian_cycle.append(node)
             next_bp_edges = []  # Since cycle, only consider discordant edges and concordant edges
-            for ci in g.nodes[node].concordant:
-                next_bp_edges.append(("c", ci))
-            for di in g.nodes[node].discordant:
-                next_bp_edges.append(("d", di))
+            for ci in g.node_adjacencies[node].concordant:
+                next_bp_edges.append(EdgeId("c", ci))
+            for di in g.node_adjacencies[node].discordant:
+                next_bp_edges.append(EdgeId("d", di))
             del_list = [
                 i
                 for i in range(len(next_bp_edges))
@@ -104,19 +110,19 @@ def eulerian_cycle_t(
                 if node == node_:
                     node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
-                last_seq_edge = g.nodes[node_].sequence[0]
-                eulerian_cycle.append(("s", last_seq_edge))
+                last_seq_edge = g.node_adjacencies[node_].sequence[0]
+                eulerian_cycle.append(EdgeId("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
                 else:
                     last_edge_dir = "-"
                     eulerian_cycle_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = (
-                    int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[EdgeId("e", last_seq_edge)] = (
+                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
                 )
-                if edges_cur[("e", last_seq_edge)] == 0:
-                    del edges_cur[("e", last_seq_edge)]
+                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
+                    del edges_cur[EdgeId("e", last_seq_edge)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_cycle.append(next_bp_edges[r])
@@ -133,19 +139,19 @@ def eulerian_cycle_t(
                 if node == node_:
                     node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
-                last_seq_edge = g.nodes[node_].sequence[0]
-                eulerian_cycle.append(("s", last_seq_edge))
+                last_seq_edge = g.node_adjacencies[node_].sequence[0]
+                eulerian_cycle.append(EdgeId("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
                 else:
                     last_edge_dir = "-"
                     eulerian_cycle_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = (
-                    int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[EdgeId("e", last_seq_edge)] = (
+                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
                 )
-                if edges_cur[("e", last_seq_edge)] == 0:
-                    del edges_cur[("e", last_seq_edge)]
+                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
+                    del edges_cur[EdgeId("e", last_seq_edge)]
         if valid == 1 and len(best_cycle) == 0:
             best_cycle = eulerian_cycle_
         path_metric: list[Any] = [[], 0, 0]
@@ -214,10 +220,10 @@ def eulerian_cycle_t(
 
 def eulerian_path_t(
     g: BreakpointGraph,
-    edges_next_path: types.AmpliconWalk,
-    path_constraints_next_path,
-    path_constraints_support,
-):
+    edges_next_path: AmpliconWalk,
+    path_constraints_next_path: list[Walk],
+    path_constraints_support: list[int],
+) -> Walk:
     """Return an eulerian traversal of an s-t walk, represented by a dict of edges
 
     g: breakpoint graph (object)
@@ -235,11 +241,9 @@ def eulerian_path_t(
     path_constraints_support: num long reads supporting each subpath constraint
     """
     lseg = len(g.sequence_edges)
-    endnode_list = [node for node in g.endnodes.keys()]
+    endnode_list = list(g.endnode_adjacencies.keys())
 
-    eulerian_path: list[
-        Any
-    ] = []  # A path is edge - node list starting and ending with edges
+    eulerian_path: Walk = []  # A path is edge - node list starting and ending with edges
     # Since Eulerian, there could be subcycles in the middle of a path
     eulerian_path_: list[Any] = []  # Path in AA cycle format
     best_path: list[Any] = []  # Path in AA cycle format
@@ -260,44 +264,44 @@ def eulerian_path_t(
         last_seq_edge = lseg
         last_edge_dir = "+"
 
-        src_edge: tuple[types.EdgeType, types.EdgeIdx]
-        edge: tuple[types.EdgeType, types.EdgeIdx]
+        src_edge: EdgeId
+        edge: EdgeId
         for edge in edges_cur:  # Start with the edge with smallest index
             if edge[0] == "s" or edge[0] == "t":
                 src_edge = edge
                 node = g.source_edges[edge[1]].node
                 if len(eulerian_path) == 0:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
-                    eulerian_path.append(("$", -1))
+                    eulerian_path.append(EdgeId("$", -1))
                     eulerian_path.append(node)
-                    last_seq_edge = g.nodes[node].sequence[0]
-                elif g.nodes[node].sequence[0] < last_seq_edge:
+                    last_seq_edge = g.node_adjacencies[node].sequence[0]
+                elif g.node_adjacencies[node].sequence[0] < last_seq_edge:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path[-1] = node
-                    last_seq_edge = g.nodes[node].sequence[0]
+                    last_seq_edge = g.node_adjacencies[node].sequence[0]
             elif edge[0] == "ns" or edge[0] == "nt":
                 src_edge = edge
                 node = endnode_list[edge[1]]
                 if len(eulerian_path) == 0:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
-                    eulerian_path.append(("$", -1))
+                    eulerian_path.append(EdgeId("$", -1))
                     eulerian_path.append(node)
-                    last_seq_edge = g.nodes[node].sequence[0]
-                elif g.nodes[node].sequence[0] < last_seq_edge:
+                    last_seq_edge = g.node_adjacencies[node].sequence[0]
+                elif g.node_adjacencies[node].sequence[0] < last_seq_edge:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path[-1] = node
-                    last_seq_edge = g.nodes[node].sequence[0]
+                    last_seq_edge = g.node_adjacencies[node].sequence[0]
         del edges_cur[src_edge]
-        eulerian_path.append(("s", last_seq_edge))
+        eulerian_path.append(EdgeId("s", last_seq_edge))
         if last_edge_dir == "+":
             eulerian_path_.append(str(last_seq_edge + 1) + "+")
         else:
             eulerian_path_.append(str(last_seq_edge + 1) + "-")
-        edges_cur[("e", last_seq_edge)] = (
-            int(edges_cur[("e", last_seq_edge)]) - 1
+        edges_cur[EdgeId("e", last_seq_edge)] = (
+            int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
         )
-        if edges_cur[("e", last_seq_edge)] == 0:
-            del edges_cur[("e", last_seq_edge)]
+        if edges_cur[EdgeId("e", last_seq_edge)] == 0:
+            del edges_cur[EdgeId("e", last_seq_edge)]
         while len(edges_cur) > 0:
             seq_edge = g.sequence_edges[last_seq_edge]
             node = Node(seq_edge.chr, seq_edge.end, Strand.FORWARD)
@@ -310,15 +314,14 @@ def eulerian_path_t(
                 or list(edges_cur.keys())[0][0] == "t"
                 or list(edges_cur.keys())[0][0] == "nt"
             ):
-                eulerian_path.append(("$", -1))
+                eulerian_path.append(EdgeId("$", -1))
                 break
-            next_bp_edges: list[
-                tuple[types.EdgeType, types.EdgeIdx]
-            ] = []  # Since cycle, only consider discordant edges and concordant edges
-            for ci in g.nodes[node].concordant:
-                next_bp_edges.append(("c", ci))
-            for di in g.nodes[node].discordant:
-                next_bp_edges.append(("d", di))
+            # Since cycle, only consider discordant/concordant edges
+            next_bp_edges: list[EdgeId] = []
+            for ci in g.node_adjacencies[node].concordant:
+                next_bp_edges.append(EdgeId("c", ci))
+            for di in g.node_adjacencies[node].discordant:
+                next_bp_edges.append(EdgeId("d", di))
             del_list = [
                 i
                 for i in range(len(next_bp_edges))
@@ -346,19 +349,19 @@ def eulerian_path_t(
                 if node == node_:
                     node_ = bp_edge.node2
                 eulerian_path.append(node_)
-                last_seq_edge = g.nodes[node_].sequence[0]
-                eulerian_path.append(("s", last_seq_edge))
+                last_seq_edge = g.node_adjacencies[node_].sequence[0]
+                eulerian_path.append(EdgeId("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_path_.append(str(last_seq_edge + 1) + "+")
                 else:
                     last_edge_dir = "-"
                     eulerian_path_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = (
-                    int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[EdgeId("e", last_seq_edge)] = (
+                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
                 )
-                if edges_cur[("e", last_seq_edge)] == 0:
-                    del edges_cur[("e", last_seq_edge)]
+                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
+                    del edges_cur[EdgeId("e", last_seq_edge)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_path.append(next_bp_edges[r])
@@ -375,19 +378,19 @@ def eulerian_path_t(
                 if node == node_:
                     node_ = bp_edge.node2
                 eulerian_path.append(node_)
-                last_seq_edge = g.nodes[node_].sequence[0]
-                eulerian_path.append(("s", last_seq_edge))
+                last_seq_edge = g.node_adjacencies[node_].sequence[0]
+                eulerian_path.append(EdgeId("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_path_.append(str(last_seq_edge + 1) + "+")
                 else:
                     last_edge_dir = "-"
                     eulerian_path_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[("e", last_seq_edge)] = (
-                    int(edges_cur[("e", last_seq_edge)]) - 1
+                edges_cur[EdgeId("e", last_seq_edge)] = (
+                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
                 )
-                if edges_cur[("e", last_seq_edge)] == 0:
-                    del edges_cur[("e", last_seq_edge)]
+                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
+                    del edges_cur[EdgeId("e", last_seq_edge)]
         if valid == 1 and len(best_path) == 0:
             best_path = eulerian_path_
         path_metric: list[Any] = [[], 0, 0]
@@ -470,98 +473,61 @@ def output_amplicon_cycles(
     for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
         sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
         fp.write(f"Segment\t{seqi + 1}\t{sseg}\n")
+
+    satisfied_path_constraints = bb.path_constraints_satisfied[amplicon_idx]
+    longest_path_constraints = bb.longest_path_constraints[amplicon_idx]
+
     if output_all_paths:
         fp.write("List of all subpath constraints\n")
         for pathi in range(len(bb.path_constraints[amplicon_idx][0])):
-            fp.write("Path constraint\t%d\t" % (pathi + 1))
-            path_ = bb.path_constraints[amplicon_idx][0][pathi]
-            if path_[0][1] > path_[-1][1]:
-                path_ = path_[::-1]
-            for i in range(len(path_)):
-                if i % 4 == 0:
-                    if i < len(path_) - 1:
-                        if path_[i + 1][2] == "+":
-                            fp.write("%d+," % (path_[i][1] + 1))
-                        else:
-                            fp.write("%d-," % (path_[i][1] + 1))
-                    elif path_[i - 1][2] == "+":
-                        fp.write("%d-\t" % (path_[i][1] + 1))
-                    else:
-                        fp.write("%d+\t" % (path_[i][1] + 1))
-            fp.write(
-                "Support=%d\n" % (bb.path_constraints[amplicon_idx][1][pathi])
+            write_path_constraint_to_file(
+                pathi, bb.path_constraints[amplicon_idx][pathi], fp
             )
     else:
         fp.write("List of longest subpath constraints\n")
         path_constraint_indices_ = []
         for paths in (
-            bb.path_constraints_satisfied[amplicon_idx][0]
-            + bb.path_constraints_satisfied[amplicon_idx][1]
+            satisfied_path_constraints.cycles + satisfied_path_constraints.paths
         ):
             for pathi in paths:
                 if pathi not in path_constraint_indices_:
                     path_constraint_indices_.append(pathi)
-        for constraint_i in range(
-            len(bb.longest_path_constraints[amplicon_idx][1])
-        ):
-            fp.write("Path constraint\t%d\t" % (constraint_i + 1))
-            pathi = bb.longest_path_constraints[amplicon_idx][1][constraint_i]
-            path_ = bb.path_constraints[amplicon_idx][0][pathi]
-            if path_[0][1] > path_[-1][1]:
-                path_ = path_[::-1]
-            for i in range(len(path_)):
-                if i % 4 == 0:
-                    if i < len(path_) - 1:
-                        if path_[i + 1][2] == "+":
-                            fp.write("%d+," % (path_[i][1] + 1))
-                        else:
-                            fp.write("%d-," % (path_[i][1] + 1))
-                    elif path_[i - 1][2] == "+":
-                        fp.write("%d-\t" % (path_[i][1] + 1))
-                    else:
-                        fp.write("%d+\t" % (path_[i][1] + 1))
-            fp.write(
-                "Support=%d\t"
-                % (bb.longest_path_constraints[amplicon_idx][2][constraint_i]),
+        for constraint_i, finalized_pc in enumerate(longest_path_constraints):
+            write_path_constraint_to_file(
+                constraint_i,
+                bb.path_constraints[amplicon_idx][finalized_pc.pc_idx],
+                fp,
             )
             if constraint_i in path_constraint_indices_:
                 fp.write("Satisfied\n")
             else:
                 fp.write("Unsatisfied\n")
 
-    # sort cycles according to weights
-    cycle_indices = sorted(
-        [
-            (0, i)
-            for i in range(len(bb.walk_weights_by_amplicon[amplicon_idx][0]))
-        ]
-        + [
-            (1, i)
-            for i in range(len(bb.walk_weights_by_amplicon[amplicon_idx][1]))
-        ],
-        key=lambda item: bb.walk_weights_by_amplicon[amplicon_idx][item[0]][
-            item[1]
-        ],
+    walk_weights = bb.walk_weights_by_amplicon[amplicon_idx]
+
+    # sort walks according to weights
+    walk_indices = sorted(
+        [(0, i) for i in range(len(walk_weights.cycles))]
+        + [(1, i) for i in range(len(walk_weights.paths))],
+        key=lambda item: walk_weights[item[0]][item[1]],
         reverse=True,
     )
 
-    print(cycle_indices)
-    for cycle_i in cycle_indices:
+    print(walk_indices)
+    for cycle_i in walk_indices:
         if cycle_i[0] == 0:  # cycles
             logger.debug(
-                f"Traversing next cycle, CN = {bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]]}"
+                f"Traversing next cycle, CN = {walk_weights.cycles[cycle_i[1]]}"
             )
             path_constraints_satisfied_cycle = []
             path_constraints_support_cycle = []
-            for pathi in bb.path_constraints_satisfied[amplicon_idx][
-                cycle_i[0]
-            ][cycle_i[1]]:
-                pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
+            for pathi in satisfied_path_constraints.cycles[cycle_i[1]]:
+                pathi_ = bb.longest_path_constraints[amplicon_idx][pathi].pc_idx
                 path_constraints_satisfied_cycle.append(
                     bb.path_constraints[amplicon_idx][0][pathi_],
                 )
                 path_constraints_support_cycle.append(
-                    bb.longest_path_constraints[amplicon_idx][2][pathi],
+                    bb.longest_path_constraints[amplicon_idx][pathi].support,
                 )
             cycle_seg_list = eulerian_cycle_t(
                 bb.lr_graph[amplicon_idx],
@@ -570,14 +536,9 @@ def output_amplicon_cycles(
                 path_constraints_support_cycle,
             )
             assert cycle_seg_list[0] == cycle_seg_list[-1]
-            fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
+            fp.write("Cycle=%d;" % (walk_indices.index(cycle_i) + 1))
             fp.write(
-                "Copy_count=%s;"
-                % str(
-                    bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][
-                        cycle_i[1]
-                    ]
-                ),
+                f"Copy_count={bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]]};"
             )
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
@@ -636,12 +597,12 @@ def output_amplicon_cycles(
             for pathi in bb.path_constraints_satisfied[amplicon_idx][
                 cycle_i[0]
             ][cycle_i[1]]:
-                pathi_ = bb.longest_path_constraints[amplicon_idx][1][pathi]
+                pathi_ = bb.longest_path_constraints[amplicon_idx][pathi].pc_idx
                 path_constraints_satisfied_path.append(
-                    bb.path_constraints[amplicon_idx][0][pathi_],
+                    bb.path_constraints[amplicon_idx][pathi_].path,
                 )
                 path_constraints_support_path.append(
-                    bb.longest_path_constraints[amplicon_idx][2][pathi],
+                    bb.longest_path_constraints[amplicon_idx][pathi].support
                 )
             cycle_seg_list = eulerian_path_t(
                 bb.lr_graph[amplicon_idx],
@@ -653,14 +614,9 @@ def output_amplicon_cycles(
                 cycle_seg_list,
                 bb.walks_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]],
             )
-            fp.write("Cycle=%d;" % (cycle_indices.index(cycle_i) + 1))
+            fp.write("Cycle=%d;" % (walk_indices.index(cycle_i) + 1))
             fp.write(
-                "Copy_count=%s;"
-                % str(
-                    bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][
-                        cycle_i[1]
-                    ]
-                ),
+                f"Copy_count={bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]]};"
             )
             fp.write("Segments=0+,")
             for segi in range(len(cycle_seg_list) - 1):
@@ -720,7 +676,7 @@ def output_summary_amplicon_stats(
     was_amplicon_solved: Dict[int, bool],
     bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
     output_dir: str,
-):
+) -> None:
     logger.info(f"Outputting solution info for all amplicons.")
 
     fp = open(f"{output_dir}/amplicon_summary.txt", "w")
@@ -737,3 +693,29 @@ def output_summary_amplicon_stats(
             fp.write("Solved.\n")
     # TODO: mirror AA summary output
     fp.close()
+
+
+def write_path_constraint_to_file(
+    path_idx: int, path_constraint: PathConstraint, fp: io.TextIOWrapper
+) -> None:
+    fp.write(f"Path constraint\t{path_idx+1}\t")
+    path = path_constraint.path
+    # Reverse path if start node's pos is > than end node's
+    if path[0][1] > path[-1][1]:
+        path = path[::-1]
+
+    for i in range(len(path)):
+        if i % 4 == 0:
+            edge_id: EdgeId = path[i]  # type: ignore[assignment]
+            prev_node: Node = path[i - 1]  # type: ignore[assignment]
+            if i < len(path) - 1:
+                next_node: Node = path[i + 1]  # type: ignore[assignment]
+                if next_node.strand == "+":
+                    fp.write(f"{edge_id.idx+1}+,")
+                else:
+                    fp.write(f"{edge_id.idx+1}-,")
+            elif prev_node.strand == "+":
+                fp.write(f"{edge_id.idx+1}-\t")
+            else:
+                fp.write(f"{edge_id.idx+1}+\t")
+    fp.write(f"Support={path_constraint.support}\t")

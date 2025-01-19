@@ -146,11 +146,11 @@ def alignment_from_satags(
         chr_tag, pos, strand = t[0], int(t[1]), t[2]
         # Convert to 0-based coordinates
         if strand == "+":
-            read_interval = datatypes.ReadInterval(
+            read_interval = datatypes.ReferenceInterval(
                 chr_tag, pos - 1, pos + al - 2, Strand.FORWARD, read_name
             )
         else:
-            read_interval = datatypes.ReadInterval(
+            read_interval = datatypes.ReferenceInterval(
                 chr_tag, pos + al - 2, pos - 1, Strand.REVERSE, read_name
             )
         alignments.append(

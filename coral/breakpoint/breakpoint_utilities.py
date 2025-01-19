@@ -24,7 +24,7 @@ from coral import bam_types, cigar_parsing, constants, datatypes, types
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
-    BPReads,
+    BPAlignments,
     Breakpoint,
     BreakpointStats,
     ChimericAlignment,
@@ -32,7 +32,7 @@ from coral.datatypes import (
     CNSInterval,
     Interval,
     Node,
-    ReadInterval,
+    ReferenceInterval,
     Strand,
 )
 
@@ -166,7 +166,7 @@ def alignment2bp(
                 interval2bp(
                     chimera1,
                     chimera2,
-                    BPReads(rn, ri, ri + 1),
+                    BPAlignments(rn, ri, ri + 1),
                     query_gap,
                 )
             )
@@ -210,7 +210,7 @@ def alignment2bp(
                 interval2bp(
                     prev_chimera,
                     next_chimera,
-                    BPReads(rn, ri - 1, ri + 1),
+                    BPAlignments(rn, ri - 1, ri + 1),
                     query_gap,
                 )
             )
@@ -261,12 +261,12 @@ def alignment2bp_l(
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
             bp_to_add = interval2bp(
-                chimera1, chimera2, BPReads(rn, i, i + 1), query_gap
+                chimera1, chimera2, BPAlignments(rn, i, i + 1), query_gap
             )
             logger.info(f"{bp_to_add=}")
             bp_list.append(
                 interval2bp(
-                    chimera1, chimera2, BPReads(rn, i, i + 1), query_gap
+                    chimera1, chimera2, BPAlignments(rn, i, i + 1), query_gap
                 )
             )
             has_bp_assigned[i] = True
@@ -308,12 +308,14 @@ def alignment2bp_l(
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
             bp_to_add = interval2bp(
-                prev, next, BPReads(rn, i - 1, i + 1), query_gap
+                prev, next, BPAlignments(rn, i - 1, i + 1), query_gap
             )
             logger.info(f"{bp_to_add=}")
 
             bp_list.append(
-                interval2bp(prev, next, BPReads(rn, i - 1, i + 1), query_gap)
+                interval2bp(
+                    prev, next, BPAlignments(rn, i - 1, i + 1), query_gap
+                )
             )
             has_bp_assigned[i] = True
 
@@ -381,7 +383,7 @@ def cluster_bp_list(
 def interval2bp(
     chimera1: ChimericAlignment,
     chimera2: ChimericAlignment,
-    read_info: BPReads,
+    read_info: BPAlignments,
     gap: int = 0,
 ) -> Breakpoint:
     """
@@ -407,7 +409,9 @@ def interval2bp(
     return Breakpoint(
         Node(intv2.chr, intv2.start, intv2.strand.inverse),
         Node(intv1.chr, intv1.end, intv1.strand),
-        BPReads(read_info.name, read_info.read2, read_info.read1),
+        BPAlignments(
+            read_info.name, read_info.alignment2, read_info.alignment1
+        ),
         gap,
         True,
         chimera1.mapq,
@@ -424,7 +428,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
     pos2 = 0 if bp.strand2 == Strand.FORWARD else 1_000_000_000
     bp.node1 = Node(bp.node1.chr, pos1, bp.node1.strand)
     bp.node2 = Node(bp.node2.chr, pos2, bp.node2.strand)
-    bpr: list[BPReads] = []
+    bpr: list[BPAlignments] = []
 
     # Calculate basic dist. stats (mean/std) for breakpoints
     bp_stats = BreakpointStats(bp_distance_cutoff)
@@ -485,7 +489,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
     final_bp_stats = BreakpointStats(bp_distance_cutoff)
     for bp_ in bp_cluster:
         if bp_match(bp_, bp, bp_.gap * 1.2, bp_distance_cutoff):
-            bpr.append(bp_.read_info)
+            bpr.append(bp_.alignment_info)
             final_bp_stats.observe(bp)
         else:
             bp_cluster_r.append(bp_)
@@ -864,3 +868,15 @@ def get_indel_alignments_from_read(
                     )
                 )
     return indel_alignments
+
+
+def does_bp_edge_join_sequence_edges(
+    bp_edge: datatypes.ConcordantEdge | datatypes.DiscordantEdge,
+    seq_edge_1: datatypes.SequenceEdge,
+    seq_edge_2: datatypes.SequenceEdge,
+) -> bool:
+    return (
+        bp_edge.node1.chr == seq_edge_1.chr
+        and bp_edge.node1.pos == seq_edge_1.end
+        and bp_edge.node2.pos == seq_edge_2.start
+    )

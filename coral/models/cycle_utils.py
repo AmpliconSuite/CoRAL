@@ -17,13 +17,13 @@ import pyomo.util.infeasible
 
 from coral import datatypes, types
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.datatypes import CycleSolution, EdgeToCN
+from coral.datatypes import AmpliconWalk, CycleSolution, EdgeToCN
 
 logger = logging.getLogger(__name__)
 
 
 def process_walk_edge(
-    walk: types.AmpliconWalk,
+    walk: AmpliconWalk,
     model: pyo.Model,
     edge_idx: int,
     edge_count: int,
@@ -126,8 +126,8 @@ def parse_solver_output(
     lc = len(bp_graph.concordant_edges)
     ld = len(bp_graph.discordant_edges)
     lsrc = len(bp_graph.source_edges)
-    nnodes = len(bp_graph.nodes)  # Does not include s and t
-    nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnodes)
+    nnodes = len(bp_graph.node_adjacencies)  # Does not include s and t
+    nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnode_adjacencies)
 
     for i in range(k):
         logger.debug(f"Walk {i} checking ; CN = {model.w[i].value}.")

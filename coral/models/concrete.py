@@ -75,7 +75,7 @@ class CycleLPModel(pyo.ConcreteModel):
         self.conc_edge_idx = pyo.RangeSet(0, len(bp_graph.concordant_edges) - 1)
         self.disc_edge_idx = pyo.RangeSet(0, len(bp_graph.discordant_edges) - 1)
         self.src_edge_idx = pyo.RangeSet(0, len(bp_graph.source_edges) - 1)
-        self.node_idx = pyo.RangeSet(0, len(bp_graph.nodes) - 1)
+        self.node_idx = pyo.RangeSet(0, len(bp_graph.node_adjacencies) - 1)
         # endregion
 
         # region Variables

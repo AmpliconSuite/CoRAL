@@ -269,7 +269,9 @@ def plot_mode(
     output_prefix: OutputPrefixArg,
     cycle_file: Annotated[
         typer.FileText | None,
-        typer.Option(help="AmpliconSuite-formatted cycles file (*_cycles.txt)."),
+        typer.Option(
+            help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
+        ),
     ] = None,
     num_cycles: Annotated[
         int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
@@ -350,7 +352,9 @@ def cycle2bed_mode(
     ctx: typer.Context,
     cycle_file: Annotated[
         typer.FileText,
-        typer.Option(help="AmpliconSuite-formatted cycles file (*_cycles.txt)."),
+        typer.Option(
+            help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
+        ),
     ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
     num_cycles: Annotated[

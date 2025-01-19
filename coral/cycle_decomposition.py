@@ -35,7 +35,7 @@ def minimize_cycles(
     k: int,
     total_weights: float,
     node_order,
-    pc_list,
+    pc_list: list[datatypes.FinalizedPathConstraint],
     p_total_weight=0.9,
     p_bp_cn=0.9,
     solver_options: Optional[datatypes.SolverOptions] = None,
@@ -251,32 +251,34 @@ def initialize_post_processing_solver(
     for i in range(len(init_sol.walks[0])):
         model.z[i] = 1
         model.w[i] = init_sol.walk_weights[0][i]
-        for var_name, var_idx in init_sol.walks[0][i]:
+        for edge_id in init_sol.walks[0][i]:
+            var_name, var_idx = edge_id
             if var_name == "x":
-                model.x[var_idx, i] = init_sol.walks[0][i][(var_name, var_idx)]
+                model.x[var_idx, i] = init_sol.walks[0][i][edge_id]
             elif var_name == "c":
-                model.c[var_idx, i] = init_sol.walks[0][i][(var_name, var_idx)]
+                model.c[var_idx, i] = init_sol.walks[0][i][edge_id]
             elif var_name == "d":
-                model.d[var_idx, i] = init_sol.walks[0][i][(var_name, var_idx)]
+                model.d[var_idx, i] = init_sol.walks[0][i][edge_id]
             elif var_name == "y1":
-                model.y1[var_idx, i] = init_sol.walks[0][i][(var_name, var_idx)]
+                model.y1[var_idx, i] = init_sol.walks[0][i][edge_id]
             elif var_name == "y2":
-                model.y2[var_idx, i] = init_sol.walks[0][i][(var_name, var_idx)]
+                model.y2[var_idx, i] = init_sol.walks[0][i][edge_id]
     for i in range(len(init_sol.walks[1])):
         i_ = i + len(init_sol.walks[0])
         model.z[i_] = 1
         model.w[i_] = init_sol.walk_weights[1][i]
-        for v, vi in init_sol.walks[1][i].keys():
+        for edge_id in init_sol.walks[1][i]:
+            v, vi = edge_id
             if v == "x":
-                model.x[vi, i_] = init_sol.walks[1][i][(v, vi)]
+                model.x[vi, i_] = init_sol.walks[1][i][edge_id]
             elif v == "c":
-                model.c[vi, i_] = init_sol.walks[1][i][(v, vi)]
+                model.c[vi, i_] = init_sol.walks[1][i][edge_id]
             elif v == "d":
-                model.d[vi, i_] = init_sol.walks[1][i][(v, vi)]
+                model.d[vi, i_] = init_sol.walks[1][i][edge_id]
             elif v == "y1":
-                model.y1[vi, i_] = init_sol.walks[1][i][(v, vi)]
+                model.y1[vi, i_] = init_sol.walks[1][i][edge_id]
             elif v == "y2":
-                model.y2[vi, i_] = init_sol.walks[1][i][(v, vi)]
+                model.y2[vi, i_] = init_sol.walks[1][i][edge_id]
     for i in range(len(init_sol.satisfied_pc[0])):
         for pi in init_sol.satisfied_pc[0][i]:
             model.r[pi, i] = 1
@@ -293,14 +295,14 @@ def maximize_weights_greedy(
     bp_graph: BreakpointGraph,
     total_weights: float,
     node_order: Dict[datatypes.Node, int],
-    pc_list: List,
+    pc_list: List[datatypes.FinalizedPathConstraint],
     cycle_id: int,
     alpha: float = 0.01,
     p_total_weight: float = 0.9,
     resolution: float = 0.1,
     cn_tol: float = 0.005,
     p_subpaths: float = 0.9,
-    solver_options: Optional[datatypes.SolverOptions] = None,
+    solver_options: datatypes.SolverOptions | None = None,
     postprocess: int = 0,
 ) -> datatypes.CycleSolution:
     """Greedy cycle decomposition by maximizing the total length-weighted CN.
@@ -472,21 +474,22 @@ def cycle_decomposition(
             bb.path_constraints[amplicon_idx],
         )
         logger.info(
-            f"Total num maximal subpath constraints = {len(bb.longest_path_constraints[amplicon_idx][0])}."
+            f"Total num maximal subpath constraints = "
+            f"{len(bb.longest_path_constraints[amplicon_idx])}."
         )
         print(f"Solving {amplicon_idx}")
-        for pathi in bb.longest_path_constraints[amplicon_idx][1]:
-            logger.debug(
-                f"Subpath constraint {pathi} = {bb.path_constraints[amplicon_idx][0][pathi]}"
-            )
+        for pc in bb.longest_path_constraints[amplicon_idx]:
+            logger.debug(f"Subpath constraint {pc.pc_idx} = {pc.support}")
 
         k = max(10, ld // 2)  # Initial num cycles/paths
         logger.info(f"Initial num cycles/paths = {k}.")
-        nnodes = len(bp_graph.nodes)  # Does not include s and t
-        nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnodes)
+        nnodes = len(bp_graph.node_adjacencies)  # Does not include s and t
+        nedges = (
+            lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnode_adjacencies)
+        )
         node_order = {}
         ni_ = 0
-        for node in bb.lr_graph[amplicon_idx].nodes:
+        for node in bb.lr_graph[amplicon_idx].node_adjacencies:
             node_order[node] = ni_
             ni_ += 1
         if nedges < k:
@@ -500,7 +503,7 @@ def cycle_decomposition(
                     3 * k
                     + 3 * k * nedges
                     + 2 * k * nnodes
-                    + k * len(bb.longest_path_constraints[amplicon_idx][0])
+                    + k * len(bb.longest_path_constraints[amplicon_idx])
                 )
                 >= 10000
             ):
@@ -509,7 +512,7 @@ def cycle_decomposition(
                     bp_graph=bb.lr_graph[amplicon_idx],
                     total_weights=total_weights,
                     node_order=node_order,
-                    pc_list=bb.longest_path_constraints[amplicon_idx][0],
+                    pc_list=bb.longest_path_constraints[amplicon_idx],
                     cycle_id=0,
                     alpha=alpha,
                     p_total_weight=p_total_weight,
@@ -530,7 +533,9 @@ def cycle_decomposition(
                         f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."
                     )
                     logger.info(
-                        f"Total num subpath constraints satisfied = {lp_solution.num_pc_satisfied}/{len(bb.longest_path_constraints[amplicon_idx][0])}."
+                        f"Total num subpath constraints satisfied = "
+                        f"{lp_solution.num_pc_satisfied}/"
+                        f"{len(bb.longest_path_constraints[amplicon_idx])}."
                     )
                 if postprocess == 1:
                     lp_solution = postprocess_solution(
@@ -558,7 +563,7 @@ def cycle_decomposition(
                 k,
                 total_weights,
                 node_order,
-                bb.longest_path_constraints[amplicon_idx][0],
+                bb.longest_path_constraints[amplicon_idx],
                 p_total_weight,
                 0.9,
                 solver_options,
@@ -573,13 +578,17 @@ def cycle_decomposition(
             else:
                 logger.info(f"Completed cycle decomposition with k = {k}.")
                 logger.info(
-                    f"Num cycles = {len(lp_solution.walks[0])}; num paths = {len(lp_solution.walks[1])}."
+                    f"Num cycles = {len(lp_solution.walks[0])}; "
+                    f"num paths = {len(lp_solution.walks[1])}."
                 )
                 logger.info(
-                    f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."
+                    f"Total length weighted CN = "
+                    f"{lp_solution.total_weights_included}/{total_weights}."
                 )
                 logger.info(
-                    f"Total num subpath constraints satisfied = {len(lp_solution.satisfied_pc_set)}/{len(bb.longest_path_constraints[amplicon_idx][0])}."
+                    f"Total num subpath constraints satisfied = "
+                    f"{len(lp_solution.satisfied_pc_set)}/"
+                    f"{len(bb.longest_path_constraints[amplicon_idx])}."
                 )
 
                 bb.walks_by_amplicon[amplicon_idx] = lp_solution.walks
@@ -600,7 +609,7 @@ def cycle_decomposition(
                 bp_graph=bb.lr_graph[amplicon_idx],
                 total_weights=total_weights,
                 node_order=node_order,
-                pc_list=bb.longest_path_constraints[amplicon_idx][0],
+                pc_list=bb.longest_path_constraints[amplicon_idx],
                 cycle_id=0,
                 alpha=alpha,
                 p_total_weight=p_total_weight,
@@ -618,7 +627,9 @@ def cycle_decomposition(
                 f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."
             )
             logger.info(
-                f"Total num subpath constraints satisfied = {lp_solution.num_pc_satisfied}/{len(bb.longest_path_constraints[amplicon_idx][0])}."
+                f"Total num subpath constraints satisfied = "
+                f"{lp_solution.num_pc_satisfied}"
+                f"/{len(bb.longest_path_constraints[amplicon_idx])}."
             )
             if postprocess == 1:
                 lp_solution = postprocess_solution(
@@ -720,7 +731,7 @@ def postprocess_solution(
         bam_to_bps.lr_graph[amplicon_idx],
         total_weights,
         node_order,
-        bam_to_bps.longest_path_constraints[amplicon_idx][0],
+        bam_to_bps.longest_path_constraints[amplicon_idx],
         datatypes.InitialSolution(
             lp_solution.walks,
             lp_solution.walk_weights,
@@ -742,6 +753,8 @@ def postprocess_solution(
         f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."
     )
     logger.info(
-        f"Total num subpath constraints satisfied = {lp_solution.num_pc_satisfied}/{len(bam_to_bps.longest_path_constraints[amplicon_idx][0])}."
+        f"Total num subpath constraints satisfied = "
+        f"{lp_solution.num_pc_satisfied}/"
+        f"{len(bam_to_bps.longest_path_constraints[amplicon_idx])}."
     )
     return lp_solution

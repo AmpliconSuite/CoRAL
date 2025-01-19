@@ -93,6 +93,7 @@ lint.ignore = [
   "TRY003",  # Long messages outside exception class
   "EM102",   # f-string in exception
   "ERA001",  # commented-out code, inaccurate
+  "RUF005",  # Prefer iterable unpacking over concatenation
 ]
 lint.extend-select = ["I"]
 line-length = 80
@@ -102,15 +103,16 @@ lint.pycodestyle.max-doc-length = 80
 enable_error_code = "possibly-undefined"
 disable_error_code = "import-untyped"
 exclude = [
-  "hsr.py"
+  "hsr.py", "scripts/report_nanopore_qc.py",
+  "plot_amplicons.py", "plot_cn.py"
 ]
 plugins = "numpy.typing.mypy_plugin"
-# strict = true
+strict = false
 
 [tool.pyright]
-# include = ["src"]
-exclude = ["**/node_modules",
-    "**/__pycache__"
+exclude = [
+    "**/__pycache__",
+    "**/report_nanopore_qc.py"
 ]
 defineConstant = { DEBUG = true }
 

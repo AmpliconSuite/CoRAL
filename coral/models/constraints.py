@@ -29,7 +29,7 @@ def get_total_weight_constraint(
 def get_eulerian_path_constraint(bp_graph: BreakpointGraph):
     def constrain_eulerian_path(model: pyo.Model, i: int) -> pyo.Expression:
         path_expr = 0.0
-        for enodei in range(len(bp_graph.endnodes)):
+        for enodei in range(len(bp_graph.endnode_adjacencies)):
             edge_idx_offset = (
                 bp_graph.num_nonsrc_edges
                 + 2 * bp_graph.num_src_edges
@@ -50,8 +50,8 @@ def get_eulerian_node_constraints(
     model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph
 ) -> List[pyo.Constraint]:
     eulerian_node_constraints = []
-    endnode_list = list(bp_graph.endnodes.keys())
-    for node in bp_graph.nodes:
+    endnode_list = list(bp_graph.endnode_adjacencies.keys())
+    for node in bp_graph.node_adjacencies:
         if node in endnode_list:
             for i in range(k):
                 edge_idx = (
@@ -61,21 +61,21 @@ def get_eulerian_node_constraints(
                 )
                 eulerian_node_constraints.append(
                     model.x[edge_idx, i] + model.x[edge_idx + 1, i]
-                    == model.x[bp_graph.nodes[node].sequence[0], i]
+                    == model.x[bp_graph.node_adjacencies[node].sequence[0], i]
                 )
         else:
             for i in range(k):
                 ec_expr = 0.0
-                for seqi in bp_graph.nodes[node].sequence:
+                for seqi in bp_graph.node_adjacencies[node].sequence:
                     ec_expr += model.x[seqi, i]
-                for ci in bp_graph.nodes[node].concordant:
+                for ci in bp_graph.node_adjacencies[node].concordant:
                     ec_expr -= model.x[(bp_graph.num_seq_edges + ci), i]
-                for di in bp_graph.nodes[node].discordant:
+                for di in bp_graph.node_adjacencies[node].discordant:
                     ec_expr -= model.x[
                         (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di),
                         i,
                     ]
-                for srci in bp_graph.nodes[node].source:
+                for srci in bp_graph.node_adjacencies[node].source:
                     ec_expr -= model.x[
                         (bp_graph.num_nonsrc_edges + 2 * srci), i
                     ]  # connected to s
@@ -91,7 +91,7 @@ def get_spanning_tree_constraints(
     model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph, node_order
 ) -> List[pyo.Constraint]:
     constraints = []
-    endnode_list = list(bp_graph.endnodes.keys())
+    endnode_list = list(bp_graph.endnode_adjacencies.keys())
     for i in range(k):
         t_expr_x = 0.0  # linear
         t_expr_y = 0.0  # linear
@@ -111,7 +111,7 @@ def get_spanning_tree_constraints(
             expr_y = 0.0  # linear
             expr_xc = 0.0  # quad
             expr_yd = 0.0  # quad
-            for seqi in bp_graph.nodes[node].sequence:
+            for seqi in bp_graph.node_adjacencies[node].sequence:
                 sseg = bp_graph.sequence_edges[seqi]
                 node_ = (sseg.chr, sseg.start, "-")
                 if node_ == node:
@@ -171,15 +171,15 @@ def get_spanning_tree_constraints__non_endnode(
     model: pyo.ConcreteModel, k: int, bp_graph: BreakpointGraph, node_order
 ) -> List[pyo.Constraint]:
     constraints = []
-    endnode_list = list(bp_graph.endnodes.keys())
+    endnode_list = list(bp_graph.endnode_adjacencies.keys())
     for i in range(k):
-        for node in bp_graph.nodes.keys():
+        for node in bp_graph.node_adjacencies.keys():
             if node not in endnode_list:
                 expr_x = 0.0
                 expr_y = 0.0
                 expr_xc = 0.0
                 expr_yd = 0.0
-                for seqi in bp_graph.nodes[node].sequence:
+                for seqi in bp_graph.node_adjacencies[node].sequence:
                     sseg = bp_graph.sequence_edges[seqi]
                     node_ = (sseg.chr, sseg.start, "-")
                     if node_ == node:
@@ -198,7 +198,7 @@ def get_spanning_tree_constraints__non_endnode(
                             model.d[node_order[node], i]
                             - model.d[node_order[node_], i]
                         )
-                for ci in bp_graph.nodes[node].concordant:
+                for ci in bp_graph.node_adjacencies[node].concordant:
                     cedge = bp_graph.concordant_edges[ci]
                     node_ = cedge.node1
                     if node_ == node:
@@ -224,7 +224,7 @@ def get_spanning_tree_constraints__non_endnode(
                             model.d[node_order[node], i]
                             - model.d[node_order[node_], i]
                         )
-                for di in bp_graph.nodes[node].discordant:
+                for di in bp_graph.node_adjacencies[node].discordant:
                     dedge = bp_graph.discordant_edges[di]
                     node_ = dedge.node1
                     if node_ == node:
@@ -248,7 +248,7 @@ def get_spanning_tree_constraints__non_endnode(
                             model.d[node_order[node], i]
                             - model.d[node_order[node_], i]
                         )
-                for srci in bp_graph.nodes[node].source:
+                for srci in bp_graph.node_adjacencies[node].source:
                     idx_offset = (
                         bp_graph.num_seq_edges
                         + bp_graph.num_conc_edges
@@ -457,7 +457,7 @@ def get_cycle_weight_constraint(
                 ),
                 i,
             ]
-            for enodei in range(len(bp_graph.endnodes))
+            for enodei in range(len(bp_graph.endnode_adjacencies))
         )  # (s, v)
         cycle_expr += sum(
             model.x[(bp_graph.num_nonsrc_edges + 2 * srci), i]
@@ -475,17 +475,17 @@ def get_single_bp_edge_constraint(
     # There must be a concordant/discordant edge occuring one time
     def constrain_singular_bp_edge(model: pyo.Model, i: int) -> pyo.Expression:
         expr_xc = 0.0
-        if not bp_graph.nodes:
+        if not bp_graph.node_adjacencies:
             return pyo.Constraint.Skip
         should_skip = True  #  need to skip if no components to avoid trivial constraint error
-        for node in bp_graph.nodes:
-            for ci in set(bp_graph.nodes[node].concordant):
+        for node in bp_graph.node_adjacencies:
+            for ci in set(bp_graph.node_adjacencies[node].concordant):
                 expr_xc += (
                     model.c[node_order[node], i]
                     * model.x[(bp_graph.num_seq_edges + ci), i]
                 )
                 should_skip = False
-            for di in set(bp_graph.nodes[node].discordant):
+            for di in set(bp_graph.node_adjacencies[node].discordant):
                 expr_xc += (
                     model.c[node_order[node], i]
                     * model.x[
