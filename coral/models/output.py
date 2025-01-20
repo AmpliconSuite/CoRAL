@@ -576,7 +576,7 @@ def output_amplicon_cycles(
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
                 fp.write(
-                    f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]}"
+                    f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]},"
                 )
             fp.write(
                 "%d%s" % (int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1])
