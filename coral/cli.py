@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import pickle
 from typing import Annotated
@@ -137,6 +138,7 @@ def reconstruct(
     ] = 1.0,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
+    os.makedirs(output_dir, exist_ok=True)
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
         filemode="w+",
@@ -190,6 +192,7 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
+    os.makedirs(output_dir, exist_ok=True)
     bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
         lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
         lr_graph=[pickle.load(bp_graph)],
@@ -254,24 +257,24 @@ def plot_mode(
         typer.FileText | None,
         typer.Option(help="AmpliconSuite-formatted *.graph file."),
     ],
+    bam: BamArg,
+    output_prefix: OutputPrefixArg,
     cycle_file: Annotated[
         typer.FileText | None,
         typer.Option(help="AmpliconSuite-formatted cycles file."),
-    ],
-    bam: BamArg,
-    output_prefix: OutputPrefixArg,
+    ] = None,
     num_cycles: Annotated[
         int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
-    ],
+    ] = None,
     region: Annotated[
         str | None,
         typer.Option(
             help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
         ),
-    ],
+    ] = None,
     plot_graph: Annotated[
         bool, typer.Option(help="Visualize breakpoint graph.")
-    ] = False,
+    ] = True,
     plot_cycles: Annotated[
         bool, typer.Option(help="Visualize (selected) cycles.")
     ] = False,
@@ -310,6 +313,8 @@ def plot_mode(
     ] = False,
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
+    if "/" in output_prefix:
+        os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
     plot_amplicons.plot_amplicons(
         ref,
         bam,

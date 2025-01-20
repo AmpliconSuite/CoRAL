@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import DefaultDict, Optional
 
 import matplotlib as mpl
+import numpy as np
 import typer
 from intervaltree import IntervalTree
 
