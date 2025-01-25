@@ -35,7 +35,12 @@ EdgeCount = int
 
 class EdgeId(NamedTuple):
     type: EdgeType
-    idx: int
+    idx: EdgeIdx
+
+
+class DirectedEdge(NamedTuple):
+    idx: EdgeIdx
+    strand: Strand
 
 
 AmpliconWalk = dict[EdgeId, EdgeCount]
@@ -663,24 +668,25 @@ class AdjacencyMatrix:
 
 
 Walk = list[Node | EdgeId]
+DirectedWalk = list[DirectedEdge]
 
 
-class DiscordantAlignment(NamedTuple):
+class BPIndexedAlignments(NamedTuple):
     alignment1: int  # Index of first alignment
     alignment2: int  # Index of second alignment
     discordant_idx: int  # Index of discordant edge
 
 
 @dataclass
-class DiscordantAlignments:
+class BPIndexedAlignmentContainer:
     # Alignments whose indices do not match (breakpoints)
-    unequal: list[DiscordantAlignment] = field(default_factory=list)
+    unequal: list[BPIndexedAlignments] = field(default_factory=list)
     # Alignments whose indices match (small del breakpoints)
-    equal: list[DiscordantAlignment] = field(default_factory=list)
+    equal: list[BPIndexedAlignments] = field(default_factory=list)
 
 
 @dataclass
-class PathConstraint(NamedTuple):
+class PathConstraint:
     path: Walk
     support: int = 0  # Number of supporting reads
     amplicon_id: int = -1  # Amplicon index
@@ -691,3 +697,10 @@ class FinalizedPathConstraint:
     edge_counts: dict[EdgeId, int]
     pc_idx: int  # Original PC index (of above `PathConstraint` type)
     support: int
+
+
+@dataclass
+class PathMetric:
+    path_idxs: list[int]  # Associated path indices
+    path_length: int  # Cumulative path length
+    path_support: int  # Cumulative path support

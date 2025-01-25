@@ -8,6 +8,7 @@ from typing import Any
 from coral.breakpoint import breakpoint_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
+    BPIndexedAlignments,
     Edge,
     EdgeId,
     FinalizedPathConstraint,
@@ -371,37 +372,42 @@ def chimeric_alignment_to_path_r(
 def chimeric_alignment_to_path_i(
     g: BreakpointGraph,
     ref_intvs: list[ReferenceInterval],
-    ai1: int,
-    ai2: int,
-    di: int,
-) -> list[Any]:
+    bp_alignment: BPIndexedAlignments,
+) -> Walk:
     """Given a breakpoint graph and a list of consecutive alignments,
     return a traversal from the alignment indexed at ai1 to the alignment
     indexed at ai2, through discordant edge indexed at di.
 
     g: breakpoint graph (object)
     ref_intvs: alignment intervals on the reference genome
-    ai1: index of the start alignment
-    ai2: index of the end alignment
-    di: index of discordant edge in g
+    bp_alignment: tuple of (index of the start alignment, index of the end
+        alignment, index of discordant edge)
 
     Returns: the resulting path as a list of alternating nodes and edges
     """
-    path_ = [("d", di)]
-    discordant_edge = g.discordant_edges[di]
+    path_: Walk = [EdgeId("d", bp_alignment.discordant_idx)]
+    discordant_edge = g.discordant_edges[bp_alignment.discordant_idx]
     node1 = discordant_edge.node1
     node2 = discordant_edge.node2
-    if ai1 > ai2:
+    if bp_alignment.alignment1 > bp_alignment.alignment2:
         path_ = (
-            chimeric_alignment_to_path_l(g, ref_intvs[ai2], node2)
+            chimeric_alignment_to_path_l(
+                g, ref_intvs[bp_alignment.alignment2], node2
+            )
             + path_
-            + chimeric_alignment_to_path_r(g, ref_intvs[ai1], node1)
+            + chimeric_alignment_to_path_r(
+                g, ref_intvs[bp_alignment.alignment1], node1
+            )
         )
     else:
         path_ = (
-            chimeric_alignment_to_path_l(g, ref_intvs[ai1], node1)
+            chimeric_alignment_to_path_l(
+                g, ref_intvs[bp_alignment.alignment1], node1
+            )
             + path_
-            + chimeric_alignment_to_path_r(g, ref_intvs[ai2], node2)
+            + chimeric_alignment_to_path_r(
+                g, ref_intvs[bp_alignment.alignment2], node2
+            )
         )
     return path_
 

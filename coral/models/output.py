@@ -13,10 +13,13 @@ from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconWalk,
     ConcordantEdge,
+    DirectedEdge,
+    DirectedWalk,
     DiscordantEdge,
     EdgeId,
     Node,
     PathConstraint,
+    PathMetric,
     Strand,
     Walk,
     WalkData,
@@ -30,51 +33,57 @@ def eulerian_cycle_t(
     edge_counts_next_cycle: dict[EdgeId, int],
     path_constraints_next_cycle: list[Walk],
     path_constraints_support: list[int],
-) -> Walk:
-    """Return an eulerian traversal of a cycle, represented by a dict of edges
+) -> DirectedWalk:
+    """Return an eulerian traversal of a cycle, represented by a list of
+     directed edges.
 
     g: breakpoint graph (object)
-    edges_next_cycle: subgraph induced by the cycle, as a dict that maps an edge to its multiplicity
+    edges_next_cycle: subgraph induced by the cycle, as a dict that maps an edge
+        to its multiplicity
     path_constraints_next_cycle: list of subpath constraints to be satisfied,
-            each as a list of alternating nodes and edges
-            ***
-            Note: the traversal may not satisfy all subpath constraints
-            in case not all subpath constraints are satisfied, return the eulerian traversal satisfying the
-            maximum number of subpath constraints
-            ***
+        each as a list of alternating nodes and edges
+        ***
+        Note: the traversal may not satisfy all subpath constraints in case not
+        all subpath constraints are satisfied, return the eulerian traversal
+        satisfying the maximum number of subpath constraints
+        ***
     path_constraints_support: num long reads supporting each subpath constraint
     """
     lseg = len(g.sequence_edges)
 
-    eulerian_cycle: list[
-        Any
-    ] = []  # A cycle is edge - node list starting and ending with the same edge
+    # A cycle is edge - node list starting and ending with the same edge
+    eulerian_cycle: Walk = []
+
     # Since Eulerian, there could be subcycles in the middle of a cycle
-    eulerian_cycle_: list[Any] = []  # Cycle in AA cycle format
-    best_cycle: list[Any] = []  # Cycle in AA cycle format
+    eulerian_subcycle: DirectedWalk = []  # Cycle in AA cycle format
+    best_cycle: DirectedWalk = []  # Cycle in AA cycle format
     valid = 0
     num_trials = 0
     l = len(path_constraints_next_cycle)
-    unsatisfied_path_metric = [
-        range(l),
-        100 * l,
-        100 * max(path_constraints_support + [0]),
-    ]
+    unsatisfied_path_metric = PathMetric(
+        path_idxs=list(range(l)),
+        path_length=100 * l,
+        path_support=100 * max(path_constraints_support + [0]),
+    )
     while valid <= 0 and num_trials < 1000:
         valid = 1
         num_trials += 1
         eulerian_cycle = []
-        eulerian_cycle_ = []
+        eulerian_subcycle = []
         edges_cur = edge_counts_next_cycle.copy()
-        last_seq_edge = lseg  # Start with the edge with smallest index and on the positive strand
+
+        # Start with the edge with smallest index and on the positive strand
+        last_seq_edge_idx = lseg
         for edge in edges_cur:
             if edge[0] == "e":
-                last_seq_edge = min(last_seq_edge, edge[1])
+                last_seq_edge_idx = min(last_seq_edge_idx, edge[1])
         last_edge_dir = "+"
-        eulerian_cycle.append(EdgeId("s", last_seq_edge))
-        eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
+        eulerian_cycle.append(EdgeId("s", last_seq_edge_idx))
+        eulerian_subcycle.append(
+            DirectedEdge(last_seq_edge_idx + 1, Strand.FORWARD)
+        )
         while len(edges_cur) > 0:
-            seq_edge = g.sequence_edges[last_seq_edge]
+            seq_edge = g.sequence_edges[last_seq_edge_idx]
             node = Node(seq_edge.chr, seq_edge.end, Strand.FORWARD)
             if last_edge_dir == "-":
                 node = Node(seq_edge.chr, seq_edge.start, Strand.REVERSE)
@@ -110,19 +119,23 @@ def eulerian_cycle_t(
                 if node == node_:
                     node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
-                last_seq_edge = g.node_adjacencies[node_].sequence[0]
-                eulerian_cycle.append(EdgeId("s", last_seq_edge))
+                last_seq_edge_idx = g.node_adjacencies[node_].sequence[0]
+                eulerian_cycle.append(EdgeId("s", last_seq_edge_idx))
                 if node_[2] == "-":
                     last_edge_dir = "+"
-                    eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
+                    eulerian_subcycle.append(
+                        DirectedEdge(last_seq_edge_idx + 1, Strand.FORWARD)
+                    )
                 else:
                     last_edge_dir = "-"
-                    eulerian_cycle_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[EdgeId("e", last_seq_edge)] = (
-                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
+                    eulerian_subcycle.append(
+                        DirectedEdge(last_seq_edge_idx + 1, Strand.REVERSE)
+                    )
+                edges_cur[EdgeId("e", last_seq_edge_idx)] = (
+                    int(edges_cur[EdgeId("e", last_seq_edge_idx)]) - 1
                 )
-                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
-                    del edges_cur[EdgeId("e", last_seq_edge)]
+                if edges_cur[EdgeId("e", last_seq_edge_idx)] == 0:
+                    del edges_cur[EdgeId("e", last_seq_edge_idx)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_cycle.append(next_bp_edges[r])
@@ -139,22 +152,26 @@ def eulerian_cycle_t(
                 if node == node_:
                     node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
-                last_seq_edge = g.node_adjacencies[node_].sequence[0]
-                eulerian_cycle.append(EdgeId("s", last_seq_edge))
+                last_seq_edge_idx = g.node_adjacencies[node_].sequence[0]
+                eulerian_cycle.append(EdgeId("s", last_seq_edge_idx))
                 if node_[2] == "-":
                     last_edge_dir = "+"
-                    eulerian_cycle_.append(str(last_seq_edge + 1) + "+")
+                    eulerian_subcycle.append(
+                        DirectedEdge(last_seq_edge_idx + 1, Strand.FORWARD)
+                    )
                 else:
                     last_edge_dir = "-"
-                    eulerian_cycle_.append(str(last_seq_edge + 1) + "-")
-                edges_cur[EdgeId("e", last_seq_edge)] = (
-                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
+                    eulerian_subcycle.append(
+                        DirectedEdge(last_seq_edge_idx + 1, Strand.REVERSE)
+                    )
+                edges_cur[EdgeId("e", last_seq_edge_idx)] = (
+                    int(edges_cur[EdgeId("e", last_seq_edge_idx)]) - 1
                 )
-                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
-                    del edges_cur[EdgeId("e", last_seq_edge)]
+                if edges_cur[EdgeId("e", last_seq_edge_idx)] == 0:
+                    del edges_cur[EdgeId("e", last_seq_edge_idx)]
         if valid == 1 and len(best_cycle) == 0:
-            best_cycle = eulerian_cycle_
-        path_metric: list[Any] = [[], 0, 0]
+            best_cycle = eulerian_subcycle
+        path_metric = PathMetric(path_idxs=[], path_length=0, path_support=0)
         # check if the remaining path constraints are satisfied
         for pathi in range(len(path_constraints_next_cycle)):
             path_ = path_constraints_next_cycle[pathi]
@@ -185,35 +202,41 @@ def eulerian_cycle_t(
                         s = 1
                         break
             if s == 0 and valid == 1:
-                path_metric[0].append(pathi)
-                path_metric[1] += len(path_)
-                path_metric[2] += path_constraints_support[pathi]
-        if valid == 1 and len(path_metric[0]) > 0:
+                path_metric.path_idxs.append(pathi)
+                path_metric.path_length += len(path_)
+                path_metric.path_support += path_constraints_support[pathi]
+        if valid == 1 and len(path_metric.path_idxs) > 0:
             valid = -1
         if (
             valid != 0
-            and (len(path_metric[0]) < len(unsatisfied_path_metric[0]))
-            or (
-                len(path_metric[0]) == len(unsatisfied_path_metric[0])
-                and path_metric[1] < unsatisfied_path_metric[1]
+            and (
+                len(path_metric.path_idxs)
+                < len(unsatisfied_path_metric.path_idxs)
             )
             or (
-                len(path_metric[0]) == len(unsatisfied_path_metric[0])
-                and path_metric[1] == unsatisfied_path_metric[1]
-                and path_metric[2] < unsatisfied_path_metric[2]
+                len(path_metric.path_idxs)
+                == len(unsatisfied_path_metric.path_idxs)
+                and path_metric.path_length
+                < unsatisfied_path_metric.path_length
+            )
+            or (
+                len(path_metric.path_idxs)
+                == len(unsatisfied_path_metric.path_idxs)
+                and path_metric.path_length
+                == unsatisfied_path_metric.path_length
+                and path_metric.path_support
+                < unsatisfied_path_metric.path_support
             )
         ):
-            unsatisfied_path_metric[0] = path_metric[0]
-            unsatisfied_path_metric[1] = path_metric[1]
-            unsatisfied_path_metric[2] = path_metric[2]
-            best_cycle = eulerian_cycle_
-    if len(unsatisfied_path_metric[0]) == 0:
-        logger.debug(
-            "Cycle satisfies all subpath constraints.",
-        )
+            unsatisfied_path_metric.path_idxs = path_metric.path_idxs
+            unsatisfied_path_metric.path_length = path_metric.path_length
+            unsatisfied_path_metric.path_support = path_metric.path_support
+            best_cycle = eulerian_subcycle
+    if len(unsatisfied_path_metric.path_idxs) == 0:
+        logger.debug("Cycle satisfies all subpath constraints.")
     else:
         logger.debug("The following path constraints are not satisfied:")
-        for pathi in unsatisfied_path_metric[0]:
+        for pathi in unsatisfied_path_metric.path_idxs:
             logger.debug(f"{path_constraints_next_cycle[pathi]}")
     return best_cycle
 
@@ -223,8 +246,9 @@ def eulerian_path_t(
     edges_next_path: AmpliconWalk,
     path_constraints_next_path: list[Walk],
     path_constraints_support: list[int],
-) -> Walk:
-    """Return an eulerian traversal of an s-t walk, represented by a dict of edges
+) -> DirectedWalk:
+    """Return an eulerian traversal of an s-t walk, represented by a list of
+     directed edges.
 
     g: breakpoint graph (object)
     edges_next_path: subgraph induced by the s-t walk, as a dict that maps an edge to its multiplicity
@@ -245,21 +269,21 @@ def eulerian_path_t(
 
     eulerian_path: Walk = []  # A path is edge - node list starting and ending with edges
     # Since Eulerian, there could be subcycles in the middle of a path
-    eulerian_path_: list[Any] = []  # Path in AA cycle format
-    best_path: list[Any] = []  # Path in AA cycle format
+    eulerian_subpath: DirectedWalk = []  # Path in AA cycle format
+    best_path: DirectedWalk = []  # Path in AA cycle format
     valid = 0
     num_trials = 0
     l = len(path_constraints_next_path)
-    unsatisfied_path_metric = [
-        range(l),
-        100 * l,
-        100 * max(path_constraints_support + [0]),
-    ]
+    unsatisfied_path_metric = PathMetric(
+        path_idxs=list(range(l)),
+        path_length=100 * l,
+        path_support=100 * max(path_constraints_support + [0]),
+    )
     while valid <= 0 and num_trials < 1000:
         valid = 1
         num_trials += 1
         eulerian_path = []
-        eulerian_path_ = []
+        eulerian_subpath = []
         edges_cur = edges_next_path.copy()
         last_seq_edge = lseg
         last_edge_dir = "+"
@@ -294,9 +318,13 @@ def eulerian_path_t(
         del edges_cur[src_edge]
         eulerian_path.append(EdgeId("s", last_seq_edge))
         if last_edge_dir == "+":
-            eulerian_path_.append(str(last_seq_edge + 1) + "+")
+            eulerian_subpath.append(
+                DirectedEdge(last_seq_edge + 1, Strand.FORWARD)
+            )
         else:
-            eulerian_path_.append(str(last_seq_edge + 1) + "-")
+            eulerian_subpath.append(
+                DirectedEdge(last_seq_edge + 1, Strand.REVERSE)
+            )
         edges_cur[EdgeId("e", last_seq_edge)] = (
             int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
         )
@@ -353,10 +381,14 @@ def eulerian_path_t(
                 eulerian_path.append(EdgeId("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
-                    eulerian_path_.append(str(last_seq_edge + 1) + "+")
+                    eulerian_subpath.append(
+                        DirectedEdge(last_seq_edge + 1, Strand.FORWARD)
+                    )
                 else:
                     last_edge_dir = "-"
-                    eulerian_path_.append(str(last_seq_edge + 1) + "-")
+                    eulerian_subpath.append(
+                        DirectedEdge(last_seq_edge + 1, Strand.REVERSE)
+                    )
                 edges_cur[EdgeId("e", last_seq_edge)] = (
                     int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
                 )
@@ -382,18 +414,26 @@ def eulerian_path_t(
                 eulerian_path.append(EdgeId("s", last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
-                    eulerian_path_.append(str(last_seq_edge + 1) + "+")
+                    eulerian_subpath.append(
+                        DirectedEdge(last_seq_edge + 1, Strand.FORWARD)
+                    )
                 else:
                     last_edge_dir = "-"
-                    eulerian_path_.append(str(last_seq_edge + 1) + "-")
+                    eulerian_subpath.append(
+                        DirectedEdge(last_seq_edge + 1, Strand.REVERSE)
+                    )
                 edges_cur[EdgeId("e", last_seq_edge)] = (
                     int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
                 )
                 if edges_cur[EdgeId("e", last_seq_edge)] == 0:
                     del edges_cur[EdgeId("e", last_seq_edge)]
         if valid == 1 and len(best_path) == 0:
-            best_path = eulerian_path_
-        path_metric: list[Any] = [[], 0, 0]
+            best_path = eulerian_subpath
+        path_metric = PathMetric(
+            path_idxs=[],
+            path_length=0,
+            path_support=0,
+        )
         # check if the remaining path constraints are satisfied
         for pathi in range(len(path_constraints_next_path)):
             path_ = path_constraints_next_path[pathi]
@@ -406,33 +446,41 @@ def eulerian_path_t(
                     s = 1
                     break
             if s == 0 and valid == 1:
-                path_metric[0].append(pathi)
-                path_metric[1] += len(path_)
-                path_metric[2] += path_constraints_support[pathi]
-        if valid == 1 and len(path_metric[0]) > 0:
+                path_metric.path_idxs.append(pathi)
+                path_metric.path_length += len(path_)
+                path_metric.path_support += path_constraints_support[pathi]
+        if valid == 1 and len(path_metric.path_idxs) > 0:
             valid = -1
         if (
             valid != 0
-            and (len(path_metric[0]) < len(unsatisfied_path_metric[0]))
-            or (
-                len(path_metric[0]) == len(unsatisfied_path_metric[0])
-                and path_metric[1] < unsatisfied_path_metric[1]
+            and (
+                len(path_metric.path_idxs)
+                < len(unsatisfied_path_metric.path_idxs)
             )
             or (
-                len(path_metric[0]) == len(unsatisfied_path_metric[0])
-                and path_metric[1] == unsatisfied_path_metric[1]
-                and path_metric[2] < unsatisfied_path_metric[2]
+                len(path_metric.path_idxs)
+                == len(unsatisfied_path_metric.path_idxs)
+                and path_metric.path_length
+                < unsatisfied_path_metric.path_length
+            )
+            or (
+                len(path_metric.path_idxs)
+                == len(unsatisfied_path_metric.path_idxs)
+                and path_metric.path_length
+                == unsatisfied_path_metric.path_length
+                and path_metric.path_support
+                < unsatisfied_path_metric.path_support
             )
         ):
-            unsatisfied_path_metric[0] = path_metric[0]
-            unsatisfied_path_metric[1] = path_metric[1]
-            unsatisfied_path_metric[2] = path_metric[2]
-            best_path = eulerian_path_
-    if len(unsatisfied_path_metric[0]) == 0:
+            unsatisfied_path_metric.path_idxs = path_metric.path_idxs
+            unsatisfied_path_metric.path_length = path_metric.path_length
+            unsatisfied_path_metric.path_support = path_metric.path_support
+            best_path = eulerian_subpath
+    if len(unsatisfied_path_metric.path_idxs) == 0:
         logger.debug("Path satisfies all subpath constraints.")
     else:
         logger.debug("The following path constraints are not satisfied:")
-        for pathi in unsatisfied_path_metric[0]:
+        for pathi in unsatisfied_path_metric.path_idxs:
             logger.debug(f"{path_constraints_next_path[pathi]}")
     return best_path
 
@@ -537,9 +585,7 @@ def output_amplicon_cycles(
             )
             assert cycle_seg_list[0] == cycle_seg_list[-1]
             fp.write("Cycle=%d;" % (walk_indices.index(cycle_i) + 1))
-            fp.write(
-                f"Copy_count={bb.walk_weights_by_amplicon[amplicon_idx][cycle_i[0]][cycle_i[1]]};"
-            )
+            fp.write(f"Copy_count={walk_weights.cycles[cycle_i[1]]};")
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
                 fp.write(

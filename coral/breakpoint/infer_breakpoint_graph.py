@@ -7,6 +7,7 @@ import io
 import logging
 import pathlib
 import pickle
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -17,7 +18,7 @@ import pysam
 import typer
 
 from coral import bam_types, cigar_parsing, types
-from coral.breakpoint import breakpoint_utilities
+from coral.breakpoint import breakpoint_utilities, path_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.breakpoint_types import CNSSegData
 from coral.breakpoint.breakpoint_utilities import (
@@ -34,14 +35,18 @@ from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
     AmpliconWalk,
+    BPAlignment,
+    BPIndexedAlignmentContainer,
+    BPIndexedAlignments,
     ChimericAlignment,
     CNSInterval,
     CNSIntervalTree,
-    DiscordantAlignment,
-    DiscordantAlignments,
     FinalizedPathConstraint,
     Interval,
     PathConstraint,
+    ReferenceInterval,
+    Strand,
+    Walk,
     WalkData,
 )
 from coral.models import path_constraints
@@ -232,7 +237,8 @@ class LongReadBamToBreakpointMetadata:
         for r in self.chimeric_alignments:
             if r not in self.read_length:
                 logger.warning(
-                    f"Found chimeric read name {r} without primary alignment; Read length: N/A."
+                    f"Found chimeric read name {r} without primary alignment; "
+                    f"Read length: N/A."
                 )
                 logger.warning(
                     f"All CIGAR strings: {self.chimeric_alignments[r]}."
@@ -241,7 +247,7 @@ class LongReadBamToBreakpointMetadata:
                 continue
             rl = self.read_length[r]
             self.chimeric_alignments[r] = cigar_parsing.alignment_from_satags(
-                self.chimeric_alignments[r], rl
+                self.chimeric_alignments[r], r
             )
         for r in reads_wo_primary_alignment:
             del self.chimeric_alignments[r]
@@ -2048,11 +2054,13 @@ class LongReadBamToBreakpointMetadata:
                 f"Num discordant edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].discordant_edges)}."
             )
             logger.debug(
-                f"Num source edges in amplicon {amplicon_idx + 1} = {len(self.lr_graph[amplicon_idx].source_edges)}."
+                f"Num source edges in amplicon {amplicon_idx + 1} = "
+                f"{len(self.lr_graph[amplicon_idx].source_edges)}."
             )
 
     def assign_cov(self):
-        """Extract the long read coverage from bam file, if missing, for each sequence edge"""
+        """Extract the long read coverage from bam file, if missing,
+        for each sequence edge"""
         for amplicon_idx in range(len(self.lr_graph)):
             for seqi in range(len(self.lr_graph[amplicon_idx].sequence_edges)):
                 seg = self.lr_graph[amplicon_idx].sequence_edges[seqi]
@@ -2153,24 +2161,26 @@ class LongReadBamToBreakpointMetadata:
     def compute_bp_graph_path_constraints(
         self, bp_graph: BreakpointGraph
     ) -> None:
-        read_to_alignments = defaultdict(DiscordantAlignments)
+        read_to_alignments: defaultdict[str, BPIndexedAlignmentContainer] = (
+            defaultdict(BPIndexedAlignmentContainer)
+        )
         concordant_reads = {}
 
         for di, discordant_edge in enumerate(bp_graph.discordant_edges):
-            for r_ in discordant_edge.alignments:
-                if r_.alignment1 == r_.alignment2:
-                    read_to_alignments[r_.name].equal.append(
-                        DiscordantAlignment(
-                            alignment1=r_.alignment1,
-                            alignment2=r_.alignment2,
+            for bp_alignments in discordant_edge.alignments:
+                if bp_alignments.alignment1 == bp_alignments.alignment2:
+                    read_to_alignments[bp_alignments.name].equal.append(
+                        BPIndexedAlignments(
+                            alignment1=bp_alignments.alignment1,
+                            alignment2=bp_alignments.alignment2,
                             discordant_idx=di,
                         )
                     )
                 else:
-                    read_to_alignments[r_.name].unequal.append(
-                        DiscordantAlignment(
-                            alignment1=r_.alignment1,
-                            alignment2=r_.alignment2,
+                    read_to_alignments[bp_alignments.name].unequal.append(
+                        BPIndexedAlignments(
+                            alignment1=bp_alignments.alignment1,
+                            alignment2=bp_alignments.alignment2,
                             discordant_idx=di,
                         )
                     )
@@ -2179,490 +2189,19 @@ class LongReadBamToBreakpointMetadata:
             f" in amplicon."
         )
 
+        for rn, disc_alignments in read_to_alignments.items():
+            paths = path_utilities.get_bp_graph_paths(
+                bp_graph,
+                rn,
+                disc_alignments,
+                self.chimeric_alignments[rn],
+                self.min_bp_match_cutoff_,
+            )
+
     def compute_path_constraints(self) -> None:
         """Convert reads mapped within the amplicons into subpath constraints"""
         for amplicon_idx in range(len(self.lr_graph)):
-            read_to_alignments = defaultdict(list)
-            concordant_reads = dict()
-            for di, discordant_edge in enumerate(
-                self.lr_graph[amplicon_idx].discordant_edges
-            ):
-                for r_ in discordant_edge.alignments:
-                    if r_.alignment1 == r_.alignment2:
-                        if r_[0] in read_to_alignments:
-                            read_to_alignments[r_[0]][1].append(
-                                [r_[1], r_[2], di]
-                            )
-                        else:
-                            read_to_alignments[r_[0]] = [
-                                [],
-                                [[r_[1], r_[2], di]],
-                            ]
-                    elif r_[0] in read_to_alignments:
-                        read_to_alignments[r_[0]][0].append([r_[1], r_[2], di])
-                    else:
-                        read_to_alignments[r_[0]] = [[[r_[1], r_[2], di]], []]
-            logger.debug(
-                f"There are {len(read_to_alignments)} reads covering >=1 breakpoint in amplicon {amplicon_idx + 1}."
-            )
-            for rn in read_to_alignments:
-                bp_reads_rn = read_to_alignments[rn][0]
-                bp_reads_rn_sdel = read_to_alignments[rn][1]
-                paths = []
-                if len(bp_reads_rn) == 1 and len(bp_reads_rn_sdel) == 0:
-                    ref_intvs = [
-                        aint[:4] for aint in self.chimeric_alignments[rn][1]
-                    ]
-                    ai1 = bp_reads_rn[0][0]
-                    ai2 = bp_reads_rn[0][1]
-                    bpi = bp_reads_rn[0][2]
-                    logger.debug(f"Read {rn} covers a single breakpoint.")
-                    logger.debug(
-                        f"Alignment intervals on reference = {ref_intvs}; mapq = {self.chimeric_alignments[rn][2]}; bp = ({ai1}, {ai2}, {bpi})"
-                    )
-                    path = path_constraints.chimeric_alignment_to_path_i(
-                        self.lr_graph[amplicon_idx],
-                        ref_intvs,
-                        ai1,
-                        ai2,
-                        bpi,
-                    )
-                    paths.append(path)
-                    logger.debug(f"Resulting subpath = {path}")
-                elif len(bp_reads_rn) > 1 and len(bp_reads_rn_sdel) == 0:
-                    bp_reads_rn = sorted(
-                        bp_reads_rn, key=lambda item: min(item[0], item[1])
-                    )
-                    bp_reads_rn_split = [[0]]
-                    last_ai = max(bp_reads_rn[0][0], bp_reads_rn[0][1])
-                    for i in range(1, len(bp_reads_rn)):
-                        if min(bp_reads_rn[i][0], bp_reads_rn[i][1]) == last_ai:
-                            bp_reads_rn_split[-1].append(i)
-                        else:
-                            bp_reads_rn_split.append([i])
-                        last_ai = max(bp_reads_rn[i][0], bp_reads_rn[i][1])
-                    logger.debug(f"Read {rn} covers multiple breakpoints.")
-                    logger.debug(
-                        f"Blocks of local alignments: {bp_reads_rn_split}"
-                    )
-                    qints = self.chimeric_alignments[rn][0]
-                    skip = 0
-                    for qi in range(len(qints) - 1):
-                        if (
-                            qints[qi + 1][0] - qints[qi][1]
-                            < -self.min_bp_match_cutoff_
-                        ):
-                            skip = 1
-                            break
-                    if skip == 1:
-                        logger.debug(
-                            "Discarded the read due to overlapping local: "
-                            "alignments."
-                        )
-                        logger.debug(
-                            f"Alignment intervals on reference = "
-                            f"{self.chimeric_alignments[rn][1]}; "
-                            f"mapq = {self.chimeric_alignments[rn][2]}."
-                        )
-                        logger.debug(
-                            f"Alignment intervals on the read = {qints}."
-                        )
-                        continue
-                    for ai_block in bp_reads_rn_split:
-                        ref_intvs = [
-                            aint[:4] for aint in self.chimeric_alignments[rn][1]
-                        ]
-                        ai_list = [bp_reads_rn[bi][:2] for bi in ai_block]
-                        bp_list = [bp_reads_rn[bi][2] for bi in ai_block]
-                        if len(set(bp_list)) < len(bp_list):
-                            logger.debug(
-                                "\tDiscarded the block due to repeated breakpoints.",
-                            )
-                            logger.debug(
-                                f"\tBlocks of local alignments: {ai_block}."
-                            )
-                            continue
-                        path = path_constraints.chimeric_alignment_to_path(
-                            self.lr_graph[amplicon_idx],
-                            ref_intvs,
-                            ai_list,
-                            bp_list,
-                        )
-                        paths.append(path)
-                        logger.debug(
-                            f"Alignment intervals on reference = {ref_intvs}; "
-                            f"mapq = {self.chimeric_alignments[rn][2]}; "
-                            f"bps = {bp_reads_rn}."
-                        )
-                        logger.debug(f"Resulting subpath = {path}")
-                elif len(bp_reads_rn) == 0 and len(bp_reads_rn_sdel) == 1:
-                    ref_intvs = self.large_indel_alignments[rn][0]
-                    rq = ref_intvs[-1]
-                    logger.debug(
-                        f"Read {rn} covers a single small del breakpoint."
-                    )
-                    if ref_intvs[3] < ref_intvs[4]:
-                        if ref_intvs[2] < ref_intvs[1]:
-                            ref_intvs = [
-                                [ref_intvs[0], ref_intvs[3], ref_intvs[2], "+"],
-                                [ref_intvs[0], ref_intvs[1], ref_intvs[4], "+"],
-                            ]
-                        else:
-                            logger.debug(
-                                "\tDiscarded the read due to inconsistent alignment information.",
-                            )
-                            continue
-                    elif ref_intvs[2] > ref_intvs[1]:
-                        ref_intvs = [
-                            [ref_intvs[0], ref_intvs[3], ref_intvs[2], "-"],
-                            [ref_intvs[0], ref_intvs[1], ref_intvs[4], "-"],
-                        ]
-                    else:
-                        logger.debug(
-                            "\tDiscarded the read due to inconsistent alignment information.",
-                        )
-                        continue
-                    bpi = bp_reads_rn_sdel[0][2]
-                    path = []
-                    if ref_intvs[0][3] == "+":
-                        logger.debug(
-                            f"\tAlignment intervals on reference = {ref_intvs};"
-                            f"mapq = {rq}; bp = (1, 0, {bpi})"
-                        )
-                        path = path_constraints.chimeric_alignment_to_path_i(
-                            self.lr_graph[amplicon_idx],
-                            ref_intvs,
-                            1,
-                            0,
-                            bpi,
-                        )
-                        paths.append(path)
-                    else:
-                        logger.debug(
-                            f"\tAlignment intervals on reference = {ref_intvs};"
-                            f"mapq = {rq}; bp = (0, 1, {bpi})"
-                        )
-                        path = path_constraints.chimeric_alignment_to_path_i(
-                            self.lr_graph[amplicon_idx],
-                            ref_intvs,
-                            0,
-                            1,
-                            bpi,
-                        )
-                        paths.append(path)
-                    logger.debug(f"\tResulting subpath = {path}")
-                elif len(bp_reads_rn) == 0 and len(bp_reads_rn_sdel) > 1:
-                    ref_intvs = self.large_indel_alignments[rn]
-                    rq = ref_intvs[0][-1]
-                    ref_intvs_ = {
-                        Interval(
-                            rint[0],
-                            min(rint[3], rint[4]),
-                            max(rint[3], rint[4]),
-                        )
-                        for rint in ref_intvs
-                    }
-                    logger.debug(
-                        f"Read {rn} covers multiple small del breakpoints."
-                    )
-                    if len(ref_intvs_) > 1 or len(ref_intvs) <= 1:
-                        logger.debug(
-                            "\tDiscarded the read due to inconsistent alignment information.",
-                        )
-                        continue
-                    ref_intvs_ = [
-                        [
-                            rint[0],
-                            min(rint[3], rint[4]),
-                            max(rint[3], rint[4]),
-                            "+",
-                        ]
-                        for rint in ref_intvs
-                    ]
-                    ref_intvs = sorted(
-                        ref_intvs, key=lambda item: min(item[1], item[2])
-                    )
-                    for ri in range(len(ref_intvs)):
-                        rint = ref_intvs[ri]
-                        ref_intvs_.append(
-                            [
-                                rint[0],
-                                min(rint[3], rint[4]),
-                                max(rint[3], rint[4]),
-                                "+",
-                            ]
-                        )
-                        ref_intvs_[ri][2] = min(rint[1], rint[2])
-                        ref_intvs_[ri + 1][1] = max(rint[1], rint[2])
-                    bp_reads_rn_sdel_split = [[]]
-                    bp_reads_rn_sdel = sorted(
-                        bp_reads_rn_sdel, key=lambda item: item[0]
-                    )
-                    last_ai = 0
-                    for i in range(len(bp_reads_rn_sdel)):
-                        if i == 0 or bp_reads_rn_sdel[i][0] == last_ai + 1:
-                            bp_reads_rn_sdel_split[-1].append(i)
-                        else:
-                            bp_reads_rn_sdel_split.append([i])
-                        last_ai = bp_reads_rn_sdel[i][0]
-                    logger.debug(
-                        f"\tBlocks of local alignments: {bp_reads_rn_sdel_split}"
-                    )
-                    for ai_block in bp_reads_rn_sdel_split:
-                        ai_list = [
-                            [
-                                bp_reads_rn_sdel[bi][0],
-                                bp_reads_rn_sdel[bi][0] + 1,
-                            ]
-                            for bi in ai_block
-                        ]
-                        bp_list = [bp_reads_rn_sdel[bi][2] for bi in ai_block]
-                        if len(set(bp_list)) < len(bp_list):
-                            logger.debug(
-                                "\tDiscarded the block due to repeated breakpoints.",
-                            )
-                            logger.debug(
-                                f"\tBlocks of local alignments: {ai_block}"
-                            )
-                            continue
-                        path = path_constraints.chimeric_alignment_to_path(
-                            self.lr_graph[amplicon_idx],
-                            ref_intvs_,
-                            ai_list,
-                            bp_list,
-                        )
-                        paths.append(path)
-                        logger.debug(
-                            f"\tAlignment intervals on reference = {ref_intvs_}; mapq = {rq}; bps = {bp_reads_rn_sdel}"
-                        )
-                        logger.debug(f"Resulting subpath = {path}")
-                else:
-                    ref_intvs = [
-                        aint[:4] for aint in self.chimeric_alignments[rn][1]
-                    ]
-                    ref_intvs_ = self.large_indel_alignments[rn]
-                    rint_split = []
-                    skip = 0
-                    logger.debug(
-                        f"Read {rn} covers breakpoints and small del breakpoints."
-                    )
-                    logger.debug(
-                        "\tAlignment intervals on reference = %s; mapq = %s"
-                        % (ref_intvs, self.chimeric_alignments[rn][2]),
-                    )
-                    logger.debug(
-                        "\tSmall del alignment intervals on reference = %s"
-                        % ref_intvs_,
-                    )
-                    for rint_ in ref_intvs_:
-                        fount_split_rint = 0
-                        for ri in range(len(ref_intvs)):
-                            rint = ref_intvs[ri]
-                            if (
-                                rint_[0] == rint[0]
-                                and min(rint_[1], rint_[2])
-                                > min(rint[1], rint[2])
-                                and max(rint_[1], rint_[2])
-                                < max(rint[1], rint[2])
-                            ):
-                                fount_split_rint = 1
-                                rint_split.append(ri)
-                                break
-                        if fount_split_rint == 0:
-                            skip = 1
-                            break
-                    if skip == 1:
-                        logger.debug(
-                            "\tDiscarded the read due to inconsistent alignment information.",
-                        )
-                        continue
-                    for rsi in range(len(rint_split)):
-                        ri = rint_split[rsi]
-                        ref_intvs.insert(ri, ref_intvs[ri][:])
-                        if ref_intvs[ri][3] == "+":
-                            ref_intvs[ri][2] = min(
-                                ref_intvs_[rsi][1], ref_intvs_[rsi][2]
-                            )
-                            ref_intvs[ri + 1][1] = max(
-                                ref_intvs_[rsi][1], ref_intvs_[rsi][2]
-                            )
-                        else:
-                            ref_intvs[ri][2] = max(
-                                ref_intvs_[rsi][1], ref_intvs_[rsi][2]
-                            )
-                            ref_intvs[ri + 1][1] = min(
-                                ref_intvs_[rsi][1], ref_intvs_[rsi][2]
-                            )
-                        for i in range(len(bp_reads_rn)):
-                            if (
-                                bp_reads_rn[i][0] >= ri
-                                and bp_reads_rn[i][1] >= ri
-                            ):
-                                bp_reads_rn[i][0] += 1
-                                bp_reads_rn[i][1] += 1
-                        for i in range(len(bp_reads_rn_sdel)):
-                            if bp_reads_rn_sdel[i][0] == rsi:
-                                if ref_intvs[ri][3] == "+":
-                                    bp_reads_rn.append(
-                                        [ri + 1, ri, bp_reads_rn_sdel[i][2]]
-                                    )
-                                else:
-                                    bp_reads_rn.append(
-                                        [ri, ri + 1, bp_reads_rn_sdel[i][2]]
-                                    )
-                    bp_reads_rn = sorted(
-                        bp_reads_rn, key=lambda item: min(item[0], item[1])
-                    )
-                    bp_reads_rn_split = [[0]]
-                    last_ai = max(bp_reads_rn[0][0], bp_reads_rn[0][1])
-                    for i in range(1, len(bp_reads_rn)):
-                        if min(bp_reads_rn[i][0], bp_reads_rn[i][1]) == last_ai:
-                            bp_reads_rn_split[-1].append(i)
-                        else:
-                            bp_reads_rn_split.append([i])
-                        last_ai = max(bp_reads_rn[i][0], bp_reads_rn[i][1])
-                    logger.debug(
-                        "\tBlocks of local alignments: %s" % bp_reads_rn_split,
-                    )
-                    qints = self.chimeric_alignments[rn][0]
-                    skip = 0
-                    for qi in range(len(qints) - 1):
-                        if (
-                            qints[qi + 1][0] - qints[qi][1]
-                            < -self.min_bp_match_cutoff_
-                        ):
-                            skip = 1
-                            break
-                    if skip == 1:
-                        logger.debug(
-                            "\tDiscarded the read due to overlapping local alignments.",
-                        )
-                        logger.debug(
-                            "\tAlignment intervals on reference = %s; mapq = %s."
-                            % (
-                                self.chimeric_alignments[rn][1],
-                                self.chimeric_alignments[rn][2],
-                            ),
-                        )
-                        logger.debug(
-                            "\tAlignment intervals on the read = %s." % qints,
-                        )
-                        continue
-                    for ai_block in bp_reads_rn_split:
-                        ai_list = [bp_reads_rn[bi][:2] for bi in ai_block]
-                        bp_list = [bp_reads_rn[bi][2] for bi in ai_block]
-                        if len(set(bp_list)) < len(bp_list):
-                            logger.debug(
-                                "\tDiscarded the block due to repeated breakpoints.",
-                            )
-                            logger.debug(
-                                "\tBlocks of local alignments: %s" % ai_block,
-                            )
-                            continue
-                        path = path_constraints.chimeric_alignment_to_path(
-                            self.lr_graph[amplicon_idx],
-                            ref_intvs,
-                            ai_list,
-                            bp_list,
-                        )
-                        paths.append(path)
-                        logger.debug(
-                            "\tAlignment intervals on reference = %s; mapq (unsplit) = %s; bps = %s"
-                            % (
-                                ref_intvs,
-                                self.chimeric_alignments[rn][2],
-                                bp_reads_rn,
-                            ),
-                        )
-                        logger.debug(
-                            "\tResulting subpath = %s" % path,
-                        )
-                for pi in range(len(paths)):
-                    path = paths[pi]
-                    if len(path) > 5 and path_constraints.valid_path(
-                        self.lr_graph[amplicon_idx], path
-                    ):
-                        if path in self.path_constraints[amplicon_idx][0]:
-                            pci = self.path_constraints[amplicon_idx][0].index(
-                                path
-                            )
-                            self.path_constraints[amplicon_idx][1][pci] += 1
-                        elif (
-                            path[::-1] in self.path_constraints[amplicon_idx][0]
-                        ):
-                            pci = self.path_constraints[amplicon_idx][0].index(
-                                path[::-1]
-                            )
-                            self.path_constraints[amplicon_idx][1][pci] += 1
-                        else:
-                            self.path_constraints[amplicon_idx][0].append(path)
-                            self.path_constraints[amplicon_idx][1].append(1)
-                            self.path_constraints[amplicon_idx][2].append(
-                                amplicon_idx
-                            )
-            logger.debug(
-                "There are %d distinct subpaths due to reads involving breakpoints in amplicon %d."
-                % (
-                    len(self.path_constraints[amplicon_idx][0]),
-                    amplicon_idx + 1,
-                )
-            )
-
-            # Extract reads in concordant_edges_reads
-            lc = len(self.lr_graph[amplicon_idx].concordant_edges)
-            for ci in range(lc):
-                for rn in self.lr_graph[amplicon_idx].concordant_edges[ci][9]:
-                    if (
-                        rn not in self.large_indel_alignments
-                        and rn not in self.chimeric_alignments
-                    ):
-                        concordant_reads[rn] = amplicon_idx
-            logger.debug(
-                "There are %d concordant reads within amplicon intervals in amplicon %d."
-                % (len(concordant_reads), amplicon_idx + 1)
-            )
-            for aint in self.amplicon_intervals:
-                if amplicon_idx != self.ccid2id[aint[3]] - 1:
-                    continue
-                for read in self.lr_bamfh.fetch(aint[0], aint[1], aint[2] + 1):
-                    rn = read.query_name
-                    q = read.mapq
-                    if q >= 20 and rn in concordant_reads:
-                        path = path_constraints.alignment_to_path(
-                            self.lr_graph[amplicon_idx],
-                            [
-                                read.reference_name,
-                                read.reference_start,
-                                read.reference_end,
-                            ],
-                        )
-                        if len(path) > 5 and path_constraints.valid_path(
-                            self.lr_graph[amplicon_idx], path
-                        ):
-                            if path in self.path_constraints[amplicon_idx][0]:
-                                pci = self.path_constraints[amplicon_idx][
-                                    0
-                                ].index(path)
-                                self.path_constraints[amplicon_idx][1][pci] += 1
-                            elif (
-                                path[::-1]
-                                in self.path_constraints[amplicon_idx][0]
-                            ):
-                                pci = self.path_constraints[amplicon_idx][
-                                    0
-                                ].index(path[::-1])
-                                self.path_constraints[amplicon_idx][1][pci] += 1
-                            else:
-                                self.path_constraints[amplicon_idx][0].append(
-                                    path
-                                )
-                                self.path_constraints[amplicon_idx][1].append(1)
-                                self.path_constraints[amplicon_idx][2].append(
-                                    concordant_reads[rn]
-                                )
-            logger.debug(
-                f"There are {len(self.path_constraints[amplicon_idx][0])} distinct subpaths in amplicon {amplicon_idx + 1}."
-            )
+            self.compute_bp_graph_path_constraints(self.lr_graph[amplicon_idx])
 
     def closebam(self):
         """Close the short read and long read bam file"""
@@ -2703,9 +2242,24 @@ def reconstruct_graph(
 
     b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
+    start = time.time()
+    # chimeric_alignments, edit_dist_stats = (
+    #     breakpoint_utilities.fetch_breakpoint_reads(bam_file)
+    # )
+    # with open(f"{output_dir}/chimeric_alignments.pickle", "wb") as file:
+    #     pickle.dump(chimeric_alignments, file)
+    with open(f"{output_dir}/chimeric_alignments.pickle", "rb") as file:
+        chimeric_alignments = pickle.load(file)
+    logger.error(f"Time to fetch breakpoint reads: {time.time() - start}")
     b2bn.fetch()
     logger.info("Completed fetching reads containing breakpoints.")
+
+    chimeric_alignments_by_read, chr_cns_to_chimeric_alignments = (
+        b2bn.hash_alignment_to_seg(chimeric_alignments)
+    )
+    logger.error(f"Time to hash reads: {time.time() - start}")
     b2bn.hash_alignment_to_seg()
+
     b2bn.find_amplicon_intervals()
     logger.info("Completed finding amplicon intervals.")
     b2bn.find_smalldel_breakpoints()
@@ -2720,14 +2274,7 @@ def reconstruct_graph(
             for discordant_edge in b2bn.lr_graph[gi].discordant_edges:
                 for bpi in range(len(b2bn.new_bp_list)):
                     bp_ = b2bn.new_bp_list[bpi]
-                    if (
-                        discordant_edge[0] == bp_[0]
-                        and discordant_edge[1] == bp_[1]
-                        and discordant_edge[2] == bp_[2]
-                        and discordant_edge[3] == bp_[3]
-                        and discordant_edge[4] == bp_[4]
-                        and discordant_edge[5] == bp_[5]
-                    ):
+                    if discordant_edge.matches_bp(bp_):
                         bp_stats_i.append(b2bn.new_bp_stats[bpi])
                         break
             file_prefix = f"{output_dir}/amplicon{gi+1}"
