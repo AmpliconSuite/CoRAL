@@ -23,7 +23,7 @@ from coral.datatypes import (
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
 
-def valid_path(g: BreakpointGraph, path: list[Edge]) -> bool:
+def valid_path(g: BreakpointGraph, path: Walk) -> bool:
     """Check if the input subpath constraint is valid in graph g
     A valid path must be an alternating sequence of nodes and edges;
             consist of >= 3 sequence edges;

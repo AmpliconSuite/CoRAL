@@ -43,6 +43,7 @@ from coral.datatypes import (
     CNSIntervalTree,
     FinalizedPathConstraint,
     Interval,
+    LargeIndelAlignment,
     PathConstraint,
     ReferenceInterval,
     Strand,
@@ -93,7 +94,7 @@ class LongReadBamToBreakpointMetadata:
     )
 
     # Map read name -> alignments with one record per read but large indels showing in CIGAR string
-    large_indel_alignments: dict[str, list[pysam.AlignedSegment]] = field(
+    large_indel_alignments: dict[str, list[LargeIndelAlignment]] = field(
         default_factory=dict
     )
     # For edit distance filter of breakpoints
@@ -2159,7 +2160,7 @@ class LongReadBamToBreakpointMetadata:
                 logger.debug(f"LR cov assigned for concordant edge {ec[:6]}.")
 
     def compute_bp_graph_path_constraints(
-        self, bp_graph: BreakpointGraph
+        self, bp_graph: BreakpointGraph, amplicon_idx: int
     ) -> None:
         read_to_alignments: defaultdict[str, BPIndexedAlignmentContainer] = (
             defaultdict(BPIndexedAlignmentContainer)
@@ -2195,13 +2196,98 @@ class LongReadBamToBreakpointMetadata:
                 rn,
                 disc_alignments,
                 self.chimeric_alignments[rn],
+                self.large_indel_alignments[rn],
                 self.min_bp_match_cutoff_,
             )
+
+            bp_path_constraints = self.path_constraints[amplicon_idx]
+            for path in paths:
+                if len(path) <= 5 or not path_constraints.valid_path(
+                    bp_graph, path
+                ):
+                    continue
+                existing_paths = [pc.path for pc in bp_path_constraints]
+                if path in existing_paths:
+                    pci = existing_paths.index(path)
+                    bp_path_constraints[pci].support += 1
+                elif path[::-1] in existing_paths:
+                    pci = existing_paths.index(path[::-1])
+                    bp_path_constraints[pci].support += 1
+                else:
+                    bp_path_constraints.append(
+                        PathConstraint(
+                            path=path, support=1, amplicon_id=amplicon_idx
+                        )
+                    )
+        logger.debug(
+            f"There are {len(self.path_constraints[amplicon_idx])} distinct "
+            f"subpaths due to reads involving breakpoints in amplicon "
+            f"{amplicon_idx + 1}."
+        )
+
+        # Extract reads in concordant_edges_reads
+        lc = len(self.lr_graph[amplicon_idx].concordant_edges)
+        for ci in range(lc):
+            for rn in (
+                self.lr_graph[amplicon_idx].concordant_edges[ci].read_names
+            ):
+                if (
+                    rn not in self.large_indel_alignments
+                    and rn not in self.chimeric_alignments
+                ):
+                    concordant_reads[rn] = amplicon_idx + 1
+        logger.debug(
+            f"There are {len(concordant_reads)} concordant reads within "
+            f"amplicon intervals in amplicon {amplicon_idx + 1}."
+        )
+        for aint in self.amplicon_intervals:
+            if amplicon_idx != self.ccid2id[aint.amplicon_id] - 1:
+                continue
+            for read in self.lr_bamfh.fetch(aint.chr, aint.start, aint.end + 1):
+                rn = read.query_name  # type: ignore[arg-type]
+                q = read.mapping_quality
+                if q >= 20 and rn in concordant_reads:
+                    path = path_constraints.alignment_to_path(
+                        self.lr_graph[amplicon_idx],
+                        ReferenceInterval(
+                            read.reference_name,  # type: ignore[arg-type]
+                            read.reference_start,
+                            read.reference_end,  # type: ignore[arg-type]
+                            Strand.FORWARD
+                            if read.is_forward
+                            else Strand.REVERSE,
+                            read.query_name,  # type: ignore[arg-type]
+                        ),
+                    )
+                    if len(path) <= 5 or not path_constraints.valid_path(
+                        self.lr_graph[amplicon_idx], path
+                    ):
+                        continue
+                    bp_path_constraints = self.path_constraints[amplicon_idx]
+                    existing_paths = [pc.path for pc in bp_path_constraints]
+                    if path in existing_paths:
+                        pci = existing_paths.index(path)
+                        bp_path_constraints[pci].support += 1
+                    elif path[::-1] in existing_paths:
+                        pci = existing_paths.index(path[::-1])
+                        bp_path_constraints[pci].support += 1
+                    else:
+                        bp_path_constraints.append(
+                            PathConstraint(
+                                path=path, support=1, amplicon_id=amplicon_idx
+                            )
+                        )
+        logger.debug(
+            f"There are {len(self.path_constraints[amplicon_idx])} distinct "
+            f"subpaths in amplicon {amplicon_idx + 1}."
+        )
 
     def compute_path_constraints(self) -> None:
         """Convert reads mapped within the amplicons into subpath constraints"""
         for amplicon_idx in range(len(self.lr_graph)):
-            self.compute_bp_graph_path_constraints(self.lr_graph[amplicon_idx])
+            self.compute_bp_graph_path_constraints(
+                self.lr_graph[amplicon_idx], amplicon_idx
+            )
 
     def closebam(self):
         """Close the short read and long read bam file"""

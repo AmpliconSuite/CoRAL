@@ -234,6 +234,11 @@ class Interval:
 
 
 @dataclass
+class DirectedInterval(Interval):
+    strand: Strand
+
+
+@dataclass
 class CNSInterval(Interval):
     cn: float
 
@@ -671,7 +676,8 @@ Walk = list[Node | EdgeId]
 DirectedWalk = list[DirectedEdge]
 
 
-class BPIndexedAlignments(NamedTuple):
+@dataclass
+class BPIndexedAlignments:
     alignment1: int  # Index of first alignment
     alignment2: int  # Index of second alignment
     discordant_idx: int  # Index of discordant edge
