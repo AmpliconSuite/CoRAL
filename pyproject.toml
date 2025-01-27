@@ -83,6 +83,7 @@ lint.select = ["ALL"]
 lint.ignore = [
   "E501",
   "D",       # Docstrings
+  "TD",      # TODO metadata
   "COM812",  # Trailing comma
   "PLR2004", # "magic" value in comparison rather than constant
   "G004",    # f-strings
@@ -94,6 +95,9 @@ lint.ignore = [
   "EM102",   # f-string in exception
   "ERA001",  # commented-out code, inaccurate
   "RUF005",  # Prefer iterable unpacking over concatenation
+  "PLR0911", # too-many-return-statements
+  "FIX002",  # Line contains TODO
+  
 ]
 lint.extend-select = ["I"]
 line-length = 80

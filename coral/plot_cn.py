@@ -1,12 +1,9 @@
-import io
 
 import matplotlib
 import matplotlib.axes
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import seaborn as sns
 import typer
-from matplotlib import rcParams
+from matplotlib import rcParams, ticker
 
 from coral.cnv_seed import parse_centromere_arms
 

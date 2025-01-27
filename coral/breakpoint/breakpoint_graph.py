@@ -9,7 +9,6 @@ import logging
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
 
 import cvxopt  # type: ignore[import-untyped]
 import cvxopt.modeling  # type: ignore[import-untyped]
@@ -20,7 +19,6 @@ from coral.breakpoint.breakpoint_utilities import (
     check_valid_discordant_rc_partition,
     enumerate_partitions,
 )
-from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AdjacencyMatrix,
     ConcordantEdge,
@@ -49,7 +47,7 @@ class BreakpointGraph:
     source_edges: list[datatypes.SourceEdge] = field(default_factory=list)
 
     """
-	nodes: adjacent list - keys with format Node(chr, pos, orientation); 
+	nodes: adjacent list - keys with format Node(chr, pos, orientation);
 	vals = [[sequence edges], [concordant edges], [discordant edges], [source edges]]  
 	"""
     node_adjacencies: dict[datatypes.Node, AdjacencyMatrix] = field(
@@ -132,11 +130,11 @@ class BreakpointGraph:
         chr: types.ChrTag,
         l: int,
         r: int,
-        sr_count=-1,
-        sr_flag="d",
-        lr_count=-1,
-        lr_nc=0,
-        cn=0.0,
+        sr_count: int = -1,
+        sr_flag: str = "d",
+        lr_count: int = -1,
+        lr_nc: float = 0.0,
+        cn: float = 0.0,
     ) -> None:
         """Add a sequence edge to the graph."""
         node1, node2 = (
@@ -154,12 +152,12 @@ class BreakpointGraph:
         self,
         node1: Node,
         node2: Node,
-        sr_count=-1,
-        sr_flag="d",
-        lr_count=-1,
-        reads=set([]),
-        cn=0.0,
-    ):
+        sr_count: int = -1,
+        sr_flag: str = "d",
+        lr_count: int = -1,
+        reads: set[str] | None = None,
+        cn: float = 0.0,
+    ) -> None:
         """Add a concordant edge to the graph."""
         if (
             node1.chr != node2.chr
@@ -168,6 +166,8 @@ class BreakpointGraph:
             or node2.strand != Strand.REVERSE
         ):
             raise Exception("Invalid concordant edge.")
+        if reads is None:
+            reads = set()
         lc = len(self.concordant_edges)
         self.node_adjacencies[node1].concordant.append(lc)
         self.node_adjacencies[node2].concordant.append(lc)
@@ -178,11 +178,11 @@ class BreakpointGraph:
     def add_discordant_edge(
         self,
         bp: datatypes.Breakpoint,
-        sr_count=-1,
-        sr_flag="d",
-        sr_cn=0.0,
-        cn=0.0,
-    ):
+        sr_count: int = -1,
+        sr_flag: str = "d",
+        sr_cn: float = 0.0,
+        cn: float = 0.0,
+    ) -> None:
         """Add a discordant edge to the breakpoint graph."""
 
         node1 = datatypes.Node(bp.chr1, bp.pos1, bp.strand1)
@@ -208,154 +208,9 @@ class BreakpointGraph:
             )
         )
 
-    def del_discordant_edges(self, del_list, bpi_map):
-        """Delete a list discordant edges from the graph."""
-        sorted_del_list = sorted(del_list, reverse=True)
-        for bpi in sorted_del_list:
-            del self.discordant_edges[bpi]
-        for node in self.endnode_adjacencies.keys():
-            for i in range(len(self.endnode_adjacencies[node])):
-                if self.endnode_adjacencies[node][i] in sorted_del_list:
-                    del self.endnode_adjacencies[node][i]
-                else:
-                    self.endnode_adjacencies[node][i] = bpi_map[
-                        self.endnode_adjacencies[node][i]
-                    ]
-        for node in self.node_adjacencies.keys():
-            node_adjacency = self.node_adjacencies[node]
-            adj_discordant_edges = node_adjacency.discordant
-            for i in range(len(adj_discordant_edges)):
-                disc_edge = adj_discordant_edges[i]
-                if disc_edge in sorted_del_list:
-                    del self.node_adjacencies[node].discordant[i]
-                else:
-                    self.node_adjacencies[node].discordant[i] = bpi_map[
-                        disc_edge
-                    ]
-
-    def add_source_edge(self, node: datatypes.Node):
-        """Adds a source edge to the graph."""
-        if node not in self.node_adjacencies:
-            raise Exception("Breakpoint node must be added first.")
-        self.node_adjacencies[node].source.append(len(self.source_edges))
-        self.source_edges.append(datatypes.SourceEdge(node))
-
-    def del_source_edges(self, del_list, srci_map):
-        """Delete a list source edges from the graph."""
-        sorted_del_list = sorted(del_list, reverse=True)
-        for srci in sorted_del_list:
-            del self.source_edges[srci]
-        for node in self.node_adjacencies.keys():
-            for i in range(len(self.node_adjacencies[node].source)):
-                if self.node_adjacencies[node].source[i] in sorted_del_list:
-                    del self.node_adjacencies[node].source[i]
-                else:
-                    self.node_adjacencies[node].source[i] = srci_map[
-                        self.node_adjacencies[node].source[i]
-                    ]
-
-    def del_redundant_sequence_edges(self):
-        """Delete redundant sequence edges after merging."""
-        if len(self.discordant_edges) == 0:
-            return
-        del_list = []
-        for seqi in range(len(self.sequence_edges)):
-            sseg = self.sequence_edges[seqi]
-            node1 = Node(sseg.chr, sseg.start, Strand.REVERSE)
-            node2 = Node(sseg.chr, sseg.end, Strand.FORWARD)
-            s1 = (
-                len(self.node_adjacencies[node1].concordant)
-                + len(self.node_adjacencies[node1].discordant)
-                + len(self.node_adjacencies[node1].source)
-            )
-            s2 = (
-                len(self.node_adjacencies[node2].concordant)
-                + len(self.node_adjacencies[node2].discordant)
-                + len(self.node_adjacencies[node2].source)
-            )
-            if s1 + s2 == 0:
-                del_list.append(seqi)
-        for seqi in del_list[::-1]:
-            ai = self.sequence_edges[seqi][:3]
-            if ai in self.amplicon_intervals:
-                del self.amplicon_intervals[self.amplicon_intervals.index(ai)]
-            node1 = Node(ai.chr, ai.start, Strand.REVERSE)
-            node2 = Node(ai.chr, ai.end, Strand.FORWARD)
-            del self.sequence_edges[seqi]
-            del self.node_adjacencies[node1]
-            del self.node_adjacencies[node2]
-            self.del_endnode(node1)
-            self.del_endnode(node2)
-        for seqi in range(len(self.sequence_edges)):
-            sseg = self.sequence_edges[seqi]
-            self.node_adjacencies[sseg.start_node].sequence[0] = seqi
-            self.node_adjacencies[sseg.end_node].sequence[0] = seqi
-
-    def merge_edges(self):
-        """Merge sequence edges connected only by concordant edges;
-        Delete the nodes and concordant edges accordingly.
-        """
-        c_del_list = []  # The list of concordant edges to be deleted
-        seq_del_list = []  # The list of sequence edges to be deleted
-        for ci in range(len(self.concordant_edges)):
-            ce = self.concordant_edges[ci]
-            node1 = ce.node1
-            node2 = ce.node2
-            if (
-                len(self.node_adjacencies[node1].discordant) == 0
-                and len(self.node_adjacencies[node2].discordant) == 0
-                and len(self.node_adjacencies[node1].source) == 0
-                and len(self.node_adjacencies[node2].source) == 0
-            ):
-                seqi1 = self.node_adjacencies[node1].sequence[0]
-                seqi2 = self.node_adjacencies[node2].sequence[0]
-                seq_del_list.append(seqi1)
-                del self.node_adjacencies[node1]
-                del self.node_adjacencies[node2]
-                c_del_list.append(ci)
-        seq_del_list = sorted(seq_del_list)
-        si = 0
-        li = 0
-        for i in range(1, len(seq_del_list)):
-            if seq_del_list[i] == seq_del_list[li] + 1:
-                li += 1
-            else:
-                seqi1 = seq_del_list[si]
-                seqi2 = seq_del_list[li] + 1
-                self.sequence_edges[seqi2][1] = self.sequence_edges[seqi1][1]
-                self.sequence_edges[seqi2][3] = -1
-                self.sequence_edges[seqi2][4] = "f"
-                self.sequence_edges[seqi2][-2] = (
-                    self.sequence_edges[seqi2][2]
-                    - self.sequence_edges[seqi2][1]
-                    + 1
-                )
-                si = i
-                li = i
-        seqi1 = seq_del_list[si]
-        seqi2 = seq_del_list[li] + 1
-        self.sequence_edges[seqi2][1] = self.sequence_edges[seqi1][1]
-        self.sequence_edges[seqi2][3] = -1
-        self.sequence_edges[seqi2][4] = "f"
-        self.sequence_edges[seqi2][-2] = (
-            self.sequence_edges[seqi2][2] - self.sequence_edges[seqi2][1] + 1
-        )
-        for seqi in seq_del_list[::-1]:
-            del self.sequence_edges[seqi]
-        for ci in sorted(c_del_list, reverse=True):
-            del self.concordant_edges[ci]
-        for seqi in range(len(self.sequence_edges)):
-            sseg = self.sequence_edges[seqi]
-            self.node_adjacencies[sseg.start_node].sequence[0] = seqi
-            self.node_adjacencies[sseg.end_node].sequence[0] = seqi
-        for ci in range(len(self.concordant_edges)):
-            ce = self.concordant_edges[ci]
-            self.node_adjacencies[ce.node1].concordant[0] = ci
-            self.node_adjacencies[ce.node2].concordant[0] = ci
-
-    def sort_edges(self):
-        """Sort sequence and concordant edges according to chromosome and position
-        Reset adjacent list
+    def sort_edges(self) -> None:
+        """Sort sequence and concordant edges according to chromosome and
+        position, then reset adjacency matrix.
         """
         self.sequence_edges.sort()
         self.concordant_edges.sort()
@@ -449,7 +304,7 @@ class BreakpointGraph:
                     balance_constraints[cidx][lseq + eci] = -1
                 for edi in self.node_adjacencies[node].discordant:
                     balance_constraints[cidx][lseq + lc + edi] = -1
-                for srci in self.node_adjacencies[node].sequence:
+                for srci in self.node_adjacencies[node].source:
                     balance_constraints[cidx][lseq + lc + ld + srci] = -1
                 cidx += 1
         balance_constraints = cvxopt.matrix(balance_constraints)
@@ -494,23 +349,22 @@ class BreakpointGraph:
                         "Reached maximum num iterations.",
                     )
                 logger.debug(
-                    "\tprimal objective = %f" % (sol["primal objective"]),
+                    f"\tprimal objective = {sol['primal objective']}",
                 )
                 logger.debug(
-                    "\tdual objective = %f" % (sol["dual objective"]),
+                    f"\tdual objective = {sol['dual objective']}",
                 )
                 logger.debug(
-                    "\tgap = %f" % (sol["gap"]),
+                    f"\tgap = {sol['gap']}",
                 )
                 logger.debug(
-                    "\trelative gap = %f" % (sol["relative gap"]),
+                    f"\trelative gap = {sol['relative gap']}",
                 )
                 logger.debug(
-                    "\tprimal infeasibility = %f"
-                    % (sol["primal infeasibility"]),
+                    f"\tprimal infeasibility = {sol['primal infeasibility']}",
                 )
                 logger.debug(
-                    "dual infeasibility = %f" % (sol["dual infeasibility"]),
+                    f"dual infeasibility = {sol['dual infeasibility']}",
                 )
                 for seqi in range(lseq):
                     self.sequence_edges[seqi].cn = sol["x"][seqi] * 2

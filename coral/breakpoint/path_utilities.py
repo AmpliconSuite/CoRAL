@@ -8,8 +8,6 @@ from coral.datatypes import (
     BPIndexedAlignmentContainer,
     BPIndexedAlignments,
     ChimericAlignment,
-    DirectedInterval,
-    Interval,
     LargeIndelAlignment,
     ReferenceInterval,
     Strand,
@@ -394,13 +392,13 @@ def get_bp_graph_paths(
     min_bp_match_cutoff: int,
 ) -> list[Walk]:
     bp_alignments = sorted(
-        all_bp_alignments.equal,
+        all_bp_alignments.unequal,
         key=lambda bp_alignment: min(
             bp_alignment.alignment1, bp_alignment.alignment2
         ),
     )
     indel_alignments = sorted(
-        all_bp_alignments.unequal,
+        all_bp_alignments.equal,
         key=lambda bp_alignment: min(
             bp_alignment.alignment1, bp_alignment.alignment2
         ),

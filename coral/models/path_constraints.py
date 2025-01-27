@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
 
 from coral.breakpoint import breakpoint_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
     BPIndexedAlignments,
-    Edge,
     EdgeId,
+    EdgeType,
     FinalizedPathConstraint,
     Node,
     PathConstraint,
     ReferenceInterval,
-    SequenceEdge,
     Strand,
     Walk,
 )
@@ -37,37 +35,25 @@ def valid_path(g: BreakpointGraph, path: Walk) -> bool:
     """
     if len(path) <= 3 or len(path) % 2 == 0:
         return False
-    if path[0][0] != "s" or path[-1][0] != "s":
+    if path[0][0] != EdgeType.SEQUENCE or path[-1][0] != EdgeType.SEQUENCE:
         return False
     for i in range(len(path)):
         if i % 2 == 0:
-            if len(path[i]) != 2:
+            if len(path[i]) != 2:  # Check if current element is EdgeId
                 return False
         else:
-            if len(path[i]) != 3:
+            if len(path[i]) != 3:  # Check if current element is Node
                 return False
-            e1 = path[i - 1]
-            e2 = path[i + 1]
-            try:
-                if (e1[0] == "s" and e2[0] == "s") or (
-                    e1[0] != "s" and e2[0] != "s"
-                ):
-                    return False
-                if (
-                    e1[1]
-                    not in g.node_adjacencies[path[i]][
-                        edge_type_to_index[e1[0]]
-                    ]
-                ):
-                    return False
-                if (
-                    e2[1]
-                    not in g.node_adjacencies[path[i]][
-                        edge_type_to_index[e2[0]]
-                    ]
-                ):
-                    return False
-            except:
+            e1: EdgeId = path[i - 1]  # type: ignore[assignment]
+            e2: EdgeId = path[i + 1]  # type: ignore[assignment]
+            node: Node = path[i]  # type: ignore[assignment]
+            if (e1[0] == EdgeType.SEQUENCE and e2[0] == EdgeType.SEQUENCE) or (
+                e1[0] != EdgeType.SEQUENCE and e2[0] != EdgeType.SEQUENCE
+            ):
+                return False
+            if e1[1] not in g.node_adjacencies[node].get_edges_by_type(e1[0]):
+                return False
+            if e2[1] not in g.node_adjacencies[node].get_edges_by_type(e2[0]):
                 return False
     return True
 
@@ -184,7 +170,8 @@ def chimeric_alignment_to_path_l(
             del seq_edge_idxs[0]
             if len(seq_edge_idxs) > 0:
                 segi0 = seq_edge_idxs[0][0]
-        # check if the rightmost node connects to the breakpoint edge at index edi
+        # check if the rightmost node connects to the breakpoint edge at index
+        # edi
         while len(seq_edge_idxs) > 0:
             segi_last = seq_edge_idxs[-1][0]
             if g.sequence_edges[segi_last].start_node != bp_node:
@@ -196,13 +183,13 @@ def chimeric_alignment_to_path_l(
     path_l: Walk = []
     for si, (seq_edge_idx, seq_strand) in enumerate(seq_edge_idxs):
         seq_edge = g.sequence_edges[seq_edge_idx]
-        path_l.append(EdgeId("s", seq_edge_idx))
+        path_l.append(EdgeId(EdgeType.SEQUENCE, seq_edge_idx))
         if seq_strand == Strand.FORWARD:
             path_l.append(seq_edge.end_node)
         else:
             path_l.append(seq_edge.start_node)
-        if not si >= len(seq_edge_idxs) - 1:
-            continue
+        if si >= len(seq_edge_idxs) - 1:
+            break
         next_seq_edge = g.sequence_edges[seq_edge_idxs[si + 1][0]]
         if (
             seq_strand == Strand.FORWARD
@@ -214,7 +201,7 @@ def chimeric_alignment_to_path_l(
                     seq_edge,
                     next_seq_edge,
                 ):
-                    path_l.append(EdgeId("c", ci))
+                    path_l.append(EdgeId(EdgeType.CONCORDANT, ci))
                     path_l.append(
                         Node(
                             seq_edge.chr,
@@ -233,7 +220,7 @@ def chimeric_alignment_to_path_l(
                     next_seq_edge,
                     seq_edge,
                 ):
-                    path_l.append(EdgeId("c", ci))
+                    path_l.append(EdgeId(EdgeType.CONCORDANT, ci))
                     path_l.append(
                         Node(
                             seq_edge.chr,
@@ -337,10 +324,10 @@ def chimeric_alignment_to_path_r(
             path_r.append(seq_edge.start_node)
         else:
             path_r.append(seq_edge.end_node)
-        path_r.append(EdgeId("s", seq_edge_idx))
+        path_r.append(EdgeId(EdgeType.SEQUENCE, seq_edge_idx))
 
-        if not si >= len(seq_edge_idxs) - 1:
-            continue
+        if si >= len(seq_edge_idxs) - 1:
+            break
         next_seq_edge = g.sequence_edges[seq_edge_idxs[si + 1][0]]
         if seq_strand == Strand.FORWARD and (
             seq_edge.end + 1 == next_seq_edge.start
@@ -352,7 +339,7 @@ def chimeric_alignment_to_path_r(
                     next_seq_edge,
                 ):
                     path_r.append(seq_edge.end_node)
-                    path_r.append(EdgeId("c", ci))
+                    path_r.append(EdgeId(EdgeType.CONCORDANT, ci))
                     break
         if seq_strand == Strand.REVERSE and (
             seq_edge.start - 1 == next_seq_edge.end
@@ -364,7 +351,7 @@ def chimeric_alignment_to_path_r(
                     seq_edge,
                 ):
                     path_r.append(seq_edge.start_node)
-                    path_r.append(EdgeId("c", ci))
+                    path_r.append(EdgeId(EdgeType.CONCORDANT, ci))
                     break
     return path_r
 
@@ -385,7 +372,7 @@ def chimeric_alignment_to_path_i(
 
     Returns: the resulting path as a list of alternating nodes and edges
     """
-    path_: Walk = [EdgeId("d", bp_alignment.discordant_idx)]
+    path_: Walk = [EdgeId(EdgeType.DISCORDANT, bp_alignment.discordant_idx)]
     discordant_edge = g.discordant_edges[bp_alignment.discordant_idx]
     node1 = discordant_edge.node1
     node2 = discordant_edge.node2
@@ -419,7 +406,8 @@ def traverse_through_sequence_edge(
 
     g: breakpoint graph (object)
     start_node: start node
-    end_node: end node - start and end node must locate at different (left/right) ends on the corresponding sequence edges
+    end_node: end node - start and end node must locate at different
+        (left/right) ends on the corresponding sequence edges
 
     Returns: the resulting path as a list of alternating nodes and edges
             note that the resulting path (additionally) starts and ends with the given nodes
@@ -431,7 +419,7 @@ def traverse_through_sequence_edge(
     next_end = seq_edge.start_node
     if start_node.strand == Strand.REVERSE:
         next_end = seq_edge.end_node
-    path_.append(EdgeId("s", seqi))
+    path_.append(EdgeId(EdgeType.SEQUENCE, seqi))
     path_.append(next_end)
     while next_end != end_node:
         # ignore the alignments spanning two amplicon intervals
@@ -439,7 +427,7 @@ def traverse_through_sequence_edge(
             return path_
 
         ci = conc_edges[0]
-        path_.append(EdgeId("c", ci))
+        path_.append(EdgeId(EdgeType.CONCORDANT, ci))
         cedge = g.concordant_edges[ci]
         next_start = cedge.node1
         if next_start == next_end:
@@ -451,7 +439,7 @@ def traverse_through_sequence_edge(
         next_end = seq_edge.start_node
         if next_start.strand == Strand.REVERSE:
             next_end = seq_edge.end_node
-        path_.append(EdgeId("s", seqi))
+        path_.append(EdgeId(EdgeType.SEQUENCE, seqi))
         path_.append(next_end)
     return path_
 
@@ -476,12 +464,12 @@ def chimeric_alignment_to_path(
                 path_ = chimeric_alignment_to_path_l(
                     g, ref_intvs[ai_list[i][1]], node2
                 ) + [
-                    EdgeId("d", bp_list[i]),
+                    EdgeId(EdgeType.DISCORDANT, bp_list[i]),
                 ]
                 lastnode = node1
             else:
                 path_ += traverse_through_sequence_edge(g, lastnode, node2)
-                path_.append(EdgeId("d", bp_list[i]))
+                path_.append(EdgeId(EdgeType.DISCORDANT, bp_list[i]))
                 lastnode = node1
                 if i == len(bp_list) - 1:
                     path_ += chimeric_alignment_to_path_r(
@@ -491,12 +479,12 @@ def chimeric_alignment_to_path(
             path_ = chimeric_alignment_to_path_l(
                 g, ref_intvs[ai_list[i][0]], node1
             ) + [
-                EdgeId("d", bp_list[i]),
+                EdgeId(EdgeType.DISCORDANT, bp_list[i]),
             ]
             lastnode = node2
         else:
             path_ += traverse_through_sequence_edge(g, lastnode, node1)
-            path_.append(EdgeId("d", bp_list[i]))
+            path_.append(EdgeId(EdgeType.DISCORDANT, bp_list[i]))
             lastnode = node2
             if i == len(bp_list) - 1:
                 path_ += chimeric_alignment_to_path_r(

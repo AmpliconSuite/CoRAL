@@ -20,7 +20,7 @@ from typing import (
 import numpy as np
 import pysam
 
-from coral import bam_types, cigar_parsing, constants, datatypes, types
+from coral import bam_types, cigar_parsing, datatypes, types
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
@@ -32,7 +32,6 @@ from coral.datatypes import (
     CNSInterval,
     Interval,
     Node,
-    ReferenceInterval,
     Strand,
 )
 
@@ -229,15 +228,24 @@ def alignment2bp_l(
 ) -> list[Breakpoint]:
     bp_list: list[Breakpoint] = []
     has_bp_assigned = [False] * (len(alignments) - 1)
+    alignments.sort(key=lambda x: x.query_bounds.start)
 
     """
 	Breakpoint from local alignment i and i + 1
 	"""
+
     for i in range(len(alignments) - 1):
         """
 		Add unmatched breakpoint to new_bp_list
 		"""
         chimera1, chimera2 = alignments[i], alignments[i + 1]
+        # if (
+        #     chimera1.ref_interval.start == 39545281
+        #     or chimera1.ref_interval.end == 39545281
+        #     or chimera2.ref_interval.start == 39545281
+        #     or chimera2.ref_interval.end == 39545281
+        # ):
+        #     breakpoint()
         query_gap = chimera2.query_bounds.start - chimera1.query_bounds.end
         if query_gap + min_bp_match_cutoff < 0:
             continue
@@ -247,23 +255,20 @@ def alignment2bp_l(
             chimera1.edit_dist >= max_nm or chimera2.edit_dist >= max_nm
         ):
             continue
-        if not (io1 := interval_overlap_l(chimera1.ref_interval, intrvls)):
+        if (io1 := interval_overlap_l(chimera1.ref_interval, intrvls)) is None:
             continue
-        if not (io2 := interval_overlap_l(chimera2.ref_interval, intrvls)):
+        if (io2 := interval_overlap_l(chimera2.ref_interval, intrvls)) is None:
             continue
-        if not (io1 == io2):
+        if io1 != io2:
             continue
         ref_intv1, ref_intv2 = chimera1.ref_interval, chimera2.ref_interval
 
-        # TODO: verify that we can just do abs(grr) instead of flipping order based on strand
+        # TODO: verify that we can just do abs(grr) instead of flipping order
+        # based on strand
         ref_gap = abs(ref_intv2.start - ref_intv1.end)
         if ref_intv1.strand == ref_intv2.strand or (
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
-            bp_to_add = interval2bp(
-                chimera1, chimera2, BPAlignments(rn, i, i + 1), query_gap
-            )
-            logger.info(f"{bp_to_add=}")
             bp_list.append(
                 interval2bp(
                     chimera1, chimera2, BPAlignments(rn, i, i + 1), query_gap
@@ -294,11 +299,11 @@ def alignment2bp_l(
             continue
 
         prev_intv, next_intv = prev.ref_interval, next.ref_interval
-        if not (io1 := interval_overlap_l(prev_intv, intrvls)):
+        if (io1 := interval_overlap_l(prev_intv, intrvls)) is None:
             continue
-        if not (io2 := interval_overlap_l(next_intv, intrvls)):
+        if (io2 := interval_overlap_l(next_intv, intrvls)) is None:
             continue
-        if not (io1 == io2):
+        if io1 != io2:
             continue
 
         # TODO: verify that we can just do abs(grr) instead of flipping order based on strand
@@ -307,11 +312,6 @@ def alignment2bp_l(
         if prev_intv.strand == next_intv.strand or (
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
-            bp_to_add = interval2bp(
-                prev, next, BPAlignments(rn, i - 1, i + 1), query_gap
-            )
-            logger.info(f"{bp_to_add=}")
-
             bp_list.append(
                 interval2bp(
                     prev, next, BPAlignments(rn, i - 1, i + 1), query_gap
@@ -673,95 +673,38 @@ def enumerate_partitions(
                 yield [[start, start + i - 1], *res]
 
 
-def output_breakpoint_graph_lr(g, ogfile):
+def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str):
     """Write a breakpoint graph to file in AA graph format with only long read information"""
     with open(ogfile, "w") as fp:
         fp.write(
-            "SequenceEdge: StartPosition, EndPosition, PredictedCN, AverageCoverage, Size, NumberOfLongReads\n",
+            "SequenceEdge: StartPosition, EndPosition, PredictedCN, "
+            "AverageCoverage, Size, NumberOfLongReads\n",
         )
         for se in g.sequence_edges:
             fp.write(
-                "sequence\t%s:%s-\t%s:%s+\t%f\t%f\t%d\t%d\n"
-                % (
-                    se[0],
-                    se[1],
-                    se[0],
-                    se[2],
-                    se[-1],
-                    se[6] * 1.0 / se[7],
-                    se[7],
-                    se[5],
-                ),
+                f"sequence\t{se.chr}:{se.start}-\t{se.chr}:{se.end}+\t"
+                f"{se.cn}\t{se.lr_nc * 1.0 / se.gap}\t{se.gap}\t{se.lr_count}\n"
             )
         fp.write(
             "BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads\n"
         )
         for srce in g.source_edges:
             fp.write(
-                "source\t%s:%s%s->%s:%s%s\t%f\t-1\n"
-                % (
-                    srce[0],
-                    srce[1],
-                    srce[2],
-                    srce[3],
-                    srce[4],
-                    srce[5],
-                    srce[-1],
-                ),
+                f"source\t0-->{srce.node.chr}:{srce.node.pos}{srce.node.strand}\t"
+                f"{srce.cn}\t-1\n"
             )
         for ce in g.concordant_edges:
             fp.write(
-                "concordant\t%s:%s%s->%s:%s%s\t%f\t%d\n"
-                % (ce[0], ce[1], ce[2], ce[3], ce[4], ce[5], ce[-1], ce[8]),
+                f"concordant\t{ce.node1.chr}:{ce.node1.pos}{ce.node1.strand}->"
+                f"{ce.node2.chr}:{ce.node2.pos}{ce.node2.strand}\t"
+                f"{ce.cn}\t{ce.lr_count}\n"
             )
         for de in g.discordant_edges:
             fp.write(
-                "discordant\t%s:%s%s->%s:%s%s\t%f\t%d\n"
-                % (de[0], de[1], de[2], de[3], de[4], de[5], de[-1], de[9]),
+                f"discordant\t{de.node1.chr}:{de.node1.pos}{de.node1.strand}->"
+                f"{de.node2.chr}:{de.node2.pos}{de.node2.strand}\t"
+                f"{de.cn}\t{de.lr_count}\n"
             )
-
-
-def output_breakpoint_info_sr_lr(g, obpfile, downsample_factor, new_bp_stats):
-    """Write the list of breakpoints to file"""
-    with open(obpfile, "w") as fp:
-        fp.write(
-            "chr1\tpos1\tchr2\tpos2\torientation\tsr_support\tlr_support\tlr_info=[avg1, avg2, std1, std2, mapq1, mapq2]\n",
-        )
-        for di in range(len(g.discordant_edges)):
-            de = g.discordant_edges[di]
-            if di in bp_stats:
-                fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t-1\t%d\t%s\n"
-                    % (
-                        de[3],
-                        de[4],
-                        de[0],
-                        de[1],
-                        de[5],
-                        de[2],
-                        de[9],
-                        new_bp_stats[di],
-                    ),
-                )
-            elif de[7] == "d":
-                fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t%d\t%d\tN/A\n"
-                    % (
-                        de[3],
-                        de[4],
-                        de[0],
-                        de[1],
-                        de[5],
-                        de[2],
-                        int(np.round(de[6] * downsample_factor)),
-                        de[9],
-                    ),
-                )
-            else:
-                fp.write(
-                    "%s\t%s\t%s\t%s\t%s%s\t%d\t%d\tN/A\n"
-                    % (de[3], de[4], de[0], de[1], de[5], de[2], de[6], de[9]),
-                )
 
 
 def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):

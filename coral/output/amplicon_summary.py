@@ -2,7 +2,6 @@ import io
 import logging
 
 from coral.breakpoint import infer_breakpoint_graph
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 logger = logging.getLogger(__name__)
 

@@ -15,9 +15,15 @@ import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
-from coral import datatypes, types
+from coral import datatypes
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.datatypes import AmpliconWalk, CycleSolution, EdgeToCN
+from coral.datatypes import (
+    AmpliconWalk,
+    CycleSolution,
+    EdgeId,
+    EdgeToCN,
+    EdgeType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +47,7 @@ def process_walk_edge(
 
     # Is sequence edge
     if edge_idx < bp_graph.num_seq_edges:
-        walk[("e", edge_idx)] = edge_count
+        walk[EdgeId(EdgeType.SEQUENCE, edge_idx)] = edge_count
         if remaining_cn:
             remaining_cn.sequence[edge_idx] -= edge_count * model.w[0].value
             if remaining_cn.sequence[edge_idx] < resolution:
@@ -49,7 +55,7 @@ def process_walk_edge(
     # Is concordant edge
     elif edge_idx < bp_graph.num_seq_edges + bp_graph.num_conc_edges:
         conc_edge_idx = edge_idx - bp_graph.num_seq_edges
-        walk[("c", conc_edge_idx)] = edge_count
+        walk[EdgeId(EdgeType.CONCORDANT, conc_edge_idx)] = edge_count
         if remaining_cn:
             remaining_cn.concordant[conc_edge_idx] -= (
                 edge_count * model.w[0].value
@@ -61,7 +67,7 @@ def process_walk_edge(
         disc_edge_idx = (
             edge_idx - bp_graph.num_seq_edges - bp_graph.num_conc_edges
         )
-        walk[("d", disc_edge_idx)] = edge_count
+        walk[EdgeId(EdgeType.DISCORDANT, disc_edge_idx)] = edge_count
         if remaining_cn:
             remaining_cn.discordant[disc_edge_idx] -= (
                 edge_count * model.w[0].value
@@ -78,14 +84,16 @@ def process_walk_edge(
         src_edge_idx = edge_idx - bp_graph.num_nonsrc_edges
         if src_edge_idx % 2 == 0:
             s_edge_idx = src_edge_idx // 2
-            walk[("s", s_edge_idx)] = 1  # source edge connected to s
+            # source edge connected to s
+            walk[EdgeId(EdgeType.SOURCE, s_edge_idx)] = 1
             if remaining_cn:
                 remaining_cn.source[s_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[s_edge_idx] < resolution:
                     remaining_cn.source[s_edge_idx] = 0.0
         else:
             t_edge_idx = (src_edge_idx - 1) // 2
-            walk[("t", t_edge_idx)] = 1  # source edge connected to t
+            # source edge connected to t
+            walk[EdgeId(EdgeType.SINK, t_edge_idx)] = 1
             if remaining_cn:
                 remaining_cn.source[t_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[t_edge_idx] < resolution:
@@ -95,10 +103,12 @@ def process_walk_edge(
         assert edge_count == 1
         if (edge_idx - src_node_offset) % 2 == 0:
             nsi = (edge_idx - src_node_offset) // 2
-            walk[("ns", nsi)] = 1  # source edge connected to s
+            # source edge connected to s
+            walk[EdgeId(EdgeType.SYNTHETIC_SOURCE, nsi)] = 1
         else:
             nti = (edge_idx - src_node_offset - 1) // 2
-            walk[("nt", nti)] = 1  # source edge connected to t
+            # source edge connected to t
+            walk[EdgeId(EdgeType.SYNTHETIC_SINK, nti)] = 1
 
 
 def parse_solver_output(

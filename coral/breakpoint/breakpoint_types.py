@@ -5,9 +5,8 @@ from __future__ import annotations
 import io
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Dict, List
 
-import intervaltree
 import numpy as np
 
 from coral.datatypes import CNSInterval, CNSIntervalTree

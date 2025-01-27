@@ -3,10 +3,9 @@ from __future__ import annotations
 import io
 import logging
 import random
-from typing import Any, Dict
+from typing import Dict
 
-import coral.datatypes
-from coral import constants, datatypes, types
+from coral import constants
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
@@ -17,12 +16,12 @@ from coral.datatypes import (
     DirectedWalk,
     DiscordantEdge,
     EdgeId,
+    EdgeType,
     Node,
     PathConstraint,
     PathMetric,
     Strand,
     Walk,
-    WalkData,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,7 +77,7 @@ def eulerian_cycle_t(
             if edge[0] == "e":
                 last_seq_edge_idx = min(last_seq_edge_idx, edge[1])
         last_edge_dir = "+"
-        eulerian_cycle.append(EdgeId("s", last_seq_edge_idx))
+        eulerian_cycle.append(EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx))
         eulerian_subcycle.append(
             DirectedEdge(last_seq_edge_idx + 1, Strand.FORWARD)
         )
@@ -90,9 +89,9 @@ def eulerian_cycle_t(
             eulerian_cycle.append(node)
             next_bp_edges = []  # Since cycle, only consider discordant edges and concordant edges
             for ci in g.node_adjacencies[node].concordant:
-                next_bp_edges.append(EdgeId("c", ci))
+                next_bp_edges.append(EdgeId(EdgeType.CONCORDANT, ci))
             for di in g.node_adjacencies[node].discordant:
-                next_bp_edges.append(EdgeId("d", di))
+                next_bp_edges.append(EdgeId(EdgeType.DISCORDANT, di))
             del_list = [
                 i
                 for i in range(len(next_bp_edges))
@@ -120,7 +119,9 @@ def eulerian_cycle_t(
                     node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
                 last_seq_edge_idx = g.node_adjacencies[node_].sequence[0]
-                eulerian_cycle.append(EdgeId("s", last_seq_edge_idx))
+                eulerian_cycle.append(
+                    EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)
+                )
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_subcycle.append(
@@ -131,11 +132,12 @@ def eulerian_cycle_t(
                     eulerian_subcycle.append(
                         DirectedEdge(last_seq_edge_idx + 1, Strand.REVERSE)
                     )
-                edges_cur[EdgeId("e", last_seq_edge_idx)] = (
-                    int(edges_cur[EdgeId("e", last_seq_edge_idx)]) - 1
+                edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)] = (
+                    int(edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)])
+                    - 1
                 )
-                if edges_cur[EdgeId("e", last_seq_edge_idx)] == 0:
-                    del edges_cur[EdgeId("e", last_seq_edge_idx)]
+                if edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)] == 0:
+                    del edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_cycle.append(next_bp_edges[r])
@@ -153,7 +155,9 @@ def eulerian_cycle_t(
                     node_ = bp_edge.node2
                 eulerian_cycle.append(node_)
                 last_seq_edge_idx = g.node_adjacencies[node_].sequence[0]
-                eulerian_cycle.append(EdgeId("s", last_seq_edge_idx))
+                eulerian_cycle.append(
+                    EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)
+                )
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_subcycle.append(
@@ -164,11 +168,12 @@ def eulerian_cycle_t(
                     eulerian_subcycle.append(
                         DirectedEdge(last_seq_edge_idx + 1, Strand.REVERSE)
                     )
-                edges_cur[EdgeId("e", last_seq_edge_idx)] = (
-                    int(edges_cur[EdgeId("e", last_seq_edge_idx)]) - 1
+                edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)] = (
+                    int(edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)])
+                    - 1
                 )
-                if edges_cur[EdgeId("e", last_seq_edge_idx)] == 0:
-                    del edges_cur[EdgeId("e", last_seq_edge_idx)]
+                if edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)] == 0:
+                    del edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge_idx)]
         if valid == 1 and len(best_cycle) == 0:
             best_cycle = eulerian_subcycle
         path_metric = PathMetric(path_idxs=[], path_length=0, path_support=0)
@@ -296,7 +301,7 @@ def eulerian_path_t(
                 node = g.source_edges[edge[1]].node
                 if len(eulerian_path) == 0:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
-                    eulerian_path.append(EdgeId("$", -1))
+                    eulerian_path.append(EdgeId(EdgeType.TERMINAL, -1))
                     eulerian_path.append(node)
                     last_seq_edge = g.node_adjacencies[node].sequence[0]
                 elif g.node_adjacencies[node].sequence[0] < last_seq_edge:
@@ -308,7 +313,7 @@ def eulerian_path_t(
                 node = endnode_list[edge[1]]
                 if len(eulerian_path) == 0:
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
-                    eulerian_path.append(EdgeId("$", -1))
+                    eulerian_path.append(EdgeId(EdgeType.TERMINAL, -1))
                     eulerian_path.append(node)
                     last_seq_edge = g.node_adjacencies[node].sequence[0]
                 elif g.node_adjacencies[node].sequence[0] < last_seq_edge:
@@ -316,7 +321,7 @@ def eulerian_path_t(
                     eulerian_path[-1] = node
                     last_seq_edge = g.node_adjacencies[node].sequence[0]
         del edges_cur[src_edge]
-        eulerian_path.append(EdgeId("s", last_seq_edge))
+        eulerian_path.append(EdgeId(EdgeType.SEQUENCE, last_seq_edge))
         if last_edge_dir == "+":
             eulerian_subpath.append(
                 DirectedEdge(last_seq_edge + 1, Strand.FORWARD)
@@ -325,11 +330,11 @@ def eulerian_path_t(
             eulerian_subpath.append(
                 DirectedEdge(last_seq_edge + 1, Strand.REVERSE)
             )
-        edges_cur[EdgeId("e", last_seq_edge)] = (
-            int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
+        edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)] = (
+            int(edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)]) - 1
         )
-        if edges_cur[EdgeId("e", last_seq_edge)] == 0:
-            del edges_cur[EdgeId("e", last_seq_edge)]
+        if edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)] == 0:
+            del edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)]
         while len(edges_cur) > 0:
             seq_edge = g.sequence_edges[last_seq_edge]
             node = Node(seq_edge.chr, seq_edge.end, Strand.FORWARD)
@@ -342,14 +347,14 @@ def eulerian_path_t(
                 or list(edges_cur.keys())[0][0] == "t"
                 or list(edges_cur.keys())[0][0] == "nt"
             ):
-                eulerian_path.append(EdgeId("$", -1))
+                eulerian_path.append(EdgeId(EdgeType.TERMINAL, -1))
                 break
             # Since cycle, only consider discordant/concordant edges
             next_bp_edges: list[EdgeId] = []
             for ci in g.node_adjacencies[node].concordant:
-                next_bp_edges.append(EdgeId("c", ci))
+                next_bp_edges.append(EdgeId(EdgeType.CONCORDANT, ci))
             for di in g.node_adjacencies[node].discordant:
-                next_bp_edges.append(EdgeId("d", di))
+                next_bp_edges.append(EdgeId(EdgeType.DISCORDANT, di))
             del_list = [
                 i
                 for i in range(len(next_bp_edges))
@@ -378,7 +383,7 @@ def eulerian_path_t(
                     node_ = bp_edge.node2
                 eulerian_path.append(node_)
                 last_seq_edge = g.node_adjacencies[node_].sequence[0]
-                eulerian_path.append(EdgeId("s", last_seq_edge))
+                eulerian_path.append(EdgeId(EdgeType.SEQUENCE, last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_subpath.append(
@@ -389,11 +394,11 @@ def eulerian_path_t(
                     eulerian_subpath.append(
                         DirectedEdge(last_seq_edge + 1, Strand.REVERSE)
                     )
-                edges_cur[EdgeId("e", last_seq_edge)] = (
-                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
+                edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)] = (
+                    int(edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)]) - 1
                 )
-                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
-                    del edges_cur[EdgeId("e", last_seq_edge)]
+                if edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)] == 0:
+                    del edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)]
             else:
                 r = random.randint(0, len(next_bp_edges) - 1)
                 eulerian_path.append(next_bp_edges[r])
@@ -411,7 +416,7 @@ def eulerian_path_t(
                     node_ = bp_edge.node2
                 eulerian_path.append(node_)
                 last_seq_edge = g.node_adjacencies[node_].sequence[0]
-                eulerian_path.append(EdgeId("s", last_seq_edge))
+                eulerian_path.append(EdgeId(EdgeType.SEQUENCE, last_seq_edge))
                 if node_[2] == "-":
                     last_edge_dir = "+"
                     eulerian_subpath.append(
@@ -422,11 +427,11 @@ def eulerian_path_t(
                     eulerian_subpath.append(
                         DirectedEdge(last_seq_edge + 1, Strand.REVERSE)
                     )
-                edges_cur[EdgeId("e", last_seq_edge)] = (
-                    int(edges_cur[EdgeId("e", last_seq_edge)]) - 1
+                edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)] = (
+                    int(edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)]) - 1
                 )
-                if edges_cur[EdgeId("e", last_seq_edge)] == 0:
-                    del edges_cur[EdgeId("e", last_seq_edge)]
+                if edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)] == 0:
+                    del edges_cur[EdgeId(EdgeType.SEQUENCE, last_seq_edge)]
         if valid == 1 and len(best_path) == 0:
             best_path = eulerian_subpath
         path_metric = PathMetric(
@@ -520,14 +525,14 @@ def output_amplicon_cycles(
     fp.write("List of cycle segments\n")
     for seqi in range(len(bb.lr_graph[amplicon_idx].sequence_edges)):
         sseg = bb.lr_graph[amplicon_idx].sequence_edges[seqi]
-        fp.write(f"Segment\t{seqi + 1}\t{sseg}\n")
+        fp.write(f"Segment\t{seqi + 1}\t{sseg.chr}\t{sseg.start}\t{sseg.end}\n")
 
     satisfied_path_constraints = bb.path_constraints_satisfied[amplicon_idx]
     longest_path_constraints = bb.longest_path_constraints[amplicon_idx]
 
     if output_all_paths:
         fp.write("List of all subpath constraints\n")
-        for pathi in range(len(bb.path_constraints[amplicon_idx][0])):
+        for pathi in range(len(bb.path_constraints[amplicon_idx])):
             write_path_constraint_to_file(
                 pathi, bb.path_constraints[amplicon_idx][pathi], fp
             )
@@ -572,7 +577,7 @@ def output_amplicon_cycles(
             for pathi in satisfied_path_constraints.cycles[cycle_i[1]]:
                 pathi_ = bb.longest_path_constraints[amplicon_idx][pathi].pc_idx
                 path_constraints_satisfied_cycle.append(
-                    bb.path_constraints[amplicon_idx][0][pathi_],
+                    bb.path_constraints[amplicon_idx][pathi_].path
                 )
                 path_constraints_support_cycle.append(
                     bb.longest_path_constraints[amplicon_idx][pathi].support,
@@ -588,12 +593,8 @@ def output_amplicon_cycles(
             fp.write(f"Copy_count={walk_weights.cycles[cycle_i[1]]};")
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
-                fp.write(
-                    f"{int(cycle_seg_list[segi][:-1])}{cycle_seg_list[segi][-1]},"
-                )
-            fp.write(
-                "%d%s" % (int(cycle_seg_list[-2][:-1]), cycle_seg_list[-2][-1])
-            )
+                fp.write(f"{cycle_seg_list[segi][0]}{cycle_seg_list[segi][1]},")
+            fp.write(f"{cycle_seg_list[-2][0]}{cycle_seg_list[-2][1]},0-")
             if not output_all_paths:
                 fp.write(";Path_constraints_satisfied=")
                 for pathi in range(
@@ -666,15 +667,9 @@ def output_amplicon_cycles(
             )
             fp.write("Segments=0+,")
             for segi in range(len(cycle_seg_list) - 1):
-                fp.write(
-                    "%d%s,"
-                    % (int(cycle_seg_list[segi][:-1]), cycle_seg_list[segi][-1])
-                )
+                fp.write(f"{cycle_seg_list[segi][0]}{cycle_seg_list[segi][1]},")
 
-            fp.write(
-                "%d%s,0-"
-                % (int(cycle_seg_list[-1][:-1]), cycle_seg_list[-1][-1])
-            )
+            fp.write(f"{cycle_seg_list[-1][0]}{cycle_seg_list[-1][1]},0-")
             if not output_all_paths:
                 fp.write(";Path_constraints_satisfied=")
                 for pathi in range(
@@ -723,7 +718,7 @@ def output_summary_amplicon_stats(
     bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
     output_dir: str,
 ) -> None:
-    logger.info(f"Outputting solution info for all amplicons.")
+    logger.info("Outputting solution info for all amplicons.")
 
     fp = open(f"{output_dir}/amplicon_summary.txt", "w")
     fp.write(
@@ -735,8 +730,7 @@ def output_summary_amplicon_stats(
         if not was_amplicon_solved[amplicon_idx]:
             fp.write("UNSOLVED.\n")
             continue
-        else:
-            fp.write("Solved.\n")
+        fp.write("Solved.\n")
     # TODO: mirror AA summary output
     fp.close()
 

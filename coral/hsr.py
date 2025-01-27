@@ -18,7 +18,7 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_overlap_l,
 )
 from coral.constants import CHR_SIZES
-from coral.datatypes import AmpliconInterval, Interval
+from coral.datatypes import Interval
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt

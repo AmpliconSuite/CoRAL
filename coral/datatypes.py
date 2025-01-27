@@ -4,12 +4,9 @@ import enum
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
-    Any,
     Dict,
     Generic,
-    Literal,
     NamedTuple,
-    Sequence,
     Set,
     TypeVar,
     Union,
@@ -28,9 +25,24 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-EdgeType = Literal["e", "c", "d", "s", "t", "ns", "nt", "$"]
 EdgeIdx = int
 EdgeCount = int
+
+
+# EdgeType = Literal["e", "c", "d", "s", "t", "ns", "nt", "$"]
+class EdgeType(enum.StrEnum):
+    SEQUENCE = "e"
+    CONCORDANT = "c"
+    DISCORDANT = "d"
+    SOURCE = "s"
+    SINK = "t"
+    SYNTHETIC_SOURCE = "ns"
+    SYNTHETIC_SINK = "nt"
+    TERMINAL = "$"
+
+    @property
+    def is_synthetic(self) -> bool:
+        return self in (EdgeType.SYNTHETIC_SOURCE, EdgeType.SYNTHETIC_SINK)
 
 
 class EdgeId(NamedTuple):
@@ -46,7 +58,7 @@ class DirectedEdge(NamedTuple):
 AmpliconWalk = dict[EdgeId, EdgeCount]
 
 
-class Strand(str, enum.Enum):
+class Strand(enum.StrEnum):
     FORWARD = "+"
     REVERSE = "-"
 
@@ -189,7 +201,9 @@ class Interval:
             return other.start == self.end + 1
         return self.start == other.end + 1
 
-    def intersects(self, y: Interval, extend=0, margin=0.0) -> bool:
+    def intersects(
+        self, y: Interval, extend: int = 0, margin: float = 0.0
+    ) -> bool:
         if margin > 0.0:
             margin_offset = (1 - margin) * (y.end - y.start)
             margin_interval = (
@@ -225,7 +239,7 @@ class Interval:
         )
 
     # Sourced from AA
-    def merge(self, y: Interval, extend=0) -> Interval | None:
+    def merge(self, y: Interval, extend: int = 0) -> Interval | None:
         if not self.intersects(y, extend):
             return None
         return Interval(
@@ -256,7 +270,7 @@ class AmpliconInterval(Interval):
     amplicon_id: int = -1  # TODO: update to None for more obvious behavior
 
     def __str__(self) -> str:
-        return f"Amplicon{self.amplicon_id}>{super()}"
+        return f"Amplicon{self.amplicon_id}>{super().__str__()}"
 
 
 @dataclass
@@ -313,6 +327,8 @@ class Breakpoint:
     mapq1: int
     mapq2: int
     all_alignments: set[BPAlignments] = field(default_factory=set)
+    amplicon_id: int | None = None
+    stats: BreakpointStats | None = None
 
     @property
     def chr1(self) -> types.ChrTag:
@@ -399,7 +415,7 @@ class EdgeToCN:
     source: Dict[int, float] = field(default_factory=dict)
 
     @staticmethod
-    def from_graph(bp_graph: BreakpointGraph):
+    def from_graph(bp_graph: BreakpointGraph) -> EdgeToCN:
         return EdgeToCN(
             sequence={
                 i: edge.cn for i, edge in enumerate(bp_graph.sequence_edges)
@@ -670,6 +686,19 @@ class AdjacencyMatrix:
     @property
     def num_nonsrc_edges(self) -> int:
         return len(self.sequence) + len(self.concordant) + len(self.discordant)
+
+    def get_edges_by_type(self, edge_type: EdgeType) -> list[int]:
+        if edge_type == EdgeType.SEQUENCE:
+            return self.sequence
+        if edge_type == EdgeType.CONCORDANT:
+            return self.concordant
+        if edge_type == EdgeType.DISCORDANT:
+            return self.discordant
+        if edge_type == EdgeType.SOURCE:
+            return self.source
+        if edge_type == EdgeType.SINK:
+            return self.source
+        raise ValueError(f"Invalid edge type: {edge_type}")
 
 
 Walk = list[Node | EdgeId]
