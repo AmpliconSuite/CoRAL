@@ -137,10 +137,8 @@ def alignment2bp(
     bp_list: list[Breakpoint] = []
     has_bp_assigned = [False] * (len(alignments) - 1)
     alignments.sort(key=lambda x: x.query_bounds.start)
+
     # Breakpoint from local alignment i and i + 1
-    # if "9214_F_30" in rn:  #
-    #     breakpoint()
-    # == 9214_F_30_7676_8', 1, 0), 0, 1, 60, 60]
     for ri in range(len(alignments) - 1):
         chimera1, chimera2 = alignments[ri], alignments[ri + 1]
         query_gap = chimera2.query_bounds.start - chimera1.query_bounds.end
@@ -239,13 +237,6 @@ def alignment2bp_l(
 		Add unmatched breakpoint to new_bp_list
 		"""
         chimera1, chimera2 = alignments[i], alignments[i + 1]
-        # if (
-        #     chimera1.ref_interval.start == 39545281
-        #     or chimera1.ref_interval.end == 39545281
-        #     or chimera2.ref_interval.start == 39545281
-        #     or chimera2.ref_interval.end == 39545281
-        # ):
-        #     breakpoint()
         query_gap = chimera2.query_bounds.start - chimera1.query_bounds.end
         if query_gap + min_bp_match_cutoff < 0:
             continue
@@ -263,10 +254,8 @@ def alignment2bp_l(
             continue
         ref_intv1, ref_intv2 = chimera1.ref_interval, chimera2.ref_interval
 
-        # TODO: verify that we can just do abs(grr) instead of flipping order
-        # based on strand
         ref_gap = abs(ref_intv2.start - ref_intv1.end)
-        if ref_intv1.strand == ref_intv2.strand or (
+        if ref_intv1.strand != ref_intv2.strand or (
             abs(ref_gap - query_gap) > max(gap_, abs(query_gap * 0.2))
         ):
             bp_list.append(
@@ -402,9 +391,9 @@ def interval2bp(
             Node(intv2.chr, intv2.start, intv2.strand.inverse),
             read_info,
             gap,
-            False,
-            chimera1.mapq,
-            chimera2.mapq,
+            was_reversed=True,
+            mapq1=chimera1.mapq,
+            mapq2=chimera2.mapq,
         )
     return Breakpoint(
         Node(intv2.chr, intv2.start, intv2.strand.inverse),
@@ -413,9 +402,9 @@ def interval2bp(
             read_info.name, read_info.alignment2, read_info.alignment1
         ),
         gap,
-        True,
-        chimera1.mapq,
-        chimera2.mapq,
+        was_reversed=False,
+        mapq1=chimera1.mapq,
+        mapq2=chimera2.mapq,
     )
 
 
@@ -503,11 +492,13 @@ def bp_match(
 ):
     """
     Check if two breakpoints match
-    A breakpoint (chr1, e1, chr2, s2) must either satisfy chr1 > chr2 or chr1 == chr2 and e1 >= s2
+    A breakpoint (chr1, e1, chr2, s2) must either satisfy
+        1. chr1 > chr2
+        2. chr1 == chr2 and e1 >= s2
     """
     if bp1.chr1 != bp2.chr1 or bp1.chr2 != bp2.chr2:
         return False
-    if bp1.strand1 != bp2.strand2 or bp1.strand2 != bp2.strand1:
+    if bp1.strand1 != bp2.strand1 or bp1.strand2 != bp2.strand2:
         return False
     if rgap <= 0:
         return (
@@ -589,7 +580,7 @@ def check_valid_discordant_rc_partition(
     Returns:
         If the partition is invalid, returns None. Otherwise, returns a tuple
         containing:
-            - The empirically value of R for the discordant edge
+            - The empirical value of R for the discordant edge
             - The score of the partition
     """
     if partition[0] == partition[1]:
@@ -673,7 +664,7 @@ def enumerate_partitions(
                 yield [[start, start + i - 1], *res]
 
 
-def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str):
+def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str) -> None:
     """Write a breakpoint graph to file in AA graph format with only long read information"""
     with open(ogfile, "w") as fp:
         fp.write(
@@ -705,9 +696,13 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str):
                 f"{de.node2.chr}:{de.node2.pos}{de.node2.strand}\t"
                 f"{de.cn}\t{de.lr_count}\n"
             )
+        for pc in g.path_constraints:
+            fp.write(f"path_constraint\t{pc.path}\t{pc.support}\n")
 
 
-def output_breakpoint_info_lr(g: BreakpointGraph, filename: str, bp_stats):
+def output_breakpoint_info_lr(
+    g: BreakpointGraph, filename: str, bp_stats: BreakpointStats
+) -> None:
     """Write the list of breakpoints to file"""
     with open(filename, "w") as fp:
         fp.write(

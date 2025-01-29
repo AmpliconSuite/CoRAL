@@ -53,9 +53,14 @@ class BreakpointGraph:
     node_adjacencies: dict[datatypes.Node, AdjacencyMatrix] = field(
         default_factory=lambda: defaultdict(AdjacencyMatrix)
     )
-    endnode_adjacencies: dict[datatypes.Node, list[int]] = field(
-        default_factory=dict
+    endnode_adjacencies: defaultdict[datatypes.Node, list[int]] = field(
+        default_factory=lambda: defaultdict(list)
     )
+
+    path_constraints: list[datatypes.PathConstraint] = field(
+        default_factory=list
+    )
+
     max_cn: float = 0.0
 
     @property
@@ -92,7 +97,7 @@ class BreakpointGraph:
     def num_nonsrc_edges(self) -> int:
         return self.num_seq_edges + self.num_conc_edges + self.num_disc_edges
 
-    def add_endnode(self, node_: datatypes.Node):
+    def add_endnode(self, node_: datatypes.Node) -> None:
         """Add a new node to the list corresponding to interval ends.
 
         Args:
@@ -104,34 +109,11 @@ class BreakpointGraph:
         else:
             warnings.warn("Node corresponding to interval end already exists.")
 
-    def del_endnode(self, node_: datatypes.Node):
-        """Delete a node corresponding to interval ends.
-
-        Args:
-                node_: A breakpoint node.
-
-        """
-        if node_ in self.endnode_adjacencies:
-            del self.endnode_adjacencies[node_]
-        else:
-            warnings.warn("Node corresponding to interval end not exists.")
-
-    def del_discordant_endnodes(self):
-        """Delete nodes correspond to interval ends and connect to a discordant edges."""
-        del_list = []
-        for node in self.endnode_adjacencies:
-            if len(self.endnode_adjacencies[node]) > 0:
-                del_list.append(node)
-        for node in del_list:
-            del self.endnode_adjacencies[node]
-
     def add_sequence_edge(
         self,
         chr: types.ChrTag,
         l: int,
         r: int,
-        sr_count: int = -1,
-        sr_flag: str = "d",
         lr_count: int = -1,
         lr_nc: float = 0.0,
         cn: float = 0.0,
@@ -144,16 +126,12 @@ class BreakpointGraph:
         lseq = len(self.sequence_edges)
         self.node_adjacencies[node1].sequence.append(lseq)
         self.node_adjacencies[node2].sequence.append(lseq)
-        self.sequence_edges.append(
-            SequenceEdge(chr, l, r, sr_count, sr_flag, lr_nc, lr_count, cn)
-        )
+        self.sequence_edges.append(SequenceEdge(chr, l, r, lr_nc, lr_count, cn))
 
     def add_concordant_edge(
         self,
         node1: Node,
         node2: Node,
-        sr_count: int = -1,
-        sr_flag: str = "d",
         lr_count: int = -1,
         reads: set[str] | None = None,
         cn: float = 0.0,
@@ -172,21 +150,21 @@ class BreakpointGraph:
         self.node_adjacencies[node1].concordant.append(lc)
         self.node_adjacencies[node2].concordant.append(lc)
         self.concordant_edges.append(
-            ConcordantEdge(node1, node2, sr_count, sr_flag, lr_count, reads, cn)
+            ConcordantEdge(node1, node2, lr_count, reads, cn)
         )
 
     def add_discordant_edge(
         self,
-        bp: datatypes.Breakpoint,
-        sr_count: int = -1,
-        sr_flag: str = "d",
-        sr_cn: float = 0.0,
+        node1: Node,
+        node2: Node,
+        read_support: int | None = None,
         cn: float = 0.0,
+        alignments: set[datatypes.BPAlignments] | None = None,
     ) -> None:
         """Add a discordant edge to the breakpoint graph."""
 
-        node1 = datatypes.Node(bp.chr1, bp.pos1, bp.strand1)
-        node2 = datatypes.Node(bp.chr2, bp.pos2, bp.strand2)
+        if not alignments:
+            alignments = set()
 
         ld = len(self.discordant_edges)
         self.node_adjacencies[node1].discordant.append(ld)
@@ -197,14 +175,11 @@ class BreakpointGraph:
             self.endnode_adjacencies[node2].append(ld)
         self.discordant_edges.append(
             datatypes.DiscordantEdge(
-                bp.node1,
-                bp.node2,
-                sr_count,
-                sr_flag,
-                sr_cn,
-                len(bp.all_alignments),
-                bp.all_alignments,
-                cn,
+                node1,
+                node2,
+                lr_count=read_support or 0,
+                alignments=alignments,
+                cn=cn,
             )
         )
 

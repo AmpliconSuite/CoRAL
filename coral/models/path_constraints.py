@@ -459,27 +459,27 @@ def chimeric_alignment_to_path(
         node1 = disc_edge.node1
         node2 = disc_edge.node2
 
-        if ai_list[i][0] > ai_list[i][1]:
+        ai1, ai2 = ai_list[i]
+
+        if ai1 > ai2:
             if i == 0:
                 path_ = chimeric_alignment_to_path_l(
-                    g, ref_intvs[ai_list[i][1]], node2
+                    g, ref_intvs[ai2], node2
                 ) + [
-                    EdgeId(EdgeType.DISCORDANT, bp_list[i]),
+                    EdgeId(EdgeType.DISCORDANT, di),
                 ]
                 lastnode = node1
             else:
                 path_ += traverse_through_sequence_edge(g, lastnode, node2)
-                path_.append(EdgeId(EdgeType.DISCORDANT, bp_list[i]))
+                path_.append(EdgeId(EdgeType.DISCORDANT, di))
                 lastnode = node1
                 if i == len(bp_list) - 1:
                     path_ += chimeric_alignment_to_path_r(
-                        g, ref_intvs[ai_list[i][0]], node1
+                        g, ref_intvs[ai1], node1
                     )
         elif i == 0:
-            path_ = chimeric_alignment_to_path_l(
-                g, ref_intvs[ai_list[i][0]], node1
-            ) + [
-                EdgeId(EdgeType.DISCORDANT, bp_list[i]),
+            path_ = chimeric_alignment_to_path_l(g, ref_intvs[ai1], node1) + [
+                EdgeId(EdgeType.DISCORDANT, di),
             ]
             lastnode = node2
         else:

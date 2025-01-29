@@ -10,3 +10,4 @@ configs/
 *.lp
 *.pdf
 *.ipynb
+*.code-workspace

@@ -354,6 +354,10 @@ class Breakpoint:
     def strand2(self) -> Strand:
         return self.node2.strand
 
+    @property
+    def read_support(self) -> int:
+        return len(self.all_alignments)
+
     def is_close(self, other: Breakpoint) -> bool:
         if self.chr1 != other.chr1 or self.chr2 != other.chr2:
             return False
@@ -361,15 +365,18 @@ class Breakpoint:
             return False
         if abs(self.pos1 - other.pos1) >= 200:
             return False
-        if abs(self.pos2 - other.pos2) >= 200:
-            return False
-        return True
+        return abs(self.pos2 - other.pos2) < 200
 
     def __str__(self) -> str:
-        return f"BP({self.node1}___{self.node2}, {self.alignment_info})"
+        return f"BP({self.node1}->{self.node2}, {self.alignment_info})"
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return (
+            f"BP({self.node1}->{self.node2}, {self.alignment_info},"
+            f"gap={self.gap}, was_reversed={self.was_reversed},"
+            f"mapq1={self.mapq1}, mapq2={self.mapq2},"
+            f"read_support={self.read_support})"
+        )
 
 
 @dataclass
@@ -514,7 +521,7 @@ class CNSIntervalTree(intervaltree.IntervalTree):
         """Assumes query interval fits within CN segments."""
         left_seg_idx = self.get_single_cns_idx(query_interval.left)
         right_seg_idx = self.get_single_cns_idx(query_interval.right)
-        if not left_seg_idx or not right_seg_idx:
+        if left_seg_idx is None or right_seg_idx is None:
             raise KeyError(
                 f"Unable to match CNS ends for {query_interval=}, \
                 {left_seg_idx=}, {right_seg_idx=}"
@@ -595,9 +602,6 @@ class DiscordantEdge:
     node1: Node
     node2: Node
 
-    sr_count: int  # Short read count
-    sr_flag: str  # Short read flag
-    sr_cn: float  # Short read Copy Number
     lr_count: int  # Long read count
 
     alignments: set[BPAlignments] = field(default_factory=set)
@@ -616,9 +620,6 @@ class SequenceEdge:
     chr: types.ChrTag
     start: int
     end: int
-
-    sr_count: int  # Short read count
-    sr_flag: str  # Short read flag
 
     lr_nc: float  # Long read Normal Coverage
     lr_count: int  # Long read count
@@ -657,10 +658,7 @@ class ConcordantEdge:
     node1: Node
     node2: Node
 
-    sr_count: int  # Short read count
-    sr_flag: str  # Short read flag
     lr_count: int  # Long read count
-
     read_names: set[str] = field(default_factory=set)
     cn: float = 0.0  # Edge Copy Number
 
@@ -722,9 +720,40 @@ class BPIndexedAlignmentContainer:
 
 @dataclass
 class PathConstraint:
-    path: Walk
+    path: Walk  # List of nodes and edges
     support: int = 0  # Number of supporting reads
     amplicon_id: int = -1  # Amplicon index
+
+    def to_file_str(self) -> str:
+        """Convert path constraint to string for outputting to file (e.g.,
+        *_graph.txt, *_cycle.txt).
+
+            ex: "12+,16+,19+     Support=3"
+        """
+        path = self.path
+        # Reverse path if start node's pos is > than end node's
+        if path[0][1] > path[-1][1]:
+            path = path[::-1]
+
+        path_str = ""
+        for i in range(len(path)):
+            if i % 4 == 0:
+                edge_id: EdgeId = path[i]  # type: ignore[assignment]
+                path_str = f"{edge_id.idx+1}"
+                if i < len(path) - 1:
+                    next_node: Node = path[i + 1]  # type: ignore[assignment]
+                    path_str += f"{next_node.strand.value},"
+                else:
+                    prev_node: Node = path[i - 1]  # type: ignore[assignment]
+                    path_str += f"{prev_node.strand.inverse.value}\t"
+        path_str += f"Support={self.support}\t"
+        path_st(path, path_str)
+        return path_str
+
+    def from_file_str(self, line: str) -> "PathConstraint":
+        """Convert string from file (e.g., *_graph.txt, *_cycle.txt) to
+        `PathConstraint` type."""
+        pass
 
 
 @dataclass

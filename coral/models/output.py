@@ -566,7 +566,6 @@ def output_amplicon_cycles(
         reverse=True,
     )
 
-    print(walk_indices)
     for cycle_i in walk_indices:
         if cycle_i[0] == 0:  # cycles
             logger.debug(
@@ -589,12 +588,12 @@ def output_amplicon_cycles(
                 path_constraints_support_cycle,
             )
             assert cycle_seg_list[0] == cycle_seg_list[-1]
-            fp.write("Cycle=%d;" % (walk_indices.index(cycle_i) + 1))
+            fp.write(f"Cycle={walk_indices.index(cycle_i) + 1};")
             fp.write(f"Copy_count={walk_weights.cycles[cycle_i[1]]};")
             fp.write("Segments=")
             for segi in range(len(cycle_seg_list) - 2):
                 fp.write(f"{cycle_seg_list[segi][0]}{cycle_seg_list[segi][1]},")
-            fp.write(f"{cycle_seg_list[-2][0]}{cycle_seg_list[-2][1]},0-")
+            fp.write(f"{cycle_seg_list[-2][0]}{cycle_seg_list[-2][1]}")
             if not output_all_paths:
                 fp.write(";Path_constraints_satisfied=")
                 for pathi in range(
@@ -722,7 +721,8 @@ def output_summary_amplicon_stats(
 
     fp = open(f"{output_dir}/amplicon_summary.txt", "w")
     fp.write(
-        f"{sum(was_amplicon_solved.values())}/{len(bb.lr_graph)} amplicons solved.\n"
+        f"{sum(was_amplicon_solved.values())}/{len(bb.lr_graph)} amplicons "
+        "solved.\n"
     )
     fp.write("--------------------------------------------------------------\n")
     for amplicon_idx in range(len(bb.lr_graph)):
@@ -739,23 +739,4 @@ def write_path_constraint_to_file(
     path_idx: int, path_constraint: PathConstraint, fp: io.TextIOWrapper
 ) -> None:
     fp.write(f"Path constraint\t{path_idx+1}\t")
-    path = path_constraint.path
-    # Reverse path if start node's pos is > than end node's
-    if path[0][1] > path[-1][1]:
-        path = path[::-1]
-
-    for i in range(len(path)):
-        if i % 4 == 0:
-            edge_id: EdgeId = path[i]  # type: ignore[assignment]
-            prev_node: Node = path[i - 1]  # type: ignore[assignment]
-            if i < len(path) - 1:
-                next_node: Node = path[i + 1]  # type: ignore[assignment]
-                if next_node.strand == "+":
-                    fp.write(f"{edge_id.idx+1}+,")
-                else:
-                    fp.write(f"{edge_id.idx+1}-,")
-            elif prev_node.strand == "+":
-                fp.write(f"{edge_id.idx+1}-\t")
-            else:
-                fp.write(f"{edge_id.idx+1}+\t")
-    fp.write(f"Support={path_constraint.support}\t")
+    fp.write(path_constraint.to_file_str())

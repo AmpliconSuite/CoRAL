@@ -364,7 +364,7 @@ class LongReadBamToBreakpointMetadata:
                 logger.debug(f"Delete amplicon interval {ai} - {intv}.")
                 del self.amplicon_intervals[ai]
 
-    def find_amplicon_intervals(self):
+    def find_amplicon_intervals(self) -> None:
         # Reset seed intervals
         logger.debug("Updating seed amplicon intervals based on CN segments.")
         self.widen_seed_intervals()
@@ -376,7 +376,8 @@ class LongReadBamToBreakpointMetadata:
                 self.find_interval_i(ai, ccid)
                 ccid += 1
         logger.debug(
-            f"Identified {len(self.amplicon_intervals)} amplicon intervals in total.",
+            f"Identified {len(self.amplicon_intervals)} amplicon intervals in "
+            "total.",
         )
         self.amplicon_intervals.sort()
 
@@ -420,17 +421,17 @@ class LongReadBamToBreakpointMetadata:
         for ai, interval in enumerate(self.amplicon_intervals):
             ai_ccid = interval.amplicon_id
             if ai_explored[ai] == 0:
-                L = [ai]  # BFS queue
-                while len(L) > 0:
-                    ai_ = L.pop(0)
+                ai_index_queue: list[int] = [ai]  # BFS queue
+                while len(ai_index_queue) > 0:
+                    ai_ = ai_index_queue.pop(0)
                     ai_explored[ai_] = 1
                     if interval.amplicon_id != ai_ccid:
                         interval.amplicon_id = ai_ccid
                     for ai1, ai2 in self.amplicon_interval_connections:
                         if ai1 == ai_ and ai_explored[ai2] == 0:
-                            L.append(ai2)
+                            ai_index_queue.append(ai2)
                         elif ai2 == ai_ and ai_explored[ai1] == 0:
-                            L.append(ai1)
+                            ai_index_queue.append(ai1)
 
         logger.debug(
             f"There are {len(self.amplicon_intervals)} amplicon intervals after"
@@ -457,42 +458,83 @@ class LongReadBamToBreakpointMetadata:
         self.new_bp_stats.append(bp_stats_)
         return bpi
 
-    def get_new_refined_bpi(
-        self, new_bp_clusters: list[list[Breakpoint]], ccid: int
+    def add_breakpoints_and_connections(
+        self, new_bp_clusters: list[list[Breakpoint]], ccid: int | None = None
     ) -> list[int]:
         new_refined_bpi = []
         for c in new_bp_clusters:
             logger.debug(f"\t\t\tNew cluster of size {len(c)}.")
             bp_cluster_r = c
-            if len(c) >= self.min_cluster_cutoff:
-                num_subcluster = 0
-                while len(bp_cluster_r) >= self.min_cluster_cutoff:
-                    logger.debug(f"\t\t\t\tSubcluster {num_subcluster}")
+            if len(c) < self.min_cluster_cutoff:
+                logger.debug("\t\t\t\tDiscarded the cluster.")
+                continue
+            num_subcluster = 0
+            while len(bp_cluster_r) >= self.min_cluster_cutoff:
+                logger.debug(f"\t\t\t\tSubcluster {num_subcluster}")
+                bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(
+                    bp_cluster_r,
+                    self.min_bp_match_cutoff_,
+                )
+                bp.all_alignments |= set(bpr)
+                read_support = len(set(bpr))
+
+                logger.debug(f"\t\t\t\t\t{bp=}")
+                logger.debug(
+                    f"\t\t\t\t\tNum long read support = {read_support}"
+                )
+                logger.debug(f"\t\t\t\t\tbp_stats = {(bp_stats_)}")
+
+                if (read_support < self.min_cluster_cutoff) and (
+                    read_support
+                    < max(
+                        self.normal_cov * self.min_bp_cov_factor,
+                        3.0,
+                    )
+                ):
+                    logger.debug("\t\t\t\tDiscarded the subcluster.")
                     num_subcluster += 1
-                    bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(
-                        bp_cluster_r,
-                        self.min_bp_match_cutoff_,
+                    continue
+
+                # Create breakpoint during initial interval refinement
+                if ccid is not None:
+                    logger.debug("\t\t\t\tKept the subcluster.")
+                    bpi = self.addbp(bp, set(bpr), bp_stats_, ccid)
+                    if bpi not in new_refined_bpi:
+                        new_refined_bpi.append(bpi)
+                elif num_subcluster == 0:
+                    bp_start_intv = Interval(bp.chr1, bp.pos1, bp.pos1)
+                    bp_end_intv = Interval(bp.chr2, bp.pos2, bp.pos2)
+                    io1 = interval_overlap_l(
+                        bp_start_intv, self.amplicon_intervals
                     )
-                    logger.debug(f"\t\t\t\t\t{bp=}")
-                    logger.debug(
-                        f"\t\t\t\t\tNum long read support = {len(set(bpr))}"
+                    io2 = interval_overlap_l(
+                        bp_end_intv, self.amplicon_intervals
                     )
-                    logger.debug(f"\t\t\t\t\tbp_stats = {(bp_stats_)}")
-                    if (len(set(bpr)) >= self.min_cluster_cutoff) or (
-                        len(set(bpr))
-                        >= max(
-                            self.normal_cov * self.min_bp_cov_factor,
-                            3.0,
+                    if io1 is None or io2 is None:
+                        continue
+                    amp_intv1 = self.amplicon_intervals[io1]
+                    amp_intv2 = self.amplicon_intervals[io2]
+                    if amp_intv1.amplicon_id != amp_intv2.amplicon_id:
+                        raise ValueError(
+                            f"Breakpoint endpoints matched to intervals "
+                            f"{io1} and {io2} from different amplicons "
+                            f"{amp_intv1.amplicon_id} and "
+                            f"{amp_intv2.amplicon_id}."
                         )
-                    ):
-                        bpi = self.addbp(bp, set(bpr), bp_stats_, ccid)
-                        if bpi not in new_refined_bpi:
-                            new_refined_bpi.append(bpi)
-                        logger.debug("\t\t\t\tKept the subcluster.")
-                    else:
-                        logger.debug("\t\t\t\tDiscarded the subcluster.")
-            else:
-                logger.debug("\tDiscarded the cluster.")
+                    bpi = self.addbp(
+                        bp,
+                        set(bpr),
+                        bp_stats_,
+                        amp_intv1.amplicon_id,
+                    )
+                    self.amplicon_interval_connections[
+                        (min(io1, io2), max(io1, io2))
+                    ].add(bpi)
+                    logger.debug(
+                        f"Added breakpoint connection {bpi} between "
+                        f"amplicon intervals {io1} and {io2}."
+                    )
+                num_subcluster += 1
 
         return new_refined_bpi
 
@@ -567,12 +609,12 @@ class LongReadBamToBreakpointMetadata:
                 new_intervals_connections.append(
                     [nint_segs[i_].bp_idx for i_ in range(prev_i, i + 1)]
                 )
-                logger.debug(f"\t\tFixed new interval: {refined_intv}.")
+                logger.debug(f"\t\t\tFixed new interval: {refined_intv}.")
                 logger.debug(
-                    "\t\tList of breakpoints connected to the new interval:",
+                    "\t\t\tList of breakpoints connected to the new interval:",
                 )
                 for bpi in new_intervals_connections[-1]:
-                    logger.debug(f"\t\t\t{self.new_bp_list[bpi]}")
+                    logger.debug(f"\t\t\t\t{self.new_bp_list[bpi]}")
 
                 prev_i = i + 1
 
@@ -582,16 +624,16 @@ class LongReadBamToBreakpointMetadata:
             )
 
             new_intervals_refined.append(refined_intv)
-            logger.debug(f"\t\tFixed new interval: {refined_intv}.")
+            logger.debug(f"\t\t\tFixed new interval: {refined_intv}.")
 
             new_intervals_connections.append(
                 [nint_segs[i_].bp_idx for i_ in range(prev_i, len(nint_segs))]
             )
             logger.debug(
-                "\t\tList of breakpoints connected to the new interval:",
+                "\t\t\tList of breakpoints connected to the new interval:",
             )
             for bpi in new_intervals_connections[-1]:
-                logger.debug(f"\t\t\t{self.new_bp_list[bpi]}")
+                logger.debug(f"\t\t\t\t{self.new_bp_list[bpi]}")
 
         return new_intervals_refined, new_intervals_connections
 
@@ -726,7 +768,9 @@ class LongReadBamToBreakpointMetadata:
             self.max_breakpoint_distance_cutoff,
         )
         logger.debug(f"\t\tThese reads formed {len(new_bp_clusters)} clusters.")
-        new_bp_refined = self.get_new_refined_bpi(new_bp_clusters, ccid)
+        new_bp_refined = self.add_breakpoints_and_connections(
+            new_bp_clusters, ccid=ccid
+        )
 
         new_intervals_refined: list[AmpliconInterval] = []
         new_intervals_connections: list[list[types.BPIdx]] = []
@@ -746,7 +790,7 @@ class LongReadBamToBreakpointMetadata:
             )
             new_intervals_refined.extend(new_intvs)
             new_intervals_connections.extend(new_conns)
-        logger.info(f"found {new_intervals_connections=}")
+            logger.info(f"\t\t\tCreated {new_intervals_connections=}")
         return new_intervals_refined, new_intervals_connections
 
     def get_refined_cni_intvs(
@@ -775,7 +819,7 @@ class LongReadBamToBreakpointMetadata:
                             f"Unable to find CNS index for {bp.pos2}."
                         )
                     same_chr_segs.append(BPToCNI(cni, bp.pos2, bpi))
-                elif interval.contains(bp.chr1, bp.pos1) and cns_intv.contains(
+                elif interval.contains(bp.chr2, bp.pos2) and cns_intv.contains(
                     bp.chr1, bp.pos1
                 ):
                     cns_tree = self.cns_tree[bp.chr1]
@@ -788,8 +832,8 @@ class LongReadBamToBreakpointMetadata:
                     logger.warning(
                         "\t\tExact breakpoint outside amplicon interval."
                     )
-                    logger.warning("\t\tBreakpoint %s." % bp)
-                    logger.warning("\t\tCurrent interval %s." % interval)
+                    logger.warning(f"\t\tBreakpoint {bp}.")
+                    logger.warning(f"\t\tCurrent interval {interval}.")
                     logger.warning(f"\t\tNew interval {cns_intv}.")
 
                     chr1_tree = self.cns_tree[bp.chr1]
@@ -828,13 +872,14 @@ class LongReadBamToBreakpointMetadata:
             by a breakpoint edge
         Assign I a connected component id ccid if not already assigned
         """
-        logger.debug(f"\tStart BFS on amplicon interval {ai}.")
+
+        logger.debug(f"Start BFS on amplicon interval {ai}.")
         interval_queue: list[int] = [ai]  # BFS queue
         while len(interval_queue) > 0:
-            logger.debug(f"\t\tBFS queue: {interval_queue}")
+            logger.debug(f"\tBFS queue: {interval_queue}")
             ai_: int = interval_queue.pop(0)
             interval = self.amplicon_intervals[ai_]
-            logger.debug(f"\t\tNext amplicon interval {ai_}: {interval}.")
+            logger.debug(f"\tNext amplicon interval {ai_}: {interval}.")
             chr_tag = interval.chr
             if interval.amplicon_id == -1:
                 interval.amplicon_id = ccid
@@ -845,6 +890,7 @@ class LongReadBamToBreakpointMetadata:
             try:
                 si, ei = self.cns_tree[interval.chr].get_cns_ends(interval)
             except KeyError:
+                logger.error(f"Unable to find CNS ends for {interval=}")
                 continue
 
             # Chr -> CNS idxs sharing a chimerical alignment -> associated reads
@@ -884,7 +930,7 @@ class LongReadBamToBreakpointMetadata:
                 # Verify if there are any CN segments on this chr
                 if sorted_cns_idxs:
                     matching_reads = set()
-                    prev_i = 0
+                    prev_cni = sorted_cns_idxs[0]
                     # Iterate through CN seg (index) pairs, step size 1
                     for curr_cni, next_cni in zip(
                         sorted_cns_idxs, sorted_cns_idxs[1:]
@@ -901,11 +947,11 @@ class LongReadBamToBreakpointMetadata:
                             cni_intv_to_reads[
                                 (
                                     chr_,
-                                    sorted_cns_idxs[prev_i],
+                                    prev_cni,
                                     curr_cni,
                                 )
                             ] = matching_reads
-                            prev_i = next_cni
+                            prev_cni = next_cni
                             matching_reads = set()
                         else:
                             matching_reads |= chr_to_cns_to_reads[chr_][
@@ -914,9 +960,9 @@ class LongReadBamToBreakpointMetadata:
                     matching_reads |= chr_to_cns_to_reads[chr_][
                         sorted_cns_idxs[-1]
                     ]
-                    cni_intv_to_reads[
-                        (chr_, sorted_cns_idxs[prev_i], sorted_cns_idxs[-1])
-                    ] = matching_reads
+                    cni_intv_to_reads[(chr_, prev_cni, sorted_cns_idxs[-1])] = (
+                        matching_reads
+                    )
 
                 # Refine initial intervals
                 for cni_intv, matching_reads in cni_intv_to_reads.items():
@@ -1000,10 +1046,10 @@ class LongReadBamToBreakpointMetadata:
         Then cluster the breakpoints from chimeric alignments
         """
         new_bp_list_: list[Breakpoint] = []
-        for r in self.chimeric_alignments:
+        for r, chimeras in self.chimeric_alignments.items():
             new_bp_list_ += alignment2bp_l(
                 r,
-                self.chimeric_alignments[r],
+                chimeras,
                 self.min_bp_match_cutoff_,
                 20,
                 100,
@@ -1023,67 +1069,6 @@ class LongReadBamToBreakpointMetadata:
         logger.debug(f"These reads formed {(len(new_bp_clusters))} clusters.")
 
         self.add_breakpoints_and_connections(new_bp_clusters)
-
-    def add_breakpoints_and_connections(
-        self, new_bp_clusters: list[list[Breakpoint]]
-    ) -> None:
-        # TODO: unify with `get_new_refined_bpi` if handling the multiple cases
-        # isn't too confusing
-        for c in new_bp_clusters:
-            logger.debug(f"New cluster of size {len(c)}.")
-            if len(c) >= self.min_cluster_cutoff:
-                num_subcluster = 0
-                bp_cluster_r = c
-                while len(bp_cluster_r) >= self.min_cluster_cutoff:
-                    bp, bpr, bp_stats_, bp_cluster_r = bpc2bp(
-                        bp_cluster_r,
-                        self.min_bp_match_cutoff_,
-                    )
-                    logger.debug(f"\tSubcluster {num_subcluster}")
-                    logger.debug(f"\t{bp=}")
-                    logger.debug(
-                        f"\t\t\t\t\tNum long read support = {len(set(bpr))}"
-                    )
-                    logger.debug(f"\t\t\t\t\tbp_stats = {(bp_stats_)}")
-                    if (
-                        num_subcluster == 0
-                        and len(set(bpr)) >= self.min_cluster_cutoff
-                    ) or (
-                        len(set(bpr))
-                        >= max(self.normal_cov * self.min_bp_cov_factor, 3.0)
-                    ):
-                        bp_start_intv = Interval(bp.chr1, bp.pos1, bp.pos1)
-                        bp_end_intv = Interval(bp.chr2, bp.pos2, bp.pos2)
-                        io1 = interval_overlap_l(
-                            bp_start_intv, self.amplicon_intervals
-                        )
-                        io2 = interval_overlap_l(
-                            bp_end_intv, self.amplicon_intervals
-                        )
-                        if io1 is not None and io2 is not None:
-                            assert (
-                                self.amplicon_intervals[io1].amplicon_id
-                                == self.amplicon_intervals[io2].amplicon_id
-                            )
-                            bpi = self.addbp(
-                                bp,
-                                set(bpr),
-                                bp_stats_,
-                                self.amplicon_intervals[io1].amplicon_id,
-                            )
-                            self.amplicon_interval_connections[
-                                (min(io1, io2), max(io1, io2))
-                            ].add(bpi)
-                            logger.debug(
-                                f"Added connection {bpi} between {io1} and {io2}."
-                            )
-                    else:
-                        logger.debug(
-                            f"\tDiscarded the subcluster {num_subcluster}."
-                        )
-                    num_subcluster += 1
-            else:
-                logger.debug("\tDiscarded the cluster.")
 
     def find_smalldel_breakpoints(self) -> None:
         """Search for breakpoints from a single alignment record, within
@@ -1275,7 +1260,12 @@ class LongReadBamToBreakpointMetadata:
                     f"{bp_ccid} to {intv1.amplicon_id}."
                 )
                 self.new_bp_ccids[bpi] = intv1.amplicon_id
-            self.lr_graph[amplicon_idx].add_discordant_edge(bp)
+            self.lr_graph[amplicon_idx].add_discordant_edge(
+                bp.node1,
+                bp.node2,
+                read_support=len(bp.all_alignments),
+                alignments=bp.all_alignments,
+            )
 
         # Print summary statistics for each amplicon
         for amplicon_idx, bp_graph in enumerate(self.lr_graph):
@@ -1491,10 +1481,12 @@ class LongReadBamToBreakpointMetadata:
                                 path=path, support=1, amplicon_id=amplicon_idx
                             )
                         )
+
         logger.debug(
             f"There are {len(self.path_constraints[amplicon_idx])} distinct "
             f"subpaths in amplicon {amplicon_idx + 1}."
         )
+        bp_graph.path_constraints = self.path_constraints[amplicon_idx]
 
     def compute_path_constraints(self) -> None:
         """Convert reads mapped within the amplicons into subpath constraints"""
@@ -1541,13 +1533,13 @@ def reconstruct_graph(
     b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
     start = time.time()
-    chimeric_alignments, edit_dist_stats = (
-        breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
-    )
-    with open(f"{output_dir}/chimeric_alignments.pickle", "wb") as file:
-        pickle.dump(chimeric_alignments, file)
-    # with open(f"{output_dir}/chimeric_alignments.pickle", "rb") as file:
-    #     chimeric_alignments = pickle.load(file)
+    # chimeric_alignments, edit_dist_stats = (
+    #     breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
+    # )
+    # with open(f"{output_dir}/chimeric_alignments.pickle", "wb") as file:
+    #     pickle.dump(chimeric_alignments, file)
+    with open(f"{output_dir}/chimeric_alignments.pickle", "rb") as file:
+        chimeric_alignments = pickle.load(file)
     logger.error(f"Time to fetch breakpoint reads: {time.time() - start}")
     logger.info("Completed fetching reads containing breakpoints.")
 
@@ -1578,17 +1570,10 @@ def reconstruct_graph(
             breakpoint_utilities.output_breakpoint_info_lr(
                 b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i
             )
-            with open(f"{file_prefix}_bp.graph", "wb") as file:
-                pickle.dump(b2bn.lr_graph[gi], file)
-        # Unable to dump full metadata class until we write custom Cython `__reduce__` methods for pysam objects
-        # with open(f"{output_dir}/full_bb.graph", "wb") as file:
-        #     pickle.dump(b2bn, file)
         logger.info(
             f"Wrote breakpoint information, for all amplicons, to {output_dir}/amplicon*_breakpoints.txt."
         )
     else:
-        # b2bn.find_cn_breakpoints()
-        # logger.info("Completed finding breakpoints corresponding to CN changes.")
         b2bn.build_graph()
         logger.info("Breakpoint graph built for all amplicons.")
         b2bn.assign_cov()
@@ -1603,13 +1588,6 @@ def reconstruct_graph(
                 b2bn.lr_graph[gi], f"{output_dir}/amplicon{gi+1}_graph.txt"
             )
             file_prefix = f"{output_dir}/amplicon{gi+1}"
-            with open(
-                f"{file_prefix}_bp.graph", "wb"
-            ) as file:  # TODO: merge this logic into above fn
-                pickle.dump(b2bn.lr_graph[gi], file)
-        # Unable to dump full metadata class until we write custom Cython `__reduce__` methods for pysam objects
-        # with open(f"{output_dir}/full_bb.graph", "wb") as file:
-        #     pickle.dump(b2bn, file)
         logger.info(
             f"Wrote breakpoint graph for all complicons to {output_dir}/amplicon*_graph.txt."
         )

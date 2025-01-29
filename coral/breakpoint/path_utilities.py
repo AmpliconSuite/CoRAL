@@ -66,12 +66,11 @@ def get_multiple_bp_paths(
         else:
             bp_alignments_split.append([i])
         last_ai = max(bp_alignments[i].alignment1, bp_alignments[i].alignment2)
-    logger.debug(f"Read {rn} covers multiple breakpoints.")
+    logger.debug(f"Read {rn} covers multiple breakpoints {bp_alignments}.")
     logger.debug(f"Blocks of local alignments: {bp_alignments_split}")
 
     paths = []
     for ai_block in bp_alignments_split:
-        chimeric_intvs = [chimeras[i].ref_interval for i in ai_block]
         ai_list = [
             (bp_alignments[i].alignment1, bp_alignments[i].alignment2)
             for i in ai_block
@@ -84,7 +83,7 @@ def get_multiple_bp_paths(
 
         path = path_constraints.chimeric_alignment_to_path(
             bp_graph,
-            chimeric_intvs,
+            [chimera.ref_interval for chimera in chimeras],
             ai_list,
             bp_list,
         )
