@@ -55,10 +55,6 @@ def parse_path(bp_graph: BreakpointGraph, s: str) -> Walk:
         strand = Strand(directed_edge[-1])
         seq_edge = bp_graph.sequence_edges[seq_edge_idx]
         path.append(EdgeId(EdgeType.SEQUENCE, seq_edge_idx))
-
-        if i < 
-        node = bp_graph.get_node(seq_edge.end, strand)
-
         path.append(
             Node(
                 chr=s[i + 1].split(":")[0],

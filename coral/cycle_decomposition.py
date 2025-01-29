@@ -20,7 +20,7 @@ import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
 from coral import datatypes, models
-from coral.breakpoint import infer_breakpoint_graph
+from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.models import cycle_utils, output
 from coral.models.concrete import CycleLPModel
@@ -30,20 +30,18 @@ logger = logging.getLogger(__name__)
 
 
 def minimize_cycles(
-    amplicon_id: int,
     bp_graph: BreakpointGraph,
     k: int,
     total_weights: float,
-    node_order,
-    pc_list: list[datatypes.FinalizedPathConstraint],
+    node_order: Dict[datatypes.Node, int],
     p_total_weight=0.9,
     p_bp_cn=0.9,
     solver_options: Optional[datatypes.SolverOptions] = None,
-    solver_to_use: datatypes.Solver = datatypes.Solver.GUROBI,
 ):
     """Cycle decomposition by minimizing the number of cycles/paths.
 
-    Standard model for cycle detection used when generated BreakpointGraph is tractable.
+    Standard model for cycle detection used when generated BreakpointGraph
+    is tractable.
 
     Args:
         amplicon_id: integer, amplicon ID
@@ -51,8 +49,10 @@ def minimize_cycles(
         k: integer, maximum mumber of cycles/paths allowed in cycle decomposition
         total_weights: float, total length-weighted CN in breakpoint graph g
         node_order: dict maps each node in the input breakpoint graph to a distinct integer, indicating a total order of the nodes in g
-        pc_list: list of subpath constraints to be satisfied, each as a dict that maps an edge to its multiplicity
-                *** note that all subpath constraints in this list are required to be satisfied ***
+        pc_list: list of subpath constraints to be satisfied, each as a dict
+            that maps an edge to its multiplicity
+                *** note that all subpath constraints in this list are
+                required to be satisfied ***
                 *** otherwise will return infeasible ***
         p_total_weight: float between (0, 1), minimum proportion of length-weighted CN to be covered by the resulting cycles or paths,
                         default value is 0.9
@@ -64,14 +64,17 @@ def minimize_cycles(
         model_prefix: output prefix for gurobi *.lp model
 
     Returns:
-        A solution container parsed from the MIQCP solver output with the following attributes:
+        A solution container parsed from the MIQCP solver output with the
+        following attributes:
             (1) Pyomo status of optimization model
             (2) Total length weighted CN in resulting cycles/paths
             (3) Total num subpath constraints satisfied by resulting cycles/paths
-            (4) List of cycles, each as a dict which maps an edge to its multiplicity in the cycle
+            (4) List of cycles, each as a dict which maps an edge to its
+                multiplicity in the cycle
             (5) List of the corresponding CN of the above cycles
             (6) Subpath constraints (indices) satisfied by each cycle
-            (7) List of paths, each as a dict which maps an edge to its multiplicity in the path
+            (7) List of paths, each as a dict which maps an edge to its
+                multiplicity in the path
             (8) List of the corresponding CN of the above paths
             (9) Subpath constraints (indices) satisfied by each path
     """
@@ -84,15 +87,15 @@ def minimize_cycles(
         solver_options.time_limit_s, bp_graph.num_disc_edges * 300
     )  # each breakpoint edge is assigned >= 5 minutes)
 
-    model_name = f"amplicon_{amplicon_id}_cycle_decomposition_{k=}"
-    model_filepath = f"{solver_options.output_dir}/{solver_options.model_prefix}_{model_name}"
+    model_name = f"amplicon_{bp_graph.amplicon_idx}_cycle_decomposition_{k=}"
+    prefixed_name = f"{solver_options.model_prefix}_{model_name}"
+    model_filepath = f"{solver_options.output_dir}/{prefixed_name}"
 
     model = models.concrete.get_model(
         bp_graph,
         k,
         total_weights,
         node_order,
-        pc_list,
         model_name=model_name,
     )
 
@@ -115,7 +118,7 @@ def minimize_cycles(
         model,
         bp_graph,
         k,
-        pc_list,
+        bp_graph.longest_path_constraints,
         total_weights,
     )
 
@@ -208,7 +211,6 @@ def minimize_cycles_post(
         k,
         total_weights,
         node_order,
-        pc_list,
         model_name=model_name,
         is_post=True,
         resolution=resolution,
@@ -290,8 +292,50 @@ def initialize_post_processing_solver(
             model.R[pi] = 1
 
 
+def greedy_solve(
+    bp_graph: BreakpointGraph,
+    total_weights: float,
+    node_order: Dict[datatypes.Node, int],
+    cycle_id: int,
+    solver_options: datatypes.SolverOptions,
+    alpha: float = 0.01,
+    p_total_weight: float = 0.9,
+    resolution: float = 0.1,
+    cn_tol: float = 0.005,
+    p_subpaths: float = 0.9,
+    *,
+    should_postprocess: bool = False,
+) -> datatypes.CycleSolution:
+    lp_solution = maximize_weights_greedy(
+        bp_graph=bp_graph,
+        total_weights=total_weights,
+        node_order=node_order,
+        pc_list=bp_graph.longest_path_constraints,
+        cycle_id=cycle_id,
+        alpha=alpha,
+        p_total_weight=p_total_weight,
+        resolution=resolution,
+        cn_tol=cn_tol,
+        p_subpaths=p_subpaths,
+        solver_options=solver_options,
+    )
+    if should_postprocess:
+        lp_solution = postprocess_solution(
+            bp_graph.amplicon_idx,
+            bp_graph,
+            total_weights,
+            node_order,
+            p_total_weight,
+            resolution,
+            lp_solution,
+            solver_options,
+        )
+
+    logger.info("Completed greedy cycle decomposition.")
+    return lp_solution
+
+
 def maximize_weights_greedy(
-    amplicon_id: int,
     bp_graph: BreakpointGraph,
     total_weights: float,
     node_order: Dict[datatypes.Node, int],
@@ -303,7 +347,6 @@ def maximize_weights_greedy(
     cn_tol: float = 0.005,
     p_subpaths: float = 0.9,
     solver_options: datatypes.SolverOptions | None = None,
-    postprocess: int = 0,
 ) -> datatypes.CycleSolution:
     """Greedy cycle decomposition by maximizing the total length-weighted CN.
 
@@ -366,7 +409,7 @@ def maximize_weights_greedy(
         )
         logger.debug(f"Multiplication factor for subpath constraints = {pp}.")
 
-        model_name = f"amplicon_{amplicon_id}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
+        model_name = f"amplicon_{bp_graph.amplicon_idx}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
         model_filepath = f"{solver_options.output_dir}/{solver_options.model_prefix}_{model_name}"
 
         model = models.concrete.get_model(
@@ -374,7 +417,6 @@ def maximize_weights_greedy(
             k=1,
             total_weights=total_weights,
             node_order=node_order,
-            pc_list=pc_list,
             model_name=model_name,
             is_greedy=True,
             pp=pp,
@@ -445,216 +487,196 @@ def maximize_weights_greedy(
     return full_solution
 
 
-def cycle_decomposition(
-    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+def does_graph_require_greedy_solve(bp_graph: BreakpointGraph, k: int) -> bool:
+    return (
+        bp_graph.num_edges > 100
+        or (
+            3 * k
+            + 3 * k * bp_graph.num_edges
+            + 2 * k * bp_graph.num_nodes
+            + k * len(bp_graph.longest_path_constraints)
+        )
+        >= 10000
+    )
+
+
+def solve_single_graph(
+    bp_graph: BreakpointGraph,
+    k: int,
+    total_weights: float,
+    node_order: Dict[datatypes.Node, int],
     solver_options: datatypes.SolverOptions,
     alpha: float = 0.01,
     p_total_weight: float = 0.9,
+    p_bp_cn: float = 0.9,
     resolution: float = 0.1,
-    postprocess: int = 0,
     *,
-    output_all_path_constraints: bool = False,
-) -> None:
-    """Caller for cycle decomposition functions"""
-    was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
-    for amplicon_idx in range(len(bb.lr_graph)):
-        bp_graph = bb.lr_graph[amplicon_idx]
-        lseg = len(bp_graph.sequence_edges)
-        lc = len(bp_graph.concordant_edges)
-        ld = len(bp_graph.discordant_edges)
-        lsrc = len(bp_graph.source_edges)
-
-        total_weights = 0.0
-        for sseg in bp_graph.sequence_edges:
-            total_weights += sseg.gap * sseg.cn
-        logger.info(f"Begin cycle decomposition for amplicon{amplicon_idx +1}.")
-        logger.info(f"Total CN weights = {total_weights}.")
-
-        bb.longest_path_constraints[amplicon_idx] = longest_path_dict(
-            bb.path_constraints[amplicon_idx],
-        )
-        logger.info(
-            f"Total num maximal subpath constraints = "
-            f"{len(bb.longest_path_constraints[amplicon_idx])}."
-        )
-        print(f"Solving {amplicon_idx}")
-        for pc in bb.longest_path_constraints[amplicon_idx]:
-            logger.debug(f"Subpath constraint {pc.pc_idx} = {pc.support}")
-
-        k = max(10, ld // 2)  # Initial num cycles/paths
-        logger.info(f"Initial num cycles/paths = {k}.")
-        nnodes = len(bp_graph.node_adjacencies)  # Does not include s and t
-        nedges = (
-            lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnode_adjacencies)
-        )
-        node_order = {}
-        ni_ = 0
-        for node in bb.lr_graph[amplicon_idx].node_adjacencies:
-            node_order[node] = ni_
-            ni_ += 1
-        if nedges < k:
-            k = nedges
-            logger.info(f"Reset num cycles/paths to {k}.")
-        sol_flag = 0
-        while k <= nedges:
-            if (
-                nedges > 100
-                or (
-                    3 * k
-                    + 3 * k * nedges
-                    + 2 * k * nnodes
-                    + k * len(bb.longest_path_constraints[amplicon_idx])
-                )
-                >= 10000
-            ):
-                lp_solution = maximize_weights_greedy(
-                    amplicon_id=amplicon_idx + 1,
-                    bp_graph=bb.lr_graph[amplicon_idx],
-                    total_weights=total_weights,
-                    node_order=node_order,
-                    pc_list=bb.longest_path_constraints[amplicon_idx],
-                    cycle_id=0,
-                    alpha=alpha,
-                    p_total_weight=p_total_weight,
-                    resolution=resolution,
-                    cn_tol=0.005,
-                    p_subpaths=0.9,
-                    solver_options=solver_options,
-                    postprocess=postprocess,
-                )
-                if not lp_solution:
-                    logger.info("Greedy cycle decomposition failed.")
-                else:
-                    logger.info("Completed greedy cycle decomposition.")
-                    logger.info(
-                        f"Num cycles = {lp_solution.num_cycles}; num paths = {lp_solution.num_paths}."
-                    )
-                    logger.info(
-                        f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."
-                    )
-                    logger.info(
-                        f"Total num subpath constraints satisfied = "
-                        f"{lp_solution.num_pc_satisfied}/"
-                        f"{len(bb.longest_path_constraints[amplicon_idx])}."
-                    )
-                if postprocess == 1:
-                    lp_solution = postprocess_solution(
-                        amplicon_idx,
-                        bb,
-                        total_weights,
-                        node_order,
-                        p_total_weight,
-                        resolution,
-                        lp_solution,
-                        solver_options,
-                    )
-                bb.walks_by_amplicon[amplicon_idx] = lp_solution.walks
-                bb.walk_weights_by_amplicon[amplicon_idx] = (
-                    lp_solution.walk_weights
-                )
-                bb.path_constraints_satisfied[amplicon_idx] = (
-                    lp_solution.satisfied_pc
-                )
-                sol_flag = 1
-                break
-            lp_solution = minimize_cycles(
-                amplicon_idx + 1,
-                bb.lr_graph[amplicon_idx],
-                k,
-                total_weights,
-                node_order,
-                bb.longest_path_constraints[amplicon_idx],
-                p_total_weight,
-                0.9,
-                solver_options,
-            )
-            if (
-                lp_solution.termination_condition
-                == pyo.TerminationCondition.infeasible
-            ):
-                logger.info("Cycle decomposition is infeasible.")
-                logger.info(f"Doubling k from {k} to {k * 2}.")
-                k *= 2
-            else:
-                logger.info(f"Completed cycle decomposition with k = {k}.")
-                logger.info(
-                    f"Num cycles = {len(lp_solution.walks[0])}; "
-                    f"num paths = {len(lp_solution.walks[1])}."
-                )
-                logger.info(
-                    f"Total length weighted CN = "
-                    f"{lp_solution.total_weights_included}/{total_weights}."
-                )
-                logger.info(
-                    f"Total num subpath constraints satisfied = "
-                    f"{len(lp_solution.satisfied_pc_set)}/"
-                    f"{len(bb.longest_path_constraints[amplicon_idx])}."
-                )
-
-                bb.walks_by_amplicon[amplicon_idx] = lp_solution.walks
-                bb.walk_weights_by_amplicon[amplicon_idx] = (
-                    lp_solution.walk_weights
-                )
-                bb.path_constraints_satisfied[amplicon_idx] = (
-                    lp_solution.satisfied_pc
-                )
-                sol_flag = 1
-                break
-        if sol_flag == 0:
-            logger.info(
-                "Cycle decomposition is infeasible, switch to greedy cycle decomposition."
-            )
-            lp_solution = maximize_weights_greedy(
-                amplicon_id=amplicon_idx + 1,
-                bp_graph=bb.lr_graph[amplicon_idx],
+    should_postprocess: bool = False,
+) -> datatypes.CycleSolution:
+    while k <= bp_graph.num_edges:
+        # When problem is too large, we begin with the greedy optimization
+        if does_graph_require_greedy_solve(bp_graph, k):
+            lp_solution = greedy_solve(
+                bp_graph=bp_graph,
                 total_weights=total_weights,
                 node_order=node_order,
-                pc_list=bb.longest_path_constraints[amplicon_idx],
+                solver_options=solver_options,
                 cycle_id=0,
                 alpha=alpha,
                 p_total_weight=p_total_weight,
                 resolution=resolution,
                 cn_tol=0.005,
                 p_subpaths=0.9,
-                solver_options=solver_options,
-                postprocess=postprocess,
+                should_postprocess=should_postprocess,
             )
-            logger.info("Completed greedy cycle decomposition.")
-            logger.info(
-                f"Num cycles = {lp_solution.num_cycles}; num paths = {lp_solution.num_paths}."
-            )
-            logger.info(
-                f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."
-            )
-            logger.info(
-                f"Total num subpath constraints satisfied = "
-                f"{lp_solution.num_pc_satisfied}"
-                f"/{len(bb.longest_path_constraints[amplicon_idx])}."
-            )
-            if postprocess == 1:
-                lp_solution = postprocess_solution(
-                    amplicon_idx,
-                    bb,
-                    total_weights,
-                    node_order,
-                    p_total_weight,
-                    resolution,
-                    lp_solution,
-                    solver_options,
-                )
-            bb.walks_by_amplicon[amplicon_idx] = lp_solution.walks
-            bb.walk_weights_by_amplicon[amplicon_idx] = lp_solution.walk_weights
-            bb.path_constraints_satisfied[amplicon_idx] = (
-                lp_solution.satisfied_pc
-            )
-        else:
-            output.output_amplicon_cycles(
-                amplicon_idx,
-                bb,
-                solver_options.output_dir,
-                output_all_path_constraints,
-            )
-            was_amplicon_solved[amplicon_idx] = True
+            break
+
+        lp_solution = minimize_cycles(
+            bp_graph=bp_graph,
+            k=k,
+            total_weights=total_weights,
+            node_order=node_order,
+            p_total_weight=p_total_weight,
+            p_bp_cn=p_bp_cn,
+            solver_options=solver_options,
+        )
+        if (
+            lp_solution.termination_condition
+            != pyo.TerminationCondition.infeasible
+        ):
+            logger.info(f"Completed cycle decomposition with k = {k}.")
+            break
+
+        logger.info("Cycle decomposition is infeasible.")
+        logger.info(f"Doubling k from {k} to {k * 2}.")
+        k *= 2
+        continue
+
+    if lp_solution.termination_condition == pyo.TerminationCondition.infeasible:
+        logger.info(
+            "Cycle decomposition is infeasible, switch to greedy cycle "
+            "decomposition."
+        )
+        lp_solution = greedy_solve(
+            bp_graph=bp_graph,
+            total_weights=total_weights,
+            node_order=node_order,
+            solver_options=solver_options,
+            cycle_id=0,
+            alpha=alpha,
+            p_total_weight=p_total_weight,
+            resolution=resolution,
+        )
+
+    logger.info(
+        f"Num cycles = {lp_solution.num_cycles}; "
+        f"num paths = {lp_solution.num_paths}."
+    )
+    logger.info(
+        f"Total length weighted CN = "
+        f"{lp_solution.total_weights_included}/{total_weights}."
+    )
+    logger.info(
+        f"Total num subpath constraints satisfied = "
+        f"{lp_solution.num_pc_satisfied}/"
+        f"{len(bp_graph.longest_path_constraints)}."
+    )
+    logger.info(f"Completed cycle decomposition with k = {k}.")
+    return lp_solution
+
+
+def cycle_decomposition_single_graph(
+    bp_graph: BreakpointGraph,
+    solver_options: datatypes.SolverOptions,
+    alpha: float = 0.01,
+    p_total_weight: float = 0.9,
+    resolution: float = 0.1,
+    *,
+    should_postprocess: bool = False,
+    output_all_path_constraints: bool = False,
+) -> None:
+    lseg = len(bp_graph.sequence_edges)
+    lc = len(bp_graph.concordant_edges)
+    ld = len(bp_graph.discordant_edges)
+    lsrc = len(bp_graph.source_edges)
+
+    total_weights = sum(len(sseg) * sseg.cn for sseg in bp_graph.sequence_edges)
+
+    logger.info(
+        f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx +1}."
+    )
+    logger.info(f"Total CN weights = {total_weights}.")
+
+    longest_path_constraints = longest_path_dict(bp_graph.path_constraints)
+    bp_graph.longest_path_constraints = longest_path_constraints
+
+    logger.info(
+        f"Total num maximal subpath constraints = "
+        f"{len(longest_path_constraints)}."
+    )
+    for pc in longest_path_constraints:
+        logger.debug(f"Subpath constraint {pc.pc_idx} = {pc.support}")
+
+    k = max(10, ld // 2)  # Initial num cycles/paths
+    logger.info(f"Initial num cycles/paths = {k}.")
+    nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnode_adjacencies)
+
+    node_order = {
+        node: node_ordered_idx
+        for node_ordered_idx, node in enumerate(bp_graph.node_adjacencies)
+    }
+
+    if nedges < k:
+        k = nedges
+        logger.info(f"Reset num cycles/paths to {k}.")
+
+    lp_solution = solve_single_graph(
+        bp_graph=bp_graph,
+        k=k,
+        total_weights=total_weights,
+        node_order=node_order,
+        solver_options=solver_options,
+        alpha=alpha,
+        p_total_weight=p_total_weight,
+        resolution=resolution,
+        should_postprocess=should_postprocess,
+    )
+    bp_graph.walks = lp_solution.walks
+    bp_graph.walk_weights = lp_solution.walk_weights
+    bp_graph.path_constraints_satisfied = lp_solution.satisfied_pc
+
+    output.output_amplicon_walks(
+        bp_graph,
+        solver_options.output_dir,
+        output_all_path_constraints=output_all_path_constraints,
+    )
+
+
+def cycle_decomposition_all_graphs(
+    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    solver_options: datatypes.SolverOptions,
+    alpha: float = 0.01,
+    p_total_weight: float = 0.9,
+    resolution: float = 0.1,
+    *,
+    should_postprocess: bool = False,
+    output_all_path_constraints: bool = False,
+) -> None:
+    """Caller for cycle decomposition functions"""
+    was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
+    for amplicon_idx in range(len(bb.lr_graph)):
+        bp_graph = bb.lr_graph[amplicon_idx]
+        bp_graph.amplicon_idx = amplicon_idx
+        cycle_decomposition_single_graph(
+            bp_graph,
+            solver_options,
+            alpha,
+            p_total_weight,
+            resolution,
+            should_postprocess=should_postprocess,
+            output_all_path_constraints=output_all_path_constraints,
+        )
+        was_amplicon_solved[amplicon_idx] = True
     output.output_summary_amplicon_stats(
         was_amplicon_solved,
         bb,
@@ -663,17 +685,15 @@ def cycle_decomposition(
 
 
 def reconstruct_cycles(
-    output_dir: str,
-    output_all_path_constraints: bool,
-    cycle_decomp_alpha: float,
-    cycle_decomp_time_limit: int,
-    cycle_decomp_threads: int,
-    solver_to_use: datatypes.Solver,
-    postprocess_greedy_sol: bool,
     bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
-):
+    solver_options: datatypes.SolverOptions,
+    cycle_decomp_alpha: float = 0.01,
+    *,
+    should_postprocess_greedy_sol: bool = False,
+    output_all_path_constraints: bool = False,
+) -> None:
     logging.basicConfig(
-        filename=f"{output_dir}/cycle_decomp.log",
+        filename=f"{solver_options.output_dir}/cycle_decomp.log",
         filemode="w",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -681,36 +701,23 @@ def reconstruct_cycles(
     bb.compute_path_constraints()
     logger.info("Computed all subpath constraints.")
 
-    alpha_ = 0.01
-    postprocess_ = 0
-    nthreads = -1
-    time_limit_ = 7200
-    if cycle_decomp_alpha:
-        alpha_ = cycle_decomp_alpha
-    if postprocess_greedy_sol:
-        postprocess_ = 1
-    if cycle_decomp_threads:
-        nthreads = cycle_decomp_threads
-    if cycle_decomp_time_limit:
-        time_limit_ = cycle_decomp_time_limit
-    cycle_decomposition(
+    cycle_decomposition_all_graphs(
         bb,
-        solver_options=datatypes.SolverOptions(
-            nthreads, time_limit_, output_dir, "pyomo", solver_to_use
-        ),
-        alpha=alpha_,
-        postprocess=postprocess_,
+        solver_options=solver_options,
+        alpha=cycle_decomp_alpha,
+        should_postprocess=should_postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(
-        f"Wrote cycles for all complicons to {output_dir}/amplicon*_cycles.txt."
+        "Wrote cycles for all complicons to "
+        f"{solver_options.output_dir}/amplicon*_cycles.txt."
     )
 
 
 def postprocess_solution(
     amplicon_idx: int,
-    bam_to_bps: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    bp_graph: BreakpointGraph,
     total_weights: float,
     node_order: Dict[datatypes.Node, int],
     p_total_weight: float,
@@ -728,10 +735,10 @@ def postprocess_solution(
     """
     lp_solution = minimize_cycles_post(
         amplicon_idx + 1,
-        bam_to_bps.lr_graph[amplicon_idx],
+        bp_graph,
         total_weights,
         node_order,
-        bam_to_bps.longest_path_constraints[amplicon_idx],
+        bp_graph.longest_path_constraints,
         datatypes.InitialSolution(
             lp_solution.walks,
             lp_solution.walk_weights,
@@ -755,6 +762,6 @@ def postprocess_solution(
     logger.info(
         f"Total num subpath constraints satisfied = "
         f"{lp_solution.num_pc_satisfied}/"
-        f"{len(bam_to_bps.longest_path_constraints[amplicon_idx])}."
+        f"{len(bp_graph.longest_path_constraints)}."
     )
     return lp_solution

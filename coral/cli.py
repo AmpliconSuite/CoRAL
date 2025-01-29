@@ -13,11 +13,13 @@ from coral import (
     bam_types,
     cycle2bed,
     cycle_decomposition,
+    datatypes,
     hsr,
     plot_amplicons,
     plot_cn,
 )
 from coral.breakpoint import infer_breakpoint_graph
+from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.datatypes import Solver
 
@@ -145,7 +147,8 @@ def reconstruct(
     ] = 1.0,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
-    os.makedirs(output_dir, exist_ok=True)
+
+    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
         filemode="w+",
@@ -154,30 +157,22 @@ def reconstruct(
     )
     logging.getLogger("pyomo").setLevel(logging.INFO)
     b2bn = infer_breakpoint_graph.reconstruct_graph(
-        lr_bam,
-        cnv_seed,
-        cn_seg,
-        output_dir,
-        output_bp,
-        skip_cycle_decomp,
-        output_all_path_constraints,
-        min_bp_support,
-        cycle_decomp_alpha,
-        cycle_decomp_time_limit,
-        cycle_decomp_threads,
-        postprocess_greedy_sol,
-        log_file,
+        lr_bam, cnv_seed, cn_seg, output_dir, output_bp, min_bp_support
+    )
+    solver_options = datatypes.SolverOptions(
+        num_threads=cycle_decomp_threads,
+        time_limit_s=cycle_decomp_time_limit,
+        output_dir=output_dir,
+        model_prefix="pyomo",
+        solver=solver,
     )
     if not (output_bp or skip_cycle_decomp):
         cycle_decomposition.reconstruct_cycles(
-            output_dir,
-            output_all_path_constraints,
-            cycle_decomp_alpha,
-            cycle_decomp_time_limit,
-            cycle_decomp_threads,
-            solver,
-            postprocess_greedy_sol,
             b2bn,
+            solver_options,
+            cycle_decomp_alpha,
+            should_postprocess_greedy_sol=postprocess_greedy_sol,
+            output_all_path_constraints=output_all_path_constraints,
         )
     b2bn.closebam()
     print("\nCompleted reconstruction.")
@@ -188,10 +183,9 @@ def reconstruct(
 )
 def cycle_decomposition_mode(
     bp_graph: Annotated[
-        typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")
+        typer.FileText, typer.Option(help="Existing BP graph file.")
     ],
     output_dir: OutputDirArg,
-    lr_bam: BamArg,
     alpha: AlphaArg = 0.01,
     time_limit_s: TimeLimitArg = 7200,
     threads: ThreadsArg = -1,
@@ -200,22 +194,23 @@ def cycle_decomposition_mode(
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
     os.makedirs(output_dir, exist_ok=True)
-    bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
-        lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
-        bam=bam_types.BAMWrapper(str(lr_bam), "rb"),
-        lr_graph=[pickle.load(bp_graph)],
-    )  # type: ignore[arg-type]
+    # bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
+    #     lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
+    #     bam=bam_types.BAMWrapper(str(lr_bam), "rb"),
+    #     lr_graph=[pickle.load(bp_graph)],
+    # )  # type: ignore[arg-type]
     # bb.fetch_breakpoint_reads()
-    cycle_decomposition.reconstruct_cycles(
-        output_dir,
-        output_all_path_constraints,
-        alpha,
-        time_limit_s,
-        threads,
-        solver,
-        postprocess_greedy_sol=postprocess_greedy_sol,
-        bb=bb,
-    )
+    parsed_bp_graph = parse_breakpoint_graph(bp_graph)
+    # cycle_decomposition.reconstruct_cycles(
+    #     output_dir,
+    #     output_all_path_constraints,
+    #     alpha,
+    #     time_limit_s,
+    #     threads,
+    #     solver,
+    #     should_postprocess_greedy_sol=postprocess_greedy_sol,
+    #     bb=bb,
+    # )
 
 
 @coral_app.command(

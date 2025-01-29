@@ -25,6 +25,7 @@ from coral.datatypes import (
     Node,
     SequenceEdge,
     Strand,
+    WalkData,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,14 +58,32 @@ class BreakpointGraph:
         default_factory=lambda: defaultdict(list)
     )
 
+    # TODO: add docstring
     path_constraints: list[datatypes.PathConstraint] = field(
+        default_factory=list
+    )
+    longest_path_constraints: list[datatypes.FinalizedPathConstraint] = field(
         default_factory=list
     )
 
     max_cn: float = 0.0
+    amplicon_idx: int = 0
+
+    # Only filled in after valid LP solution
+    # TODO: add docstring
+    walks: WalkData[datatypes.OptimizationWalk] = field(
+        default_factory=lambda: WalkData([], [])
+    )
+    walk_weights: WalkData[float] = field(
+        default_factory=lambda: WalkData([], [])
+    )
+    path_constraints_satisfied: WalkData[list[int]] = field(
+        default_factory=lambda: WalkData([], [])
+    )
 
     @property
     def num_nodes(self) -> int:
+        """Number of nodes in the breakpoint graph (excluding s and t)."""
         return len(self.node_adjacencies)
 
     @property

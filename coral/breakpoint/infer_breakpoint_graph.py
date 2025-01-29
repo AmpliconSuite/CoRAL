@@ -31,7 +31,6 @@ from coral.breakpoint.breakpoint_utilities import (
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
-    AmpliconWalk,
     BPAlignments,
     BPIndexedAlignmentContainer,
     BPIndexedAlignments,
@@ -46,6 +45,7 @@ from coral.datatypes import (
     Interval,
     LargeIndelAlignment,
     Node,
+    OptimizationWalk,
     PathConstraint,
     ReferenceInterval,
     SourceEdge,
@@ -142,7 +142,7 @@ class LongReadBamToBreakpointMetadata:
     longest_path_constraints: dict[int, list[FinalizedPathConstraint]] = field(
         default_factory=lambda: defaultdict(list)
     )
-    walks_by_amplicon: dict[int, WalkData[AmpliconWalk]] = field(
+    walks_by_amplicon: dict[int, WalkData[OptimizationWalk]] = field(
         default_factory=dict
     )
     walk_weights_by_amplicon: dict[int, WalkData[float]] = field(
@@ -1088,9 +1088,10 @@ class LongReadBamToBreakpointMetadata:
                         ai.chr, read, self.min_del_len, nm_threshold
                     )
                 )
-                self.large_indel_alignments[read.query_name].extend(
-                    indel_alignments
-                )
+                if indel_alignments:
+                    self.large_indel_alignments[read.query_name].extend(
+                        indel_alignments
+                    )
         logger.info(
             f"Fetched {len(self.large_indel_alignments)} reads with large indels in CIGAR."
         )
@@ -1366,7 +1367,7 @@ class LongReadBamToBreakpointMetadata:
                 logger.debug(f"LR cov assigned for concordant edge {ec}.")
 
     def compute_bp_graph_path_constraints(
-        self, bp_graph: BreakpointGraph, amplicon_idx: int
+        self, bp_graph: BreakpointGraph
     ) -> None:
         read_to_alignments: defaultdict[str, BPIndexedAlignmentContainer] = (
             defaultdict(BPIndexedAlignmentContainer)
@@ -1396,6 +1397,8 @@ class LongReadBamToBreakpointMetadata:
             f" in amplicon."
         )
 
+        bp_path_constraints = bp_graph.path_constraints
+
         for rn, disc_alignments in read_to_alignments.items():
             paths = path_utilities.get_bp_graph_paths(
                 bp_graph,
@@ -1406,7 +1409,6 @@ class LongReadBamToBreakpointMetadata:
                 self.min_bp_match_cutoff_,
             )
 
-            bp_path_constraints = self.path_constraints[amplicon_idx]
             for path in paths:
                 if len(path) <= 5 or not path_constraints.valid_path(
                     bp_graph, path
@@ -1422,13 +1424,15 @@ class LongReadBamToBreakpointMetadata:
                 else:
                     bp_path_constraints.append(
                         PathConstraint(
-                            path=path, support=1, amplicon_id=amplicon_idx
+                            path=path,
+                            support=1,
+                            amplicon_id=bp_graph.amplicon_idx,
                         )
                     )
         logger.debug(
-            f"There are {len(self.path_constraints[amplicon_idx])} distinct "
+            f"There are {len(bp_path_constraints)} distinct "
             f"subpaths due to reads involving breakpoints in amplicon "
-            f"{amplicon_idx + 1}."
+            f"{bp_graph.amplicon_idx + 1}."
         )
 
         # Extract reads in concordant_edges_reads
@@ -1439,14 +1443,12 @@ class LongReadBamToBreakpointMetadata:
                     rn not in self.large_indel_alignments
                     and rn not in self.chimeric_alignments
                 ):
-                    concordant_reads[rn] = amplicon_idx + 1
+                    concordant_reads[rn] = bp_graph.amplicon_idx + 1
         logger.debug(
             f"There are {len(concordant_reads)} concordant reads within "
-            f"amplicon intervals in amplicon {amplicon_idx + 1}."
+            f"amplicon intervals in amplicon {bp_graph.amplicon_idx + 1}."
         )
-        for aint in self.amplicon_intervals:
-            if amplicon_idx != self.ccid2id[aint.amplicon_id] - 1:
-                continue
+        for aint in bp_graph.amplicon_intervals:
             for read in self.lr_bamfh.fetch(aint.chr, aint.start, aint.end + 1):
                 rn = read.query_name  # type: ignore[arg-type, assignment]
                 q = read.mapping_quality
@@ -1467,7 +1469,6 @@ class LongReadBamToBreakpointMetadata:
                         bp_graph, path
                     ):
                         continue
-                    bp_path_constraints = self.path_constraints[amplicon_idx]
                     existing_paths = [pc.path for pc in bp_path_constraints]
                     if path in existing_paths:
                         pci = existing_paths.index(path)
@@ -1478,20 +1479,23 @@ class LongReadBamToBreakpointMetadata:
                     else:
                         bp_path_constraints.append(
                             PathConstraint(
-                                path=path, support=1, amplicon_id=amplicon_idx
+                                path=path,
+                                support=1,
+                                amplicon_id=bp_graph.amplicon_idx,
                             )
                         )
 
         logger.debug(
-            f"There are {len(self.path_constraints[amplicon_idx])} distinct "
-            f"subpaths in amplicon {amplicon_idx + 1}."
+            f"There are {len(bp_path_constraints)} distinct "
+            f"subpaths in amplicon {bp_graph.amplicon_idx + 1}."
         )
-        bp_graph.path_constraints = self.path_constraints[amplicon_idx]
+        bp_graph.path_constraints = bp_path_constraints
 
     def compute_path_constraints(self) -> None:
         """Convert reads mapped within the amplicons into subpath constraints"""
         for amplicon_idx, bp_graph in enumerate(self.lr_graph):
-            self.compute_bp_graph_path_constraints(bp_graph, amplicon_idx)
+            bp_graph.amplicon_idx = amplicon_idx
+            self.compute_bp_graph_path_constraints(bp_graph)
 
     def closebam(self):
         """Close the short read and long read bam file"""
@@ -1504,14 +1508,7 @@ def reconstruct_graph(
     cn_seg_file: typer.FileText,
     output_dir: str,
     output_bp: bool,
-    skip_cycle_decomp: bool,
-    output_all_path_contraints: bool,
     min_bp_support: float,
-    cycle_decomp_alpha: float,
-    cycle_decomp_time_limit: int,
-    cycle_decomp_threads: int,
-    postprocess_greedy_sol: bool,
-    log_file: str,
 ) -> LongReadBamToBreakpointMetadata:
     seed_intervals = breakpoint_utilities.get_intervals_from_seed_file(
         cnv_seed_file

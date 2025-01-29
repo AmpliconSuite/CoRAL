@@ -18,18 +18,18 @@ import pyomo.util.infeasible
 from coral import datatypes
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
-    AmpliconWalk,
     CycleSolution,
     EdgeId,
     EdgeToCN,
     EdgeType,
+    OptimizationWalk,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def process_walk_edge(
-    walk: AmpliconWalk,
+    walk: OptimizationWalk,
     model: pyo.Model,
     edge_idx: int,
     edge_count: int,
@@ -80,7 +80,6 @@ def process_walk_edge(
         os.abort()
     # Is source edge
     elif edge_idx < src_node_offset:
-        assert edge_count == 1
         src_edge_idx = edge_idx - bp_graph.num_nonsrc_edges
         if src_edge_idx % 2 == 0:
             s_edge_idx = src_edge_idx // 2
@@ -98,17 +97,15 @@ def process_walk_edge(
                 remaining_cn.source[t_edge_idx] -= edge_count * model.w[0].value
                 if remaining_cn.source[t_edge_idx] < resolution:
                     remaining_cn.source[t_edge_idx] = 0.0
+    # Is synthetic end node
+    elif (edge_idx - src_node_offset) % 2 == 0:
+        nsi = (edge_idx - src_node_offset) // 2
+        # source edge connected to s
+        walk[EdgeId(EdgeType.SYNTHETIC_SOURCE, nsi)] = 1
     else:
-        # Is synthetic end node
-        assert edge_count == 1
-        if (edge_idx - src_node_offset) % 2 == 0:
-            nsi = (edge_idx - src_node_offset) // 2
-            # source edge connected to s
-            walk[EdgeId(EdgeType.SYNTHETIC_SOURCE, nsi)] = 1
-        else:
-            nti = (edge_idx - src_node_offset - 1) // 2
-            # source edge connected to t
-            walk[EdgeId(EdgeType.SYNTHETIC_SINK, nti)] = 1
+        nti = (edge_idx - src_node_offset - 1) // 2
+        # source edge connected to t
+        walk[EdgeId(EdgeType.SYNTHETIC_SINK, nti)] = 1
 
 
 def parse_solver_output(
@@ -119,7 +116,7 @@ def parse_solver_output(
     k: int,
     pc_list: List,
     total_weights: float,
-    remaining_cn: Optional[EdgeToCN] = None,
+    remaining_cn: EdgeToCN | None = None,
     resolution: float = 0.0,
     is_pc_unsatisfied: List[bool] | None = None,
 ) -> CycleSolution:
@@ -140,59 +137,61 @@ def parse_solver_output(
     nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnode_adjacencies)
 
     for i in range(k):
-        logger.debug(f"Walk {i} checking ; CN = {model.w[i].value}.")
-        if model.z[i].value >= 0.9:
-            logger.debug(f"Walk {i} exists; CN = {model.w[i].value}.")
-            if resolution and (walk_weight := model.w[i].value) < resolution:
-                parsed_sol.walk_weights[0].append(walk_weight)
-                logger.debug(
-                    "\tCN less than resolution, iteration terminated successfully."
-                )
+        if model.z[i].value < 0.9:
+            logger.debug(f"Walk {i} does not exist; CN = {model.w[i].value}.")
+            continue
+
+        logger.debug(f"Walk {i} exists; CN = {model.w[i].value}.")
+        if resolution and (walk_weight := model.w[i].value) < resolution:
+            parsed_sol.walk_weights[0].append(walk_weight)
+            logger.debug(
+                "\tCN < resolution, iteration terminated successfully."
+            )
+            break
+        found_cycle = False
+        for node_idx in range(nnodes):
+            if model.c[node_idx, i].value >= 0.9:
+                found_cycle = True
                 break
-            found_cycle = False
-            for node_idx in range(nnodes):
-                if model.c[node_idx, i].value >= 0.9:
-                    found_cycle = True
-                    break
-            cycle: dict = {}
-            path_constraints_s = []
-            for pi in range(len(pc_list)):
-                if model.r[pi, i].value >= 0.9:
-                    path_constraints_s.append(pi)
-                    # Only used for greedy, flip to False when PC satisfied
-                    if is_pc_unsatisfied:
-                        is_pc_unsatisfied[pi] = False
-            for edge_idx in range(nedges):
-                if (edge_count := model.x[edge_idx, i].value) >= 0.9:
-                    edge_count = round(edge_count)
-                    # Update cycle in-place via helper
-                    process_walk_edge(
-                        cycle,
-                        model,
-                        edge_idx,
-                        edge_count,
-                        bp_graph,
-                        is_cycle=found_cycle,
-                        remaining_cn=remaining_cn,
-                        resolution=resolution,
-                    )
-            if (walk_weight := model.w[i].value) > 0.0:
-                if not found_cycle:
-                    parsed_sol.walks[1].append(cycle)
-                    parsed_sol.walk_weights[1].append(walk_weight)
-                    parsed_sol.satisfied_pc[1].append(path_constraints_s)
-                    parsed_sol.satisfied_pc_set |= set(path_constraints_s)
-                else:
-                    parsed_sol.walks[0].append(cycle)
-                    parsed_sol.walk_weights[0].append(walk_weight)
-                    parsed_sol.satisfied_pc[0].append(path_constraints_s)
-                    parsed_sol.satisfied_pc_set |= set(path_constraints_s)
-            for seqi in range(lseg):
-                parsed_sol.total_weights_included += (
-                    model.x[seqi, i].value
-                    * model.w[i].value
-                    * bp_graph.sequence_edges[seqi].gap
+        cycle: dict = {}
+        path_constraints_s = []
+        for pi in range(len(pc_list)):
+            if model.r[pi, i].value >= 0.9:
+                path_constraints_s.append(pi)
+                # Only used for greedy, flip to False when PC satisfied
+                if is_pc_unsatisfied:
+                    is_pc_unsatisfied[pi] = False
+        for edge_idx in range(nedges):
+            if (edge_count := model.x[edge_idx, i].value) >= 0.9:
+                edge_count = round(edge_count)
+                # Update cycle in-place via helper
+                process_walk_edge(
+                    cycle,
+                    model,
+                    edge_idx,
+                    edge_count,
+                    bp_graph,
+                    is_cycle=found_cycle,
+                    remaining_cn=remaining_cn,
+                    resolution=resolution,
                 )
+        if (walk_weight := model.w[i].value) > 0.0:
+            if not found_cycle:
+                parsed_sol.walks[1].append(cycle)
+                parsed_sol.walk_weights[1].append(walk_weight)
+                parsed_sol.satisfied_pc[1].append(path_constraints_s)
+                parsed_sol.satisfied_pc_set |= set(path_constraints_s)
+            else:
+                parsed_sol.walks[0].append(cycle)
+                parsed_sol.walk_weights[0].append(walk_weight)
+                parsed_sol.satisfied_pc[0].append(path_constraints_s)
+                parsed_sol.satisfied_pc_set |= set(path_constraints_s)
+        for seqi in range(lseg):
+            parsed_sol.total_weights_included += (
+                model.x[seqi, i].value
+                * model.w[i].value
+                * bp_graph.sequence_edges[seqi].gap
+            )
 
     logger.debug(
         f"Total length weighted CN from cycles/paths = {parsed_sol.total_weights_included}/{total_weights}."
