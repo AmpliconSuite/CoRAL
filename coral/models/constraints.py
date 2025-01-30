@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import logging
 from typing import List, Optional
 
 import pyomo.environ as pyo
 
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.datatypes import EdgeToCN
+from coral.datatypes import EdgeToCN, EdgeType, FinalizedPathConstraint
 
 logger = logging.getLogger(__name__)
 
@@ -285,21 +287,24 @@ def get_spanning_tree_constraints__non_endnode(
 
 # Consistent across `minimize_cycles` and `minimize_cycles_post`
 def get_shared_subpath_edge_constraints(
-    model: pyo.ConcreteModel, k: int, pc_list: List, bp_graph: BreakpointGraph
-) -> List[pyo.Constraint]:
+    model: pyo.ConcreteModel,
+    k: int,
+    bp_graph: BreakpointGraph,
+) -> list[pyo.Constraint]:
     subpath_constraints = []
-    for pi, path_constraint_ in enumerate(pc_list):
-        for edge in path_constraint_:
+    pc_list = bp_graph.longest_path_constraints
+    for pi, path_constraint in enumerate(pc_list):
+        for edge_id, edge_count in path_constraint.edge_counts.items():
+            edge_type, edge_idx = edge_id
             for i in range(k):
-                if edge[0] == "s":
+                if edge_type == EdgeType.SEQUENCE:
                     subpath_constraints.append(
-                        model.x[edge[1], i]
-                        >= model.r[pi, i] * path_constraint_[edge]
+                        model.x[edge_idx, i] >= model.r[pi, i] * edge_count
                     )
-                elif edge[0] == "c":
+                elif edge_type == EdgeType.CONCORDANT:
                     subpath_constraints.append(
-                        model.x[(bp_graph.num_seq_edges + edge[1]), i]
-                        >= model.r[pi, i] * path_constraint_[edge]
+                        model.x[(bp_graph.num_seq_edges + edge_idx), i]
+                        >= model.r[pi, i] * edge_count
                     )
                 else:
                     subpath_constraints.append(
@@ -307,11 +312,11 @@ def get_shared_subpath_edge_constraints(
                             (
                                 bp_graph.num_seq_edges
                                 + bp_graph.num_conc_edges
-                                + edge[1]
+                                + edge_idx
                             ),
                             i,
                         ]
-                        >= model.r[pi, i] * path_constraint_[edge]
+                        >= model.r[pi, i] * edge_count
                     )
 
     return subpath_constraints

@@ -375,30 +375,18 @@ class LongReadBamToBreakpointMetadata:
                 logger.debug(f"\tAmplicon interval {interval}")
                 self.find_interval_i(ai, ccid)
                 ccid += 1
-        logger.debug(
+        logger.info(
             f"Identified {len(self.amplicon_intervals)} amplicon intervals in "
             "total.",
         )
         self.amplicon_intervals.sort()
 
-        # amplicon_intervals_sorted = [
-        #     self.amplicon_intervals[i] for i in sorted_ai_indices
-        # ]
         for interval in self.amplicon_intervals:
             logger.debug(f"\tAmplicon {interval=}")
 
         # Merge amplicon intervals
-        logger.debug("Begin merging adjacent intervals.")
+        logger.info("Begin merging adjacent intervals.")
         self.merge_amplicon_intervals()
-
-        # self.amplicon_intervals = [
-        #     amplicon_intervals_sorted[ai]
-        #     for ai in range(len(amplicon_intervals_sorted))
-        # ]
-        # ind_map = {
-        #     sorted_ai_indices[i]: i for i in range(len(sorted_ai_indices))
-        # }
-        logger.info(f"start {self.amplicon_interval_connections=} ")
 
         connection_map = {
             connection: (
@@ -413,8 +401,6 @@ class LongReadBamToBreakpointMetadata:
             self.amplicon_interval_connections[new_conn] = (
                 self.amplicon_interval_connections[old_conn]
             )
-
-        logger.info(f"updated {self.amplicon_interval_connections=} ")
 
         # Reset ccids
         ai_explored = np.zeros(len(self.amplicon_intervals))
@@ -790,7 +776,7 @@ class LongReadBamToBreakpointMetadata:
             )
             new_intervals_refined.extend(new_intvs)
             new_intervals_connections.extend(new_conns)
-            logger.info(f"\t\t\tCreated {new_intervals_connections=}")
+            logger.debug(f"\t\t\tCreated {new_intervals_connections=}")
         return new_intervals_refined, new_intervals_connections
 
     def get_refined_cni_intvs(
@@ -1129,7 +1115,7 @@ class LongReadBamToBreakpointMetadata:
         logger.debug(f"These reads formed {len(new_bp_clusters)} clusters.")
         self.add_breakpoints_and_connections(new_bp_clusters)
 
-    def build_graph(self) -> None:
+    def build_graphs(self) -> None:
         """Organize the identified discordant edges into a list of breakpoint
         graphs, stored in lr_graph.
         Each graph represent a connected component of amplified intervals,
@@ -1368,7 +1354,8 @@ class LongReadBamToBreakpointMetadata:
 
     def compute_bp_graph_path_constraints(
         self, bp_graph: BreakpointGraph
-    ) -> None:
+    ) -> list[PathConstraint]:
+        bp_path_constraints: list[PathConstraint] = []
         read_to_alignments: defaultdict[str, BPIndexedAlignmentContainer] = (
             defaultdict(BPIndexedAlignmentContainer)
         )
@@ -1396,8 +1383,6 @@ class LongReadBamToBreakpointMetadata:
             f"There are {len(read_to_alignments)} reads covering >=1 breakpoint"
             f" in amplicon."
         )
-
-        bp_path_constraints = bp_graph.path_constraints
 
         for rn, disc_alignments in read_to_alignments.items():
             paths = path_utilities.get_bp_graph_paths(
@@ -1451,18 +1436,15 @@ class LongReadBamToBreakpointMetadata:
         for aint in bp_graph.amplicon_intervals:
             for read in self.lr_bamfh.fetch(aint.chr, aint.start, aint.end + 1):
                 rn = read.query_name  # type: ignore[arg-type, assignment]
-                q = read.mapping_quality
-                if q >= 20 and rn in concordant_reads:
+                # if rn == "chr2_180338520_aligned_2142532_F_44_36484_3":
+                #     breakpoint()
+                if read.mapping_quality >= 20 and rn in concordant_reads:
                     path = path_constraints.alignment_to_path(
                         bp_graph,
-                        ReferenceInterval(
+                        Interval(
                             read.reference_name,  # type: ignore[arg-type]
                             read.reference_start,
                             read.reference_end,  # type: ignore[arg-type]
-                            Strand.FORWARD
-                            if read.is_forward
-                            else Strand.REVERSE,
-                            read.query_name,  # type: ignore[arg-type]
                         ),
                     )
                     if len(path) <= 5 or not path_constraints.valid_path(
@@ -1477,6 +1459,9 @@ class LongReadBamToBreakpointMetadata:
                         pci = existing_paths.index(path[::-1])
                         bp_path_constraints[pci].support += 1
                     else:
+                        logger.info(
+                            f"Adding path {path} to path constraints, {aint=}"
+                        )
                         bp_path_constraints.append(
                             PathConstraint(
                                 path=path,
@@ -1489,20 +1474,26 @@ class LongReadBamToBreakpointMetadata:
             f"There are {len(bp_path_constraints)} distinct "
             f"subpaths in amplicon {bp_graph.amplicon_idx + 1}."
         )
-        bp_graph.path_constraints = bp_path_constraints
+        return bp_path_constraints
 
     def compute_path_constraints(self) -> None:
         """Convert reads mapped within the amplicons into subpath constraints"""
         for amplicon_idx, bp_graph in enumerate(self.lr_graph):
             bp_graph.amplicon_idx = amplicon_idx
-            self.compute_bp_graph_path_constraints(bp_graph)
+            bp_path_constraints = self.compute_bp_graph_path_constraints(
+                bp_graph
+            )
+            bp_graph.path_constraints = bp_path_constraints
+            bp_graph.longest_path_constraints = (
+                path_constraints.longest_path_dict(bp_path_constraints)
+            )
 
     def closebam(self):
         """Close the short read and long read bam file"""
         self.lr_bamfh.close()
 
 
-def reconstruct_graph(
+def reconstruct_graphs(
     lr_bam_filename: pathlib.Path,
     cnv_seed_file: typer.FileText,
     cn_seg_file: typer.FileText,
@@ -1530,13 +1521,13 @@ def reconstruct_graph(
     b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
     start = time.time()
-    # chimeric_alignments, edit_dist_stats = (
-    #     breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
-    # )
-    # with open(f"{output_dir}/chimeric_alignments.pickle", "wb") as file:
-    #     pickle.dump(chimeric_alignments, file)
-    with open(f"{output_dir}/chimeric_alignments.pickle", "rb") as file:
-        chimeric_alignments = pickle.load(file)
+    chimeric_alignments, edit_dist_stats = (
+        breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
+    )
+    with open(f"{output_dir}/chimeric_alignments.pickle", "wb") as file:
+        pickle.dump(chimeric_alignments, file)
+    # with open(f"{output_dir}/chimeric_alignments.pickle", "rb") as file:
+    #     chimeric_alignments = pickle.load(file)
     logger.error(f"Time to fetch breakpoint reads: {time.time() - start}")
     logger.info("Completed fetching reads containing breakpoints.")
 
@@ -1552,9 +1543,10 @@ def reconstruct_graph(
     logger.info("Completed finding small del breakpoints.")
     b2bn.find_breakpoints()
     logger.info("Completed finding all discordant breakpoints.")
+    b2bn.build_graphs()
+    logger.info("Breakpoint graphs built for all amplicons.")
+
     if output_bp:
-        b2bn.build_graph()
-        logger.info("Breakpoint graph built for all amplicons.")
         for gi in range(len(b2bn.lr_graph)):
             bp_stats_i = []
             for discordant_edge in b2bn.lr_graph[gi].discordant_edges:
@@ -1571,8 +1563,6 @@ def reconstruct_graph(
             f"Wrote breakpoint information, for all amplicons, to {output_dir}/amplicon*_breakpoints.txt."
         )
     else:
-        b2bn.build_graph()
-        logger.info("Breakpoint graph built for all amplicons.")
         b2bn.assign_cov()
         logger.info(
             "Fetched read coverage for all sequence and concordant edges."
@@ -1580,6 +1570,8 @@ def reconstruct_graph(
         for gi in range(len(b2bn.lr_graph)):
             b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
         logger.info("Computed CN for all edges.")
+        b2bn.compute_path_constraints()
+
         for gi in range(len(b2bn.lr_graph)):
             breakpoint_utilities.output_breakpoint_graph_lr(
                 b2bn.lr_graph[gi], f"{output_dir}/amplicon{gi+1}_graph.txt"

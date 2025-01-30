@@ -310,7 +310,6 @@ def greedy_solve(
         bp_graph=bp_graph,
         total_weights=total_weights,
         node_order=node_order,
-        pc_list=bp_graph.longest_path_constraints,
         cycle_id=cycle_id,
         alpha=alpha,
         p_total_weight=p_total_weight,
@@ -339,7 +338,6 @@ def maximize_weights_greedy(
     bp_graph: BreakpointGraph,
     total_weights: float,
     node_order: Dict[datatypes.Node, int],
-    pc_list: List[datatypes.FinalizedPathConstraint],
     cycle_id: int,
     alpha: float = 0.01,
     p_total_weight: float = 0.9,
@@ -381,6 +379,8 @@ def maximize_weights_greedy(
     )  # each breakpoint edge is assigned >= 5 minutes)
 
     remaining_weights = total_weights
+
+    pc_list = bp_graph.longest_path_constraints
     is_pc_unsatisfied = [True for i in range(len(pc_list))]
     num_unsatisfied_pc = sum(is_pc_unsatisfied)
     remaining_cn = datatypes.EdgeToCN.from_graph(bp_graph)
@@ -392,7 +392,8 @@ def maximize_weights_greedy(
     )
 
     logger.debug(
-        f"Greedy cycle decomposition with length weighted CN = {remaining_weights} and num subpath constraints = {num_unsatisfied_pc}."
+        f"Greedy cycle decomposition with length weighted CN = "
+        f"{remaining_weights} & num subpath constraints = {num_unsatisfied_pc}."
     )
 
     while next_w >= resolution and (
@@ -401,16 +402,20 @@ def maximize_weights_greedy(
     ):
         pp = 1.0
         if alpha > 0 and num_unsatisfied_pc > 0:
-            pp = (
-                alpha * remaining_weights / num_unsatisfied_pc
-            )  # multi - objective optimization parameter
+            # multi - objective optimization parameter
+            pp = alpha * remaining_weights / num_unsatisfied_pc
         logger.debug(
-            f"Iteration {cycle_id + 1} with remaining CN = {remaining_weights} and unsatisfied constraints = {num_unsatisfied_pc}/{len(pc_list)}."
+            f"Iteration {cycle_id + 1} with remaining CN = {remaining_weights} "
+            f"& unsatisfied constraints = {num_unsatisfied_pc}/{len(pc_list)}."
         )
         logger.debug(f"Multiplication factor for subpath constraints = {pp}.")
 
-        model_name = f"amplicon_{bp_graph.amplicon_idx}_cycle_decomposition_greedy_{cycle_id + 1}_{alpha=}"
-        model_filepath = f"{solver_options.output_dir}/{solver_options.model_prefix}_{model_name}"
+        model_name = (
+            f"amplicon_{bp_graph.amplicon_idx}_cycle_decomposition"
+            f"_greedy_{cycle_id + 1}_{alpha=}"
+        )
+        prefixed_name = f"{solver_options.model_prefix}_{model_name}"
+        model_filepath = f"{solver_options.output_dir}/{prefixed_name}"
 
         model = models.concrete.get_model(
             bp_graph,
@@ -595,39 +600,36 @@ def cycle_decomposition_single_graph(
     should_postprocess: bool = False,
     output_all_path_constraints: bool = False,
 ) -> None:
-    lseg = len(bp_graph.sequence_edges)
-    lc = len(bp_graph.concordant_edges)
-    ld = len(bp_graph.discordant_edges)
-    lsrc = len(bp_graph.source_edges)
+    logger.info(
+        f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
+    )
 
     total_weights = sum(len(sseg) * sseg.cn for sseg in bp_graph.sequence_edges)
 
-    logger.info(
-        f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx +1}."
-    )
     logger.info(f"Total CN weights = {total_weights}.")
 
-    longest_path_constraints = longest_path_dict(bp_graph.path_constraints)
-    bp_graph.longest_path_constraints = longest_path_constraints
+    longest_path_constraints = bp_graph.longest_path_constraints
 
     logger.info(
         f"Total num maximal subpath constraints = "
         f"{len(longest_path_constraints)}."
     )
     for pc in longest_path_constraints:
-        logger.debug(f"Subpath constraint {pc.pc_idx} = {pc.support}")
+        logger.debug(
+            f"Subpath constraint {pc.pc_idx} (support={pc.support}) = "
+            f"{bp_graph.path_constraints[pc.pc_idx]}"
+        )
 
-    k = max(10, ld // 2)  # Initial num cycles/paths
+    k = max(10, len(bp_graph.discordant_edges) // 2)
     logger.info(f"Initial num cycles/paths = {k}.")
-    nedges = lseg + lc + ld + 2 * lsrc + 2 * len(bp_graph.endnode_adjacencies)
 
     node_order = {
         node: node_ordered_idx
         for node_ordered_idx, node in enumerate(bp_graph.node_adjacencies)
     }
 
-    if nedges < k:
-        k = nedges
+    if bp_graph.num_edges < k:
+        k = bp_graph.num_edges
         logger.info(f"Reset num cycles/paths to {k}.")
 
     lp_solution = solve_single_graph(
@@ -695,10 +697,9 @@ def reconstruct_cycles(
     logging.basicConfig(
         filename=f"{solver_options.output_dir}/cycle_decomp.log",
         filemode="w",
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
-    bb.compute_path_constraints()
     logger.info("Computed all subpath constraints.")
 
     cycle_decomposition_all_graphs(

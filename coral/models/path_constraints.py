@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 
 from coral.breakpoint import breakpoint_utilities
@@ -11,6 +12,7 @@ from coral.datatypes import (
     EdgeId,
     EdgeType,
     FinalizedPathConstraint,
+    Interval,
     Node,
     PathConstraint,
     ReferenceInterval,
@@ -18,6 +20,7 @@ from coral.datatypes import (
     Walk,
 )
 
+logger = logging.getLogger(__name__)
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
 
@@ -59,7 +62,7 @@ def valid_path(g: BreakpointGraph, path: Walk) -> bool:
 
 
 def alignment_to_path(
-    g: BreakpointGraph, ref_intv: ReferenceInterval, min_overlap: int = 500
+    g: BreakpointGraph, ref_intv: Interval, min_overlap: int = 500
 ) -> Walk:
     """Traverse through the input breakpoint graph to convert a single alignment
       to a path.
@@ -76,15 +79,38 @@ def alignment_to_path(
             seq_edge
             for seq_edge in g.sequence_edges
             if ref_intv.does_overlap(seq_edge.interval)
-            and (
-                min(seq_edge.end, ref_intv.end)
-                - max(seq_edge.start, ref_intv.start)
-                >= min_overlap
-            )
-            and (seq_edge.gap >= min_overlap)
         ]
     )
+    if len(overlapping_seq_edges) <= 2:
+        return []
 
+    # Prune leftmost sequence edges
+    if (
+        min(overlapping_seq_edges[0].end, ref_intv.end)
+        - max(overlapping_seq_edges[0].start, ref_intv.start)
+        < min_overlap
+    ):
+        del overlapping_seq_edges[0]
+    while (
+        len(overlapping_seq_edges) > 1
+        and overlapping_seq_edges[0].gap < min_overlap
+    ):
+        del overlapping_seq_edges[0]
+    if len(overlapping_seq_edges) <= 2:
+        return []
+
+    # Prune rightmost sequence edges
+    if (
+        min(overlapping_seq_edges[-1].end, ref_intv.end)
+        - max(overlapping_seq_edges[-1].start, ref_intv.start)
+        < min_overlap
+    ):
+        del overlapping_seq_edges[-1]
+    while (
+        len(overlapping_seq_edges) > 1
+        and overlapping_seq_edges[-1].gap < min_overlap
+    ):
+        del overlapping_seq_edges[-1]
     if len(overlapping_seq_edges) <= 2:
         return []
 
@@ -501,41 +527,45 @@ def longest_path_dict(
     any other path.
     """
     final_paths: list[FinalizedPathConstraint] = []
-    for path_i in range(len(path_constraints_)):
-        path = path_constraints_[path_i].path
+    for path_idx in range(len(path_constraints_)):
+        path = path_constraints_[path_idx].path
         edge_counts: dict[EdgeId, int] = defaultdict(int)
-        for edge_id in range(len(path)):
+        for edge_idx in range(len(path)):
             # Only track edge counts, not nodes
-            if edge_id % 2 == 0:
-                edge_counts[path[edge_id]] += 1  # type: ignore[index]
+            if edge_idx % 2 == 0:
+                edge_counts[path[edge_idx]] += 1  # type: ignore[index]
         final_paths.append(
             FinalizedPathConstraint(
                 edge_counts=edge_counts,
-                pc_idx=path_i,
-                support=path_constraints_[path_i].support,
+                pc_idx=path_idx,
+                support=path_constraints_[path_idx].support,
             )
         )
-    for path_i, final_pc in enumerate(reversed(final_paths)):
-        subpath_idx: int | None = None
-        path_edge_counts = final_pc.edge_counts
-        for subpath_i, subpath_constraint in enumerate(final_paths):
-            subpath_edge_counts = subpath_constraint.edge_counts
-            is_subpath = True
+    logger.debug(f"Finalized paths ({len(final_paths)}): {final_paths}")
+    for path_idx in range(len(final_paths))[::-1]:
+        confirmed_parent_path_idx: int | None = None
+        path_edge_counts = final_paths[path_idx].edge_counts
+        for parent_pc_idx, parent_pc in enumerate(final_paths):
+            parent_path_edge_counts = parent_pc.edge_counts
+            found_subpath = True
             for edge in path_edge_counts:
                 if (
-                    edge not in subpath_edge_counts
-                    or subpath_edge_counts[edge] < path_edge_counts[edge]
+                    edge not in parent_path_edge_counts
+                    or parent_path_edge_counts[edge] < path_edge_counts[edge]
                 ):
-                    is_subpath = False
+                    found_subpath = False
                     break
-            if is_subpath and subpath_i != path_i:
-                subpath_idx = subpath_i
+
+            if found_subpath and parent_pc_idx != path_idx:
+                confirmed_parent_path_idx = parent_pc_idx
                 break
-        if subpath_idx is not None:
-            del final_paths[path_i]
-            del final_paths[path_i]
-            subpath_constraint.support = max(
-                subpath_constraint.support, final_paths[path_i].support
+        if confirmed_parent_path_idx is not None:
+            logger.debug(
+                f"Removing {path_idx}, found to be subpath of {confirmed_parent_path_idx}"
             )
-            del final_paths[path_i]
+            final_paths[confirmed_parent_path_idx].support = max(
+                final_paths[confirmed_parent_path_idx].support,
+                final_paths[path_idx].support,
+            )
+            del final_paths[path_idx]
     return final_paths

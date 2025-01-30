@@ -156,7 +156,7 @@ def reconstruct(
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.INFO)
-    b2bn = infer_breakpoint_graph.reconstruct_graph(
+    b2bn = infer_breakpoint_graph.reconstruct_graphs(
         lr_bam, cnv_seed, cn_seg, output_dir, output_bp, min_bp_support
     )
     solver_options = datatypes.SolverOptions(
@@ -193,14 +193,34 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
-    os.makedirs(output_dir, exist_ok=True)
-    # bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
-    #     lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
-    #     bam=bam_types.BAMWrapper(str(lr_bam), "rb"),
-    #     lr_graph=[pickle.load(bp_graph)],
-    # )  # type: ignore[arg-type]
-    # bb.fetch_breakpoint_reads()
+    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=f"{output_dir}/infer_breakpoint_graph.log",
+        filemode="w+",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
+    )
+    logging.getLogger("pyomo").setLevel(logging.ERROR)
+
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
+    amplicon_idx = int(bp_graph.name.split("_")[0].split("amplicon")[1])
+    parsed_bp_graph.amplicon_idx = amplicon_idx
+
+    solver_options = datatypes.SolverOptions(
+        num_threads=threads,
+        time_limit_s=time_limit_s,
+        output_dir=output_dir,
+        model_prefix="pyomo",
+        solver=solver,
+    )
+    cycle_decomposition.cycle_decomposition_single_graph(
+        parsed_bp_graph,
+        solver_options,
+        alpha,
+        should_postprocess=postprocess_greedy_sol,
+        output_all_path_constraints=output_all_path_constraints,
+    )
     # cycle_decomposition.reconstruct_cycles(
     #     output_dir,
     #     output_all_path_constraints,

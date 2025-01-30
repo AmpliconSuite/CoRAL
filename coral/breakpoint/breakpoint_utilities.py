@@ -20,7 +20,7 @@ from typing import (
 import numpy as np
 import pysam
 
-from coral import bam_types, cigar_parsing, datatypes, types
+from coral import bam_types, cigar_parsing, core_utils, datatypes, types
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
@@ -696,8 +696,18 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str) -> None:
                 f"{de.node2.chr}:{de.node2.pos}{de.node2.strand}\t"
                 f"{de.cn}\t{de.lr_count}\n"
             )
-        for pc in g.path_constraints:
-            fp.write(f"path_constraint\t{pc.path}\t{pc.support}\n")
+        # Only output the longest path constraints (post subpath filtering)
+        fp.write("PathConstraint: Path, Support\n")
+        for pc in g.longest_path_constraints:
+            basic_pc = g.path_constraints[pc.pc_idx]
+            fp.write(
+                f"path_constraint\t"
+                f"{core_utils.path_to_str(basic_pc.path, pc.edge_counts)}\t"
+                f"{pc.support}\n"
+            )
+        fp.write("AmpliconIntervals: chr, start, end\n")
+        for ai in g.amplicon_intervals:
+            fp.write(f"interval\t{ai.chr}\t{ai.start}\t{ai.end}\n")
 
 
 def output_breakpoint_info_lr(

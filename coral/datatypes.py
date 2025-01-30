@@ -16,7 +16,7 @@ import intervaltree
 import numpy as np
 import pyomo.environ as pyo
 
-from coral import types
+from coral import core_utils, types
 from coral.constants import CHR_TAG_TO_IDX
 
 if TYPE_CHECKING:
@@ -48,6 +48,9 @@ class EdgeType(enum.StrEnum):
 class EdgeId(NamedTuple):
     type: EdgeType
     idx: EdgeIdx
+
+    def __repr__(self) -> str:
+        return f"EdgeId({self.type.name}, {self.idx})"
 
 
 class DirectedEdge(NamedTuple):
@@ -726,37 +729,6 @@ class PathConstraint:
     path: Walk  # List of nodes and edges
     support: int = 0  # Number of supporting reads
     amplicon_id: int = -1  # Amplicon index
-
-    def to_file_str(self) -> str:
-        """Convert path constraint to string for outputting to file (e.g.,
-        *_graph.txt, *_cycle.txt).
-
-            ex: "12+,16+,19+     Support=3"
-        """
-        path = self.path
-        # Reverse path if start node's pos is > than end node's
-        if path[0][1] > path[-1][1]:
-            path = path[::-1]
-
-        path_str = ""
-        for i in range(len(path)):
-            if i % 4 == 0:
-                edge_id: EdgeId = path[i]  # type: ignore[assignment]
-                path_str = f"{edge_id.idx+1}"
-                if i < len(path) - 1:
-                    next_node: Node = path[i + 1]  # type: ignore[assignment]
-                    path_str += f"{next_node.strand.value},"
-                else:
-                    prev_node: Node = path[i - 1]  # type: ignore[assignment]
-                    path_str += f"{prev_node.strand.inverse.value}\t"
-        breakpoint()
-        path_str += f"Support={self.support}\t"
-        return path_str
-
-    def from_file_str(self, line: str) -> PathConstraint:
-        """Convert string from file (e.g., *_graph.txt, *_cycle.txt) to
-        `PathConstraint` type."""
-        pass
 
 
 @dataclass

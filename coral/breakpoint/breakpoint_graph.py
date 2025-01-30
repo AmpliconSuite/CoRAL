@@ -66,6 +66,7 @@ class BreakpointGraph:
         default_factory=list
     )
 
+    normal_cov: float = 0.0
     max_cn: float = 0.0
     amplicon_idx: int = 0
 

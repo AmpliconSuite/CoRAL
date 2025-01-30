@@ -41,8 +41,8 @@ def get_minimize_objective(
 def get_greedy_objective(
     model: pyo.Model,
     bp_graph: BreakpointGraph,
-    pc_list: List,
-    is_pc_unsatisfied: List[bool],
+    pc_list: list[datatypes.FinalizedPathConstraint],
+    is_pc_unsatisfied: list[bool],
     pp: float,
 ) -> pyo.Objective:
     obj_value = 0.0
@@ -275,7 +275,7 @@ def get_model(
 
     model.ConstraintSubpathEdges = pyo.ConstraintList()
     for constraint in constraints.get_shared_subpath_edge_constraints(
-        model, k, bp_graph.longest_path_constraints, bp_graph
+        model, k, bp_graph
     ):
         model.ConstraintSubpathEdges.add(constraint)
 

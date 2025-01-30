@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 import typer
 
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
+    AmpliconInterval,
     Breakpoint,
+    ConcordantEdge,
     DiscordantEdge,
     EdgeId,
     EdgeType,
+    FinalizedPathConstraint,
     Node,
     PathConstraint,
     SequenceEdge,
@@ -20,9 +25,29 @@ def parse_sequence_edge(line: str) -> SequenceEdge:
         chr=s[1].split(":")[0],
         start=int(s[1].split(":")[1][:-1]),
         end=int(s[2].split(":")[1][:-1]),
-        lr_nc=float(s[3]),
+        cn=float(s[3]),
+        lr_nc=float(s[4]),
         lr_count=int(s[6]),
-        cn=float(s[5]),
+    )
+
+
+def parse_concordant_edge(line: str) -> ConcordantEdge:
+    s = line.strip().split("\t")
+    node1_str = s[1].split("->")[0]
+    node2_str = s[1].split("->")[1]
+    return ConcordantEdge(
+        node1=Node(
+            chr=node1_str.split(":")[0],
+            pos=int(node1_str.split(":")[1][:-1]),
+            strand=Strand(node1_str.split(":")[1][-1]),
+        ),
+        node2=Node(
+            chr=node2_str.split(":")[0],
+            pos=int(node2_str.split(":")[1][:-1]),
+            strand=Strand(node2_str.split(":")[1][-1]),
+        ),
+        lr_count=int(s[3]),
+        cn=float(s[2]),
     )
 
 
@@ -46,34 +71,57 @@ def parse_discordant_edge(line: str) -> DiscordantEdge:
     )
 
 
-def parse_path(bp_graph: BreakpointGraph, s: str) -> Walk:
+def parse_path(
+    bp_graph: BreakpointGraph, s: str
+) -> tuple[Walk, dict[EdgeId, int]]:
     path_pieces = s.split(",")
     path: Walk = []
-    # Of form <seq_edge_idx><strand>
-    for i, directed_edge in enumerate(path_pieces):
-        seq_edge_idx = int(directed_edge[:-1])
-        strand = Strand(directed_edge[-1])
-        seq_edge = bp_graph.sequence_edges[seq_edge_idx]
-        path.append(EdgeId(EdgeType.SEQUENCE, seq_edge_idx))
-        path.append(
-            Node(
-                chr=s[i + 1].split(":")[0],
-                pos=int(s[i + 1].split(":")[1][:-1]),
-                strand=Strand(s[i + 1].split(":")[1][-1]),
-            )
-        )
-    return Walk(path)
+    edge_counts: dict[EdgeId, int] = {}
 
+    # Each path component (or edge) is of form
+    # <edge_type><seq_edge_idx><strand>:<edge_count>
 
-def parse_path_constraint(
-    bp_graph: BreakpointGraph, line: str
-) -> PathConstraint:
-    s = line.strip().split("\t")
-    return PathConstraint(
-        path=parse_path(bp_graph, s[1]),
-        support=int(s[2]),
-        amplicon_id=int(s[3]),
+    id_str, count_str = path_pieces[0].split(":")
+    edge_id = EdgeId(EdgeType(id_str[0]), int(id_str[1:-1]) - 1)
+    edge_counts[edge_id] = int(count_str)
+    strand = Strand(id_str[-1])
+
+    seq_edge = bp_graph.sequence_edges[edge_id.idx]
+    first_node = (
+        seq_edge.start_node if strand == Strand.REVERSE else seq_edge.end_node
     )
+    path.extend([edge_id, first_node])
+
+    # Iterate through path_pieces in edge pairs, ignore final edge
+    for edge_str in path_pieces[1:-1]:
+        id_str, count_str = edge_str.split(":")
+        edge_id = EdgeId(EdgeType(id_str[0]), int(id_str[1:-1]) - 1)
+        edge_counts[edge_id] = int(count_str)
+
+        if edge_id.type == EdgeType.SEQUENCE:
+            seq_edge = bp_graph.sequence_edges[edge_id.idx]
+            prev_node = (
+                seq_edge.start_node
+                if strand == Strand.REVERSE  # Use strand from previous BP edge
+                else seq_edge.end_node
+            )
+            path.append(prev_node)
+            path.append(edge_id)
+            strand = Strand(id_str[-1])
+
+            next_node = (
+                seq_edge.start_node
+                if strand == Strand.REVERSE  # Use strand from previous BP edge
+                else seq_edge.end_node
+            )
+            path.append(next_node)
+        else:
+            path.append(edge_id)
+
+    id_str, count_str = path_pieces[-1].split(":")
+    edge_id = EdgeId(EdgeType(id_str[0]), int(id_str[1:-1]) - 1)
+    edge_counts[edge_id] = int(count_str)
+    return path, edge_counts
 
 
 def parse_breakpoint_graph(graph_file: typer.FileText) -> BreakpointGraph:
@@ -90,6 +138,15 @@ def parse_breakpoint_graph(graph_file: typer.FileText) -> BreakpointGraph:
                 seq_edge.lr_nc,
                 seq_edge.cn,
             )
+            bp_graph.max_cn = max(seq_edge.cn, bp_graph.max_cn)
+        elif s[0] == "concordant":
+            concordant_edge = parse_concordant_edge(line)
+            bp_graph.add_concordant_edge(
+                concordant_edge.node1,
+                concordant_edge.node2,
+                lr_count=concordant_edge.lr_count,
+                cn=concordant_edge.cn,
+            )
         elif s[0] == "discordant":
             discordant_edge = parse_discordant_edge(line)
             bp_graph.add_discordant_edge(
@@ -100,7 +157,25 @@ def parse_breakpoint_graph(graph_file: typer.FileText) -> BreakpointGraph:
             )
         elif s[0] == "path_constraint":
             # This requires the bp_graph to be built first,
-            # as path_constraints are represented using sequence edge indices
-            path_constraint = parse_path_constraint(bp_graph, line)
-            bp_graph.path_constraints.append(path_constraint)
+            # as path_constraints are represented using edge indices
+            path, edge_counts = parse_path(bp_graph, s[1])
+            bp_graph.path_constraints.append(
+                PathConstraint(path=path, support=int(s[2]))
+            )
+            bp_graph.longest_path_constraints.append(
+                FinalizedPathConstraint(
+                    edge_counts=edge_counts,
+                    pc_idx=len(bp_graph.path_constraints) - 1,
+                    support=int(s[2]),
+                )
+            )
+        elif s[0] == "interval":
+            intv = AmpliconInterval(s[1], int(s[2]), int(s[3]))
+            bp_graph.amplicon_intervals.append(intv)
+            bp_graph.add_endnode(Node(intv.chr, intv.start, Strand.REVERSE))
+            bp_graph.add_endnode(Node(intv.chr, intv.end, Strand.FORWARD))
+
+    # Match line 397 in breakpoint_graph.py
+    # TODO: Understand why this is needed
+    bp_graph.max_cn -= 1.0
     return bp_graph

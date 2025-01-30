@@ -5,7 +5,7 @@ import logging
 import random
 from typing import Dict
 
-from coral import constants
+from coral import constants, core_utils
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
@@ -16,6 +16,7 @@ from coral.datatypes import (
     DiscordantEdge,
     EdgeId,
     EdgeType,
+    FinalizedPathConstraint,
     Node,
     OptimizationWalk,
     PathConstraint,
@@ -58,10 +59,10 @@ def eulerian_cycle_t(
     best_cycle: DirectedWalk = []  # Cycle in AA cycle format
     valid = 0
     num_trials = 0
-    l = len(path_constraints_next_cycle)
+    num_pc = len(path_constraints_next_cycle)
     unsatisfied_path_metric = PathMetric(
-        path_idxs=list(range(l)),
-        path_length=100 * l,
+        path_idxs=list(range(num_pc)),
+        path_length=100 * num_pc,
         path_support=100 * max(path_constraints_support + [0]),
     )
     while valid <= 0 and num_trials < 1000:
@@ -629,9 +630,15 @@ def output_amplicon_walks(
 
     if output_all_path_constraints:
         fp.write("List of all subpath constraints\n")
-        for pathi in range(len(bp_graph.path_constraints)):
+        for path_idx, basic_pc in enumerate(bp_graph.path_constraints):
             write_path_constraint_to_file(
-                pathi, bp_graph.path_constraints[pathi], fp
+                FinalizedPathConstraint(
+                    edge_counts={},
+                    pc_idx=path_idx,
+                    support=0,
+                ),
+                basic_pc.path,
+                fp,
             )
     else:
         fp.write("List of longest subpath constraints\n")
@@ -643,11 +650,9 @@ def output_amplicon_walks(
                 if pathi not in path_constraint_indices_:
                     path_constraint_indices_.append(pathi)
         for constraint_i, finalized_pc in enumerate(longest_path_constraints):
-            write_path_constraint_to_file(
-                constraint_i,
-                bp_graph.path_constraints[finalized_pc.pc_idx],
-                fp,
-            )
+            basic_pc = bp_graph.path_constraints[finalized_pc.pc_idx]
+            basic_pc.support = finalized_pc.support
+            write_path_constraint_to_file(finalized_pc, basic_pc.path, fp)
             if constraint_i in path_constraint_indices_:
                 fp.write("Satisfied\n")
             else:
@@ -666,18 +671,12 @@ def output_amplicon_walks(
     for walk_type, walk_idx in walk_indices:
         if walk_type == 0:  # cycles
             output_str = get_single_cycle_output(
-                bp_graph,
-                walk_idx,
-                walk_indices.index((0, walk_idx)) + 1,
-                output_all_paths=output_all_path_constraints,
+                bp_graph, walk_idx, walk_indices.index((0, walk_idx)) + 1
             )
             fp.write(output_str)
         else:  # paths
             output_str = get_single_path_output(
-                bp_graph,
-                walk_idx,
-                walk_indices.index((1, walk_idx)) + 1,
-                output_all_paths=output_all_path_constraints,
+                bp_graph, walk_idx, walk_indices.index((1, walk_idx)) + 1
             )
             fp.write(output_str)
     fp.close()
@@ -707,7 +706,8 @@ def output_summary_amplicon_stats(
 
 
 def write_path_constraint_to_file(
-    path_idx: int, path_constraint: PathConstraint, fp: io.TextIOWrapper
+    finalized_pc: FinalizedPathConstraint, path: Walk, fp: io.TextIOWrapper
 ) -> None:
-    fp.write(f"Path constraint\t{path_idx+1}\t")
-    fp.write(path_constraint.to_file_str())
+    fp.write(f"Path constraint\t{finalized_pc.pc_idx+1}\t")
+    fp.write(core_utils.path_to_str(path, finalized_pc.edge_counts))
+    fp.write(f"Support={finalized_pc.support}\n")

@@ -98,6 +98,7 @@ lint.ignore = [
   "PLR0911", # too-many-return-statements
   "FIX002",  # Line contains TODO
   "TRY400",  # logger.error vs. logger.exception (don't want to log traceback)
+  "TCH001",  # typing-only-first-party-import
 ]
 lint.extend-select = ["I"]
 line-length = 80

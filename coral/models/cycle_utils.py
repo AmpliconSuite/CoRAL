@@ -123,9 +123,9 @@ def parse_solver_output(
     parsed_sol = CycleSolution(solver_status, solver_termination_condition)
 
     if solver_termination_condition == pyo.TerminationCondition.infeasible:
-        pyomo.util.infeasible.log_infeasible_constraints(
-            model, log_expression=True, log_variables=True
-        )
+        # pyomo.util.infeasible.log_infeasible_constraints(
+        #     model, log_expression=True, log_variables=True
+        # )
         logger.debug("Unable to parse infeasible solution.")
         return parsed_sol
 
