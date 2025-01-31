@@ -1,9 +1,8 @@
 import io
 import logging
 
-from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.models.output import eulerian_cycle_t, eulerian_path_t
+from coral.output.path_output import eulerian_cycle_t, eulerian_path_t
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ def get_single_path_output(
     path_idx: int,
     weight_sorted_path_idx: int,
     *,
-    output_all_paths: bool = True,
+    output_path_constraints: bool = True,
 ) -> str:
     """Generate the output string for a given path produced by optimization."""
 
@@ -100,7 +99,7 @@ def get_single_path_output(
         output_str += f"{path_seg_list[segi][0]}{path_seg_list[segi][1]},"
     output_str += f"{path_seg_list[-1][0]}{path_seg_list[-1][1]},0-"
 
-    if not output_all_paths:
+    if not output_path_constraints:
         output_str += "\n"
         return output_str
 
@@ -120,8 +119,6 @@ def get_single_path_output(
 def output_amplicon_solution(
     bp_graph: BreakpointGraph, output_file: io.TextIOWrapper
 ) -> None:
-    output_file.write("List of cycle segments:\n")
-
     walk_indices = sorted(
         [(0, i) for i in range(len(bp_graph.walk_weights.cycles))]
         + [(1, i) for i in range(len(bp_graph.walk_weights.paths))],
@@ -130,17 +127,17 @@ def output_amplicon_solution(
     )
     heaviest_walk = walk_indices[0]
     if heaviest_walk[0] == 1:
-        output_file.write("Largest graph walk solved was a path.\n")
+        output_file.write("Heaviest graph walk solved was a path.\n")
         path_output = get_single_path_output(
-            bp_graph, heaviest_walk[1], 1, output_all_paths=False
+            bp_graph, heaviest_walk[1], 1, output_path_constraints=False
         )
         output_file.write(path_output)
-        return
-
-    output_file.write("Largest graph walk solved was a cycle.\n")
-
-    for cycle in bp_graph.walks.cycles:
-        output_file.write(f"{cycle}\n")
+    else:
+        output_file.write("Heaviest graph walk solved was a cycle.\n")
+        cycle_output = get_single_cycle_output(
+            bp_graph, heaviest_walk[1], 1, output_path_constraints=False
+        )
+        output_file.write(cycle_output)
 
 
 def output_amplicon_info(
@@ -150,7 +147,7 @@ def output_amplicon_info(
     output_file.write(f"#Intervals = {len(bp_graph.amplicon_intervals)}\n")
     output_file.write("AmpliconIntervals:\n")
     for interval in bp_graph.amplicon_intervals:
-        output_file.write(f"{interval}\n")
+        output_file.write(f"\t{interval}\n")
     output_file.write(f"Total Amplicon Size: {bp_graph.total_interval_size}\n")
 
     output_file.write(f"# Chromosomes: {bp_graph.num_chromosomes}\n")
