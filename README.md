@@ -1,7 +1,6 @@
 #  CoRAL - Complete Reconstruction of Amplifications with Long reads
 ## Reference
-CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. A pre-print is available here: 
-https://www.biorxiv.org/content/10.1101/2024.02.15.580594v1
+CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. The original Genome Research '24 paper is available here: https://genome.cshlp.org/content/34/9/1344.
 
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
@@ -236,3 +235,34 @@ chr7	55610095	56049369	+	1	True	82.346163
 chr7	54763282	56049369	+	2	False	2.843655
 ```
 
+
+## 5. ```cycle```
+CoRAL provides an option to convert its cycles output in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
+
+Usage: 
+```coral cycle2bed <Required arguments> <Optional arguments>```
+
+**5.1 Required arguments:**
+* ```--cycle-file <FILE>``` - Input cycles file in AmpliconArchitect format.
+* ```--output-file <FILE>```  - Output cycles file in ```*.bed``` format.
+
+**5.2 Optional arguments:** 
+* ```--num-cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
+
+Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
+```
+#chr	start	end	orientation	cycle_id	iscyclic	weight
+chr7	54763282	55127266	+	1	True	82.346163
+chr7	55155021	55609190	+	1	True	82.346163
+chr7	55610095	56049369	+	1	True	82.346163
+chr7	54763282	56049369	+	2	False	2.843655
+```
+
+
+## FAQs
+- `call_cnvs.sh` didn't produce segmented CN calls in a .cns file?
+   - `cnvkit.py batch` contains multiple steps detailed in their 
+   [documentation](https://cnvkit.readthedocs.io/en/stable/pipeline.html). The 
+   errors from a particular stage don't always percolate up when running the
+   complete pipeline via `batch`, so try running each stage separately to 
+   pinpoint the root cause.
