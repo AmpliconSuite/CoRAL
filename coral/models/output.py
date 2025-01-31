@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import logging
 import random
+from pathlib import Path
 from typing import Dict
 
 from coral import constants, core_utils
@@ -23,6 +24,11 @@ from coral.datatypes import (
     PathMetric,
     Strand,
     Walk,
+)
+from coral.output.amplicon_summary import (
+    get_single_cycle_output,
+    get_single_path_output,
+    output_amplicon_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -491,115 +497,6 @@ def eulerian_path_t(
     return best_path
 
 
-def get_single_cycle_output(
-    bp_graph: BreakpointGraph,
-    cycle_idx: int,
-    weight_sorted_cycle_idx: int,
-    *,
-    output_all_paths: bool = True,
-) -> str:
-    """Generate the output string for a given cycle produced by optimization."""
-
-    cycle_weights = bp_graph.walk_weights.cycles
-    logger.debug(f"Traversing next cycle, CN = {cycle_weights[cycle_idx]}")
-
-    satisfied_pc = bp_graph.path_constraints_satisfied.cycles[cycle_idx]
-
-    path_constraints_satisfied_cycle = []
-    path_constraints_support_cycle = []
-    for pathi in satisfied_pc:
-        pathi_ = bp_graph.longest_path_constraints[pathi].pc_idx
-        path_constraints_satisfied_cycle.append(
-            bp_graph.path_constraints[pathi_].path
-        )
-        path_constraints_support_cycle.append(
-            bp_graph.longest_path_constraints[pathi].support,
-        )
-    cycle_seg_list = eulerian_cycle_t(
-        bp_graph,
-        bp_graph.walks.cycles[cycle_idx],
-        path_constraints_satisfied_cycle,
-        path_constraints_support_cycle,
-    )
-    assert cycle_seg_list[0] == cycle_seg_list[-1]
-
-    output_str = f"Cycle={weight_sorted_cycle_idx};"
-    output_str += f"Copy_count={cycle_weights[cycle_idx]};"
-    output_str += "Segments="
-    for segi in range(len(cycle_seg_list) - 2):
-        output_str += f"{cycle_seg_list[segi][0]}{cycle_seg_list[segi][1]},"
-    output_str += f"{cycle_seg_list[-2][0]}{cycle_seg_list[-2][1]}"
-
-    if not output_all_paths:
-        output_str += "\n"
-        return output_str
-
-    output_str += ";Path_constraints_satisfied="
-    for pathi in range(len(satisfied_pc) - 1):
-        output_str += f"{satisfied_pc[pathi]+1},"
-
-    # Avoid trailing comma
-    if len(satisfied_pc) > 0:
-        output_str += f"{satisfied_pc[-1]+1}\n"
-    else:
-        output_str += "\n"
-    return output_str
-
-
-def get_single_path_output(
-    bp_graph: BreakpointGraph,
-    path_idx: int,
-    weight_sorted_path_idx: int,
-    *,
-    output_all_paths: bool = True,
-) -> str:
-    """Generate the output string for a given path produced by optimization."""
-
-    path_weights = bp_graph.walk_weights.paths
-    logger.debug(f"Traversing next path, CN = {path_weights[path_idx]}")
-
-    satisfied_pc = bp_graph.path_constraints_satisfied.paths[path_idx]
-
-    path_constraints_satisfied_path = []
-    path_constraints_support_path = []
-    for pathi in satisfied_pc:
-        pathi_ = bp_graph.longest_path_constraints[pathi].pc_idx
-        path_constraints_satisfied_path.append(
-            bp_graph.path_constraints[pathi_].path,
-        )
-        path_constraints_support_path.append(
-            bp_graph.longest_path_constraints[pathi].support,
-        )
-    path_seg_list = eulerian_path_t(
-        bp_graph,
-        bp_graph.walks.paths[path_idx],
-        path_constraints_satisfied_path,
-        path_constraints_support_path,
-    )
-    output_str = f"Path={weight_sorted_path_idx};"
-    output_str += f"Copy_count={path_weights[path_idx]};"
-    output_str += "Segments=0+,"
-    for segi in range(len(path_seg_list) - 1):
-        output_str += f"{path_seg_list[segi][0]}{path_seg_list[segi][1]},"
-    output_str += f"{path_seg_list[-1][0]}{path_seg_list[-1][1]},0-"
-
-    if not output_all_paths:
-        output_str += "\n"
-        return output_str
-
-    output_str += ";Path_constraints_satisfied="
-    for pathi in range(len(satisfied_pc) - 1):
-        output_str += f"{satisfied_pc[pathi]+1},"
-
-    # Avoid trailing comma
-    if len(satisfied_pc) > 0:
-        output_str += f"{satisfied_pc[-1]+1}\n"
-    else:
-        output_str += "\n"
-
-    return output_str
-
-
 def output_amplicon_walks(
     bp_graph: BreakpointGraph,
     output_dir: str,
@@ -642,18 +539,19 @@ def output_amplicon_walks(
             )
     else:
         fp.write("List of longest subpath constraints\n")
-        path_constraint_indices_ = []
-        for paths in (
-            satisfied_path_constraints.cycles + satisfied_path_constraints.paths
-        ):
-            for pathi in paths:
-                if pathi not in path_constraint_indices_:
-                    path_constraint_indices_.append(pathi)
+        satisfied_pc_idxs = {
+            path_idx
+            for path in (
+                satisfied_path_constraints.cycles
+                + satisfied_path_constraints.paths
+            )
+            for path_idx in path
+        }
         for constraint_i, finalized_pc in enumerate(longest_path_constraints):
             basic_pc = bp_graph.path_constraints[finalized_pc.pc_idx]
             basic_pc.support = finalized_pc.support
             write_path_constraint_to_file(finalized_pc, basic_pc.path, fp)
-            if constraint_i in path_constraint_indices_:
+            if constraint_i in satisfied_pc_idxs:
                 fp.write("Satisfied\n")
             else:
                 fp.write("Unsatisfied\n")
@@ -689,19 +587,18 @@ def output_summary_amplicon_stats(
 ) -> None:
     logger.info("Outputting solution info for all amplicons.")
 
-    fp = open(f"{output_dir}/amplicon_summary.txt", "w")
-    fp.write(
-        f"{sum(was_amplicon_solved.values())}/{len(bb.lr_graph)} amplicons "
-        "solved.\n"
-    )
-    fp.write("--------------------------------------------------------------\n")
-    for amplicon_idx in range(len(bb.lr_graph)):
-        fp.write(f"Amplicon {amplicon_idx + 1}: ")
-        if not was_amplicon_solved[amplicon_idx]:
-            fp.write("UNSOLVED.\n")
-            continue
-        fp.write("Solved.\n")
-    # TODO: mirror AA summary output
+    with Path(f"{output_dir}/amplicon_summary.txt").open("w") as fp:
+        fp.write(
+            f"{sum(was_amplicon_solved.values())}/{len(bb.lr_graph)} amplicons "
+            "solved.\n"
+        )
+        for amplicon_idx, bp_graph in enumerate(bb.lr_graph):
+            fp.write(
+                "------------------------------------------------------------\n"
+            )
+            output_amplicon_info(
+                bp_graph, fp, was_amplicon_solved[amplicon_idx]
+            )
     fp.close()
 
 
@@ -710,4 +607,4 @@ def write_path_constraint_to_file(
 ) -> None:
     fp.write(f"Path constraint\t{finalized_pc.pc_idx+1}\t")
     fp.write(core_utils.path_to_str(path, finalized_pc.edge_counts))
-    fp.write(f"Support={finalized_pc.support}\n")
+    fp.write(f"\tSupport={finalized_pc.support}")

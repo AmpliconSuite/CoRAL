@@ -14,7 +14,7 @@ import cvxopt  # type: ignore[import-untyped]
 import cvxopt.modeling  # type: ignore[import-untyped]
 import numpy as np
 
-from coral import datatypes, types
+from coral import core_types, datatypes
 from coral.breakpoint.breakpoint_utilities import (
     check_valid_discordant_rc_partition,
     enumerate_partitions,
@@ -117,6 +117,14 @@ class BreakpointGraph:
     def num_nonsrc_edges(self) -> int:
         return self.num_seq_edges + self.num_conc_edges + self.num_disc_edges
 
+    @property
+    def total_interval_size(self) -> int:
+        return sum(len(interval) for interval in self.amplicon_intervals)
+
+    @property
+    def num_chromosomes(self) -> int:
+        return len({seq.chr for seq in self.sequence_edges})
+
     def add_endnode(self, node_: datatypes.Node) -> None:
         """Add a new node to the list corresponding to interval ends.
 
@@ -131,7 +139,7 @@ class BreakpointGraph:
 
     def add_sequence_edge(
         self,
-        chr: types.ChrTag,
+        chr: core_types.ChrTag,
         l: int,
         r: int,
         lr_count: int = -1,
@@ -343,23 +351,15 @@ class BreakpointGraph:
                     logger.debug(
                         "Reached maximum num iterations.",
                     )
+                logger.debug(f"\tprimal objective = {sol['primal objective']}")
+                logger.debug(f"\tdual objective = {sol['dual objective']}")
+                logger.debug(f"\tgap = {sol['gap']}")
+                logger.debug(f"\trelative gap = {sol['relative gap']}")
                 logger.debug(
-                    f"\tprimal objective = {sol['primal objective']}",
+                    f"\tprimal infeasibility = {sol['primal infeasibility']}"
                 )
                 logger.debug(
-                    f"\tdual objective = {sol['dual objective']}",
-                )
-                logger.debug(
-                    f"\tgap = {sol['gap']}",
-                )
-                logger.debug(
-                    f"\trelative gap = {sol['relative gap']}",
-                )
-                logger.debug(
-                    f"\tprimal infeasibility = {sol['primal infeasibility']}",
-                )
-                logger.debug(
-                    f"dual infeasibility = {sol['dual infeasibility']}",
+                    f"dual infeasibility = {sol['dual infeasibility']}"
                 )
                 for seqi in range(lseq):
                     self.sequence_edges[seqi].cn = sol["x"][seqi] * 2

@@ -16,7 +16,7 @@ import intervaltree
 import numpy as np
 import pyomo.environ as pyo
 
-from coral import core_utils, types
+from coral import core_types, core_utils
 from coral.constants import CHR_TAG_TO_IDX
 
 if TYPE_CHECKING:
@@ -123,7 +123,7 @@ class CigarAlignment(NamedTuple):
 class Node(NamedTuple):
     """Container for storing info about a specific genomic point."""
 
-    chr: types.ChrTag
+    chr: core_types.ChrTag
     pos: int
     strand: Strand
 
@@ -284,7 +284,7 @@ class ChimericAlignment:
     edit_dist: float
 
     # Matching CN segment indices, if found
-    cns: set[int] = field(default_factory=set)
+    cns_idxs: set[int] = field(default_factory=set)
 
     def __lt__(self, other: ChimericAlignment) -> bool:
         return self.query_bounds < other.query_bounds
@@ -294,7 +294,7 @@ class ChimericAlignment:
 class LargeIndelAlignment:
     # TODO: add better docstring
 
-    chr_tag: types.ChrTag
+    chr_tag: core_types.ChrTag
     next_start: int
     curr_end: int
     read_start: int
@@ -334,11 +334,11 @@ class Breakpoint:
     stats: BreakpointStats | None = None
 
     @property
-    def chr1(self) -> types.ChrTag:
+    def chr1(self) -> core_types.ChrTag:
         return self.node1.chr
 
     @property
-    def chr2(self) -> types.ChrTag:
+    def chr2(self) -> core_types.ChrTag:
         return self.node2.chr
 
     @property
@@ -537,9 +537,9 @@ class CNSIntervalTree(intervaltree.IntervalTree):
         seg_idxs = set()
         left_seg_idx = self.get_single_cns_idx(read_interval.left)
         right_seg_idx = self.get_single_cns_idx(read_interval.right)
-        if left_seg_idx:
+        if left_seg_idx is not None:
             seg_idxs.add(left_seg_idx)
-        if right_seg_idx:
+        if right_seg_idx is not None:
             seg_idxs.add(right_seg_idx)
         return seg_idxs
 
@@ -568,9 +568,9 @@ class ChrArmInfo:
 class BPToCNI(NamedTuple):
     """Container for storing breakpoint-to-CN segment index mappings."""
 
-    cni: types.CNSIdx  # CN segment index within CNS Interval Tree
+    cni: core_types.CNSIdx  # CN segment index within CNS Interval Tree
     pos: int  # Breakpoint position (start/end) that falls within the CN segment
-    bp_idx: types.BPIdx  # Breakpoint index
+    bp_idx: core_types.BPIdx  # Breakpoint index
 
 
 class BPToChrCNI(NamedTuple):
@@ -578,10 +578,10 @@ class BPToChrCNI(NamedTuple):
     chromosome specification. Necessary for breakpoints that span multiple
     chromosomes."""
 
-    chr: types.ChrTag  # Chromosome tag
-    cni: types.CNSIdx  # CN segment index within CNS Interval Tree
+    chr: core_types.ChrTag  # Chromosome tag
+    cni: core_types.CNSIdx  # CN segment index within CNS Interval Tree
     pos: int  # Breakpoint position (start/end) that falls within the CN segment
-    bp_idx: types.BPIdx  # Breakpoint index
+    bp_idx: core_types.BPIdx  # Breakpoint index
 
 
 @dataclass
@@ -620,7 +620,7 @@ class DiscordantEdge:
 
 @dataclass
 class SequenceEdge:
-    chr: types.ChrTag
+    chr: core_types.ChrTag
     start: int
     end: int
 

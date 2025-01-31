@@ -20,7 +20,7 @@ from typing import (
 import numpy as np
 import pysam
 
-from coral import bam_types, cigar_parsing, core_utils, datatypes, types
+from coral import bam_types, cigar_parsing, core_types, core_utils, datatypes
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
@@ -312,18 +312,21 @@ def alignment2bp_l(
 
 
 def filter_small_breakpoint_clusters(
-    chr_to_cns_to_reads: dict[str, dict[int, set[str]]], min_cluster_cutoff: int
-) -> dict[str, dict[int, set[str]]]:
+    chr_to_cni_to_reads: defaultdict[str, defaultdict[int, set[str]]],
+    min_cluster_cutoff: int,
+) -> defaultdict[str, defaultdict[int, set[str]]]:
     """
     Fltering potential breakpoint clusters based on min # of supporting reads.
     """
-    chr_to_cns_to_reads_filtered: dict[str, dict[int, set[str]]] = dict()
-    for chr_, cns_to_reads in chr_to_cns_to_reads.items():
-        chr_to_cns_to_reads_filtered[chr_] = dict()
-        for cn, reads in cns_to_reads.items():
+    chr_to_cni_to_reads_filtered: defaultdict[
+        str, defaultdict[int, set[str]]
+    ] = defaultdict(lambda: defaultdict(set))
+
+    for chr_, cni_to_reads in chr_to_cni_to_reads.items():
+        for cni, reads in cni_to_reads.items():
             if len(reads) >= min_cluster_cutoff:
-                chr_to_cns_to_reads_filtered[chr_][cn] = reads
-    return chr_to_cns_to_reads_filtered
+                chr_to_cni_to_reads_filtered[chr_][cni] = reads
+    return chr_to_cni_to_reads_filtered
 
 
 def cluster_bp_list(
@@ -412,11 +415,26 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
     """
     Call exact breakpoint from a breakpoint cluster
     """
-    bp: Breakpoint = bp_cluster[0]  # [:-2]
-    pos1 = 0 if bp.strand1 == Strand.FORWARD else 1_000_000_000
-    pos2 = 0 if bp.strand2 == Strand.FORWARD else 1_000_000_000
-    bp.node1 = Node(bp.node1.chr, pos1, bp.node1.strand)
-    bp.node2 = Node(bp.node2.chr, pos2, bp.node2.strand)
+    # Copy the first BP to avoid mutating the original BP
+    first_bp = bp_cluster[0]
+
+    pos1 = 0 if first_bp.strand1 == Strand.FORWARD else 1_000_000_000
+    pos2 = 0 if first_bp.strand2 == Strand.FORWARD else 1_000_000_000
+    central_bp: Breakpoint = Breakpoint(
+        Node(first_bp.node1.chr, pos1, first_bp.strand1),
+        Node(first_bp.node2.chr, pos2, first_bp.strand2),
+        # We only use the node information for the central BP
+        BPAlignments(
+            first_bp.alignment_info.name,
+            first_bp.alignment_info.alignment1,
+            first_bp.alignment_info.alignment2,
+        ),
+        first_bp.gap,
+        first_bp.was_reversed,
+        first_bp.mapq1,
+        first_bp.mapq2,
+    )
+
     bpr: list[BPAlignments] = []
 
     # Calculate basic dist. stats (mean/std) for breakpoints
@@ -426,6 +444,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
 
     bp_starts = []
     bp_ends = []
+
     for bp_ in bp_cluster:
         if bp_.pos1 > bp_stats.start.mean + 3 * bp_stats.start_window:
             continue
@@ -438,7 +457,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
         bp_starts.append(bp_.pos1)
         bp_ends.append(bp_.pos2)
 
-    pos1 = bp.pos1
+    pos1 = central_bp.pos1
     if len(bp_starts) > 0:
         bp_start_ctr = Counter(bp_starts)
         if (
@@ -456,7 +475,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
         else:
             pos1 = int(np.floor(np.median(bp_starts)))
 
-    pos2 = bp.pos2
+    pos2 = central_bp.pos2
     if len(bp_ends) > 0:
         bp_end_ctr = Counter(bp_ends)
         if (
@@ -470,21 +489,21 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
             pos2 = int(np.ceil(np.median(bp_ends)))
         else:
             pos2 = int(np.floor(np.median(bp_ends)))
-    bp.node1 = Node(bp.node1.chr, pos1, bp.node1.strand)
-    bp.node2 = Node(bp.node2.chr, pos2, bp.node2.strand)
+    central_bp.node1 = Node(central_bp.node1.chr, pos1, central_bp.node1.strand)
+    central_bp.node2 = Node(central_bp.node2.chr, pos2, central_bp.node2.strand)
 
-    bp_cluster_r: list[Breakpoint] = []
+    final_bp_cluster: list[Breakpoint] = []
 
     final_bp_stats = BreakpointStats(bp_distance_cutoff)
-    for bp_ in bp_cluster:
-        if bp_match(bp_, bp, bp_.gap * 1.2, bp_distance_cutoff):
-            bpr.append(bp_.alignment_info)
+    for bp in bp_cluster:
+        if bp_match(bp, central_bp, bp.gap * 1.2, bp_distance_cutoff):
+            bpr.append(bp.alignment_info)
             final_bp_stats.observe(bp)
         else:
-            bp_cluster_r.append(bp_)
+            final_bp_cluster.append(bp)
     if len(bpr) == 0:
-        return bp, bpr, final_bp_stats, []
-    return bp, bpr, final_bp_stats, bp_cluster_r
+        return central_bp, bpr, final_bp_stats, []
+    return central_bp, bpr, final_bp_stats, final_bp_cluster
 
 
 def bp_match(
@@ -746,7 +765,7 @@ def fetch_breakpoint_reads(
                 if sa not in chimeric_strings[rn]:
                     chimeric_strings[rn].append(sa)
         except:
-            # Highest mapq from minimap2 in BAM files, "most reliable" alignments
+            # Highest mapq value from minimap2, = "most reliable" alignments
             if read.mapping_quality == 60:
                 e = read.get_cigar_stats()[0][-1] / read.query_length
                 edit_dist_stats.observe(e)
@@ -780,7 +799,7 @@ def get_cns_idx_intv_to_reads(
 
 
 def get_indel_alignments_from_read(
-    chr_tag: types.ChrTag,
+    chr_tag: core_types.ChrTag,
     read: bam_types.SAMSegment,
     min_del_len: int,
     nm_threshold: Optional[float] = None,

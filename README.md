@@ -236,6 +236,29 @@ chr7	54763282	56049369	+	2	False	2.843655
 ```
 
 
+## 5. ```cycle```
+CoRAL provides an option to convert its cycles output in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
+
+Usage: 
+```coral cycle2bed <Required arguments> <Optional arguments>```
+
+**5.1 Required arguments:**
+* ```--cycle-file <FILE>``` - Input cycles file in AmpliconArchitect format.
+* ```--output-file <FILE>```  - Output cycles file in ```*.bed``` format.
+
+**5.2 Optional arguments:** 
+* ```--num-cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
+
+Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
+```
+#chr	start	end	orientation	cycle_id	iscyclic	weight
+chr7	54763282	55127266	+	1	True	82.346163
+chr7	55155021	55609190	+	1	True	82.346163
+chr7	55610095	56049369	+	1	True	82.346163
+chr7	54763282	56049369	+	2	False	2.843655
+```
+
+
 ## FAQs
 - `call_cnvs.sh` didn't produce segmented CN calls in a .cns file?
    - `cnvkit.py batch` contains multiple steps detailed in their 

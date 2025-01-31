@@ -221,16 +221,6 @@ def cycle_decomposition_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
     )
-    # cycle_decomposition.reconstruct_cycles(
-    #     output_dir,
-    #     output_all_path_constraints,
-    #     alpha,
-    #     time_limit_s,
-    #     threads,
-    #     solver,
-    #     should_postprocess_greedy_sol=postprocess_greedy_sol,
-    #     bb=bb,
-    # )
 
 
 @coral_app.command(
