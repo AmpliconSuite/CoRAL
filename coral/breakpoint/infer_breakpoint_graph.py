@@ -736,6 +736,7 @@ class LongReadBamToBreakpointMetadata:
         )
         ns = self.cns_intervals_by_chr[chr_tag][start_cns].start
         ne = self.cns_intervals_by_chr[chr_tag][end_cns].end
+        cns_intv = Interval(chr_, ns, ne)
         logger.info(
             f"\t\tRefining new interval {[chr_, ns, ne]}, # reads = {len(reads)}."
         )
@@ -748,7 +749,7 @@ class LongReadBamToBreakpointMetadata:
                 self.chimeric_alignments[read_name],
                 self.min_bp_match_cutoff_,
                 20,
-                Interval(chr_tag, ns, ne),
+                cns_intv,
                 interval,
                 max_nm=(
                     self.nm_stats[0] + 3 * self.nm_stats[1]
@@ -775,9 +776,7 @@ class LongReadBamToBreakpointMetadata:
         new_intervals_connections: list[list[core_types.BPIdx]] = []
         if len(new_bp_refined) > 0:
             nint_segs, nint_segs_ = self.get_refined_cni_intvs(
-                interval,
-                cni_intv,
-                new_bp_refined,
+                interval, cni_intv, new_bp_refined
             )
             new_intvs, new_conns = self.get_refined_amplicon_intervals_same_chr(
                 chr_, nint_segs
@@ -813,7 +812,7 @@ class LongReadBamToBreakpointMetadata:
                     bp.chr2, bp.pos2
                 ):
                     cns_tree = self.cns_tree[bp.chr2]
-                    if not (cni := cns_tree.get_single_cns_idx(bp.pos2)):
+                    if (cni := cns_tree.get_single_cns_idx(bp.pos2)) is None:
                         raise ValueError(
                             f"Unable to find CNS index for {bp.pos2}."
                         )
@@ -822,7 +821,7 @@ class LongReadBamToBreakpointMetadata:
                     bp.chr1, bp.pos1
                 ):
                     cns_tree = self.cns_tree[bp.chr1]
-                    if not (cni := cns_tree.get_single_cns_idx(bp.pos1)):
+                    if (cni := cns_tree.get_single_cns_idx(bp.pos1)) is None:
                         raise ValueError(
                             f"Unable to find CNS index for {bp.pos1}."
                         )
@@ -837,11 +836,15 @@ class LongReadBamToBreakpointMetadata:
 
                     chr1_tree = self.cns_tree[bp.chr1]
                     chr2_tree = self.cns_tree[bp.chr2]
-                    if not (start_cni := chr1_tree.get_single_cns_idx(bp.pos1)):
+                    if (
+                        start_cni := chr1_tree.get_single_cns_idx(bp.pos1)
+                    ) is None:
                         raise ValueError(
                             f"Unable to find CNS index for {bp.pos1}."
                         )
-                    if not (end_cni := chr2_tree.get_single_cns_idx(bp.pos2)):
+                    if (
+                        end_cni := chr2_tree.get_single_cns_idx(bp.pos2)
+                    ) is None:
                         raise ValueError(
                             f"Unable to find CNS index for {bp.pos2}."
                         )
@@ -860,7 +863,8 @@ class LongReadBamToBreakpointMetadata:
                             BPToChrCNI(bp.chr2, end_cni, bp.pos2, bpi)
                         )
             except:
-                pass
+                logger.exception(f"Unable to parse {bp=}")
+
         return sorted(same_chr_segs), sorted(
             diff_chr_segs, key=lambda item: (CHR_TAG_TO_IDX[item[0]], item[1:])
         )
@@ -1099,22 +1103,22 @@ class LongReadBamToBreakpointMetadata:
                     Breakpoint(
                         node1=Node(
                             alignment.chr_tag,
-                            min(alignment.next_start, alignment.curr_end),
+                            max(alignment.next_start, alignment.curr_end),
                             Strand.REVERSE,
                         ),
                         node2=Node(
                             alignment.chr_tag,
-                            max(alignment.next_start, alignment.curr_end),
+                            min(alignment.next_start, alignment.curr_end),
                             Strand.FORWARD,
                         ),
                         alignment_info=BPAlignments(r, i, i),
                         gap=0,
-                        was_reversed=False,
+                        was_reversed=True,
                         mapq1=-1,
                         mapq2=-1,
                     )
                 )
-        logger.debug(
+        logger.info(
             f"Found {len(new_bp_list_)} reads with new small del breakpoints."
         )
 
@@ -1123,7 +1127,7 @@ class LongReadBamToBreakpointMetadata:
             self.min_cluster_cutoff,
             self.max_breakpoint_distance_cutoff,
         )
-        logger.debug(f"These reads formed {len(new_bp_clusters)} clusters.")
+        logger.info(f"These reads formed {len(new_bp_clusters)} clusters.")
         self.add_breakpoints_and_connections(new_bp_clusters)
 
     def build_graphs(self) -> None:
@@ -1404,8 +1408,8 @@ class LongReadBamToBreakpointMetadata:
                 bp_graph,
                 rn,
                 disc_alignments,
-                self.chimeric_alignments[rn],
-                self.large_indel_alignments[rn],
+                self.chimeric_alignments.get(rn, []),
+                self.large_indel_alignments.get(rn, []),
                 self.min_bp_match_cutoff_,
             )
 

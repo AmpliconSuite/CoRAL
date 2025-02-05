@@ -27,7 +27,7 @@ packages = [{ include = "coral" }]
 
 [tool.poetry.dependencies]
 cvxopt = ">=1.3.2"
-cnvkit = { git = "https://github.com/etal/cnvkit.git" }
+cnvkit = "*" #{ git = "https://github.com/etal/cnvkit.git" }
 intervaltree = "*"
 matplotlib = "*"
 pandas = { version = ">=2.2.3", python = "=3.12.*" }

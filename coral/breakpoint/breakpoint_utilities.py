@@ -690,7 +690,7 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str) -> None:
             "SequenceEdge: StartPosition, EndPosition, PredictedCN, "
             "AverageCoverage, Size, NumberOfLongReads\n",
         )
-        for se in g.sequence_edges:
+        for se in sorted(g.sequence_edges):
             fp.write(
                 f"sequence\t{se.chr}:{se.start}-\t{se.chr}:{se.end}+\t"
                 f"{se.cn}\t{se.lr_nc * 1.0 / se.gap}\t{se.gap}\t{se.lr_count}\n"
@@ -703,13 +703,13 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str) -> None:
                 f"source\t0-->{srce.node.chr}:{srce.node.pos}{srce.node.strand}\t"
                 f"{srce.cn}\t-1\n"
             )
-        for ce in g.concordant_edges:
+        for ce in sorted(g.concordant_edges):
             fp.write(
                 f"concordant\t{ce.node1.chr}:{ce.node1.pos}{ce.node1.strand}->"
                 f"{ce.node2.chr}:{ce.node2.pos}{ce.node2.strand}\t"
                 f"{ce.cn}\t{ce.lr_count}\n"
             )
-        for de in g.discordant_edges:
+        for de in sorted(g.discordant_edges):
             fp.write(
                 f"discordant\t{de.node1.chr}:{de.node1.pos}{de.node1.strand}->"
                 f"{de.node2.chr}:{de.node2.pos}{de.node2.strand}\t"

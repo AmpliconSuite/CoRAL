@@ -178,7 +178,7 @@ class BreakpointGraph:
         self.node_adjacencies[node1].concordant.append(lc)
         self.node_adjacencies[node2].concordant.append(lc)
         self.concordant_edges.append(
-            ConcordantEdge(node1, node2, lr_count, reads, cn)
+            ConcordantEdge(node1, node2, lr_count, cn, read_names=reads)
         )
 
     def add_discordant_edge(

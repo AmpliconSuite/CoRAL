@@ -260,7 +260,7 @@ class CNSInterval(Interval):
     cn: float
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class ReferenceInterval(Interval):
     """Reference genome interval that a read has been matched to."""
 
@@ -599,26 +599,6 @@ class SourceEdge:
 
 
 @dataclass
-class DiscordantEdge:
-    """Container for storing discordant edge information."""
-
-    node1: Node
-    node2: Node
-
-    lr_count: int  # Long read count
-
-    alignments: set[BPAlignments] = field(default_factory=set)
-    cn: float = 0.0  # Edge Copy Number
-
-    @property
-    def is_self_loop(self) -> bool:
-        return self.node1 == self.node2
-
-    def matches_bp(self, bp: Breakpoint) -> bool:
-        return self.node1 == bp.node1 and self.node2 == bp.node2
-
-
-@dataclass
 class SequenceEdge:
     chr: core_types.ChrTag
     start: int
@@ -634,7 +614,7 @@ class SequenceEdge:
 
     def __lt__(self, other: SequenceEdge) -> bool:
         return (CHR_TAG_TO_IDX[self.chr], self.start, self.end) < (
-            CHR_TAG_TO_IDX[self.chr],
+            CHR_TAG_TO_IDX[other.chr],
             other.start,
             other.end,
         )
@@ -660,19 +640,44 @@ class SequenceEdge:
 
 
 @dataclass
-class ConcordantEdge:
+class BreakpointEdge:
     node1: Node
     node2: Node
 
     lr_count: int  # Long read count
-    read_names: set[str] = field(default_factory=set)
     cn: float = 0.0  # Edge Copy Number
 
-    def __lt__(self, other: ConcordantEdge) -> bool:
-        return (CHR_TAG_TO_IDX[self.node1.chr], self.node1.pos) < (
+    def __lt__(self, other: BreakpointEdge) -> bool:
+        return (
+            CHR_TAG_TO_IDX[self.node1.chr],
+            self.node1.pos,
+            CHR_TAG_TO_IDX[self.node2.chr],
+            self.node2.pos,
+        ) < (
             CHR_TAG_TO_IDX[other.node1.chr],
             other.node1.pos,
+            CHR_TAG_TO_IDX[other.node2.chr],
+            other.node2.pos,
         )
+
+
+@dataclass
+class DiscordantEdge(BreakpointEdge):
+    """Container for storing discordant edge information."""
+
+    alignments: set[BPAlignments] = field(default_factory=set)
+
+    @property
+    def is_self_loop(self) -> bool:
+        return self.node1 == self.node2
+
+    def matches_bp(self, bp: Breakpoint) -> bool:
+        return self.node1 == bp.node1 and self.node2 == bp.node2
+
+
+@dataclass
+class ConcordantEdge(BreakpointEdge):
+    read_names: set[str] = field(default_factory=set)
 
 
 Edge = Union[SourceEdge, DiscordantEdge, SequenceEdge, ConcordantEdge]
