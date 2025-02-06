@@ -89,6 +89,7 @@ def output_amplicon_walks(
         reverse=True,
     )
 
+    fp.write("List of extracted cycles/paths\n")
     for walk_type, walk_idx in walk_indices:
         if walk_type == 0:  # cycles
             output_str = get_single_cycle_output(
