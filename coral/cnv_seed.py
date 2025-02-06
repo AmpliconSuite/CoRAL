@@ -116,20 +116,32 @@ def run_seeding(
         output_filename = cn_seg_file.name.replace(".cns", "CNV_SEEDS.bed")
     with open(output_filename, "w") as fp:
         for seed in cnv_seeds:
+            if not seed:  # Skip empty seeds to prevent index errors
+                continue
+
             sum_seed_len = sum([cns[2] - cns[1] for cns in seed])
             cn_cutoff_chrarm = gain
             if sum_seed_len > CNSIZE_MAX:
                 cn_cutoff_chrarm = 1.2 * gain
-            if seed[-1][2] <= chr_arms[seed[-1][0]][0][0]:  # p arm
+
+            if seed[-1][2] <= chr_arms[seed[-1][0]][0][0]:  # p arm segments
+                if len(chr_arms[seed[-1][0]][1][0]) == 0:  # no p arm segments
+                    logger.warning(f"No CN segments on p arm of chromosome {seed[-1][0]}")
+                    continue
                 cn_cutoff_chrarm = (
                     cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][0] - 2.0
                 )
-            elif seed[0][1] >= chr_arms[seed[-1][0]][0][1]:  # q arm
+            elif seed[0][1] >= chr_arms[seed[-1][0]][0][1]:  # q arm segments
+                if len(chr_arms[seed[-1][0]][1][1]) == 0:  # no q arm segments
+                    logger.warning(f"No CN segments on q arm of chromosome {seed[-1][0]}")
+                    continue
                 cn_cutoff_chrarm = (
                     cn_cutoff_chrarm + chr_arms[seed[-1][0]][-1][1] - 2.0
                 )
             else:
-                os.abort()
+                logger.warning(f"Filtering centromeric seed: {seed[-1][0]}")
+                continue
+
             for ci in range(len(seed))[::-1]:
                 if seed[ci][3] < cn_cutoff_chrarm:
                     del seed[ci]
