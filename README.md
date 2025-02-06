@@ -2,6 +2,12 @@
 ## Reference
 CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. The original Genome Research '24 paper is available here: https://genome.cshlp.org/content/34/9/1344.
 
+- **CoRAL only works on long-read
+whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted 
+sequencing!**
+- **We also only support hg38-aligned data currently. Support for other genomes 
+is [coming soon](https://github.com/AmpliconSuite/CoRAL/issues/33)!**
+
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
 
@@ -16,18 +22,19 @@ CoRAL requires python>=3.12; we recommend using venv/conda for managing Python/p
 
 2. Install packages
 
-   - **Option 1.**  Install With `pip`.
-
-     `pip install -r requirements.txt`
-   
-      Set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
-
-   - **Option 2.** Install with `poetry`. 
+   - **Option 1.** Install with `poetry`. 
     
       ```bash
       pip install poetry
       poetry install
      ```
+
+   - **Option 2.**  Install With `pip`.
+
+     `pip install -r requirements.txt`
+   
+      Set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
+
 
 
 3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
@@ -75,6 +82,11 @@ The modes are as follows:
 3. `plot`: Create plots of decomposed cycles and/or breakpoint graph sashimi plot.
 4. `hsr`: Identify candidate locations of chromosomal homogenously staining region (HSR) integration points for ecDNA.
 5. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to a .bed format. The AA format is also used by CoRAL.
+6. `cycle`: Run the cycle extraction algorithm on a previously generated 
+breakpoint graph. NOTE: This requires the breakpoint graph to be generated with
+CoRAL v2.1.0 or later, as we require `path constraints` and `amplicon intervals`
+to be included in the provided `*_graph.txt` file.
+
 
 ## 1. ```seed```
 As the seed amplification intervals are required by the main script ```reconstruct``` mode, it is suggested the user first run ```seed``` mode to generate seed amplification intervals.
@@ -117,6 +129,12 @@ Usage:
 CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the directory specified with ```--output_dir```.
 
 * Graph file: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
+   * As of version 2.1.0, CoRAL additionally includes `path constraints` and 
+   `amplicon intervals` in the `*_graph.txt` file. This results in the graph
+   being fully self-contained and able to be passed to cycle extraction without 
+   re-parsing the BAM file. For more information on how to interpret this
+   metadata, visit our [wiki](https://github.com/AmpliconSuite/CoRAL/wiki/Home/_edit#breakpoint-graphs).
+
 ```
 SequenceEdge: StartPosition, EndPosition, PredictedCN, AverageCoverage, Size, NumberOfLongReads
 sequence	chr7:54659673-	chr7:54763281+	4.150534	45.907363	103609	576
@@ -136,6 +154,12 @@ concordant	chr7:56049369+->chr7:56049370-	4.150534	45
 discordant	chr7:55610095-->chr7:55609190+	86.642611	869
 discordant	chr7:56049369+->chr7:54763282-	85.189818	981
 discordant	chr7:55155021-->chr7:55127266+	86.496697	978
+...
+PathConstraint: Path, Support
+path_constraint e2+:1,c2-:1,e3+:1,c3-:1,e4+:1   6
+path_constraint e4+:1,c4-:1,e5+:1,c5-:1,e6+:1   34
+AmpliconIntervals: chr, start, end
+interval        chr7    54659673        56149664
 ```
 * Cycles file: 
 For each amplicon, a tab-separated text file named ```output_dir_amplicon*_cycles.txt``` describing the list of cycles and paths returned from cycle extraction. Note that the cycles files output by CoRAL have mostly the same format as those output by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect in most cases). Specifically a cycles file includes (i) the list of amplified intervals; (ii) the list of sequence edges; (iii) the list of cycles and paths, where an entry starts with ```0+``` and ends with ```0-``` in ```Segments``` indicates a path - these lines have the same format as AmpliconArchitect output. CoRAL's cycles files additionally include (iv) a list of longest (i.e., there are no paths that can form a sub/super-path to each other) path constraint indicated by long reads, and used in CoRAL's cycle extraction. Here is an example cycles file corresponding to the above graph file from GBM39.
@@ -257,6 +281,29 @@ chr7	55155021	55609190	+	1	True	82.346163
 chr7	55610095	56049369	+	1	True	82.346163
 chr7	54763282	56049369	+	2	False	2.843655
 ```
+
+
+## 6. ```cycle```
+Usage: 
+```coral cycle <Required arguments> <Optional arguments>```
+
+**4.1 Required arguments:**
+
+| Argument           | Descripion                                        |
+|--------------------|---------------------------------------------------|
+| `--graph <file>`   | AA-formatted `_graph.txt` file                   |
+| `--output-dir <file>`  | Directory for output files                   |
+
+**4.2 Optional arguments:**
+
+| Argument                     | Default | Description                                                        |
+|------------------------------|---------|--------------------------------------------------------------------|
+| `--alpha <float>`      | 0.01     |  Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.                           |
+| `--time-limit <int>` | 7200    | Time limit for cycle extraction (in seconds) | 
+| `--threads <int>` | -1    | Number of threads for cycle extraction. If not specified, use all available cores. |
+| `--solver <choice>` | gurobi    | Solver for cycle extraction. Must be one of `[gurobi, scip]` |
+| `--output-all-path-constraints` | False    | If specified, output all path constraints given by long reads in `*_cycles.txt` file (see "Expected output" below). |
+| `--postprocess-greedy-sol` | False    | If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution). |
 
 
 ## FAQs
