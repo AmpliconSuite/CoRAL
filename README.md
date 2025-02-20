@@ -20,21 +20,12 @@ CoRAL requires python>=3.12; we recommend using venv/conda for managing Python/p
     cd CoRAL
     ```
 
-2. Install packages
-
-   - **Option 1.** Install with `poetry`. 
+2. Install packages using `poetry`. 
     
       ```bash
       pip install poetry
       poetry install
      ```
-
-   - **Option 2.**  Install With `pip`.
-
-     `pip install -r requirements.txt`
-   
-      Set `--extra-index-url https://download.pytorch.org/whl/cpu` to prevent inclusion of gigantic GPU packages.
-
 
 
 3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
