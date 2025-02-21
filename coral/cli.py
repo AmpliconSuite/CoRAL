@@ -66,6 +66,13 @@ PostProcessFlag = Annotated[
         help="Postprocess the cycles/paths returned in greedy cycle extraction."
     ),
 ]
+ForceGreedyFlag = Annotated[
+    bool,
+    typer.Option(
+        help="If specified, force greedy cycle extraction even if the graph is "
+        "below heuristic threshold."
+    ),
+]
 SolverArg = Annotated[Solver, typer.Option(help="LP solver to use.")]
 ThreadsArg = Annotated[
     int,
@@ -192,6 +199,7 @@ def cycle_decomposition_mode(
     solver: SolverArg = Solver.GUROBI,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
+    force_greedy: ForceGreedyFlag = False,
 ) -> None:
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -220,6 +228,7 @@ def cycle_decomposition_mode(
         alpha,
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
+        should_force_greedy=force_greedy,
     )
 
 

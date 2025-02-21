@@ -516,11 +516,12 @@ def solve_single_graph(
     p_bp_cn: float = 0.9,
     resolution: float = 0.1,
     *,
+    should_force_greedy: bool = False,
     should_postprocess: bool = False,
 ) -> datatypes.CycleSolution:
     while k <= bp_graph.num_edges:
         # When problem is too large, we begin with the greedy optimization
-        if does_graph_require_greedy_solve(bp_graph, k):
+        if should_force_greedy or does_graph_require_greedy_solve(bp_graph, k):
             lp_solution = greedy_solve(
                 bp_graph=bp_graph,
                 total_weights=total_weights,
@@ -598,6 +599,7 @@ def cycle_decomposition_single_graph(
     resolution: float = 0.1,
     *,
     should_postprocess: bool = False,
+    should_force_greedy: bool = False,
     output_all_path_constraints: bool = False,
 ) -> None:
     logger.info(
@@ -642,6 +644,7 @@ def cycle_decomposition_single_graph(
         p_total_weight=p_total_weight,
         resolution=resolution,
         should_postprocess=should_postprocess,
+        should_force_greedy=should_force_greedy,
     )
     bp_graph.walks = lp_solution.walks
     bp_graph.walk_weights = lp_solution.walk_weights
