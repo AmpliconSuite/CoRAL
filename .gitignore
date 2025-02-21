@@ -9,3 +9,5 @@ configs/
 *.log
 *.lp
 *.pdf
+*.ipynb
+*.code-workspace

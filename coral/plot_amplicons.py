@@ -135,7 +135,7 @@ class GraphViz:
                     currGene = Gene(currChrom, tstart, tend, fields)
                     self.genes[currChrom][tstart:tend] = currGene
 
-    def parse_graph_file(self, graph_file: typer.FileText):
+    def parse_graph_file(self, graph_file: typer.FileText) -> None:
         for line in graph_file:
             s = line.strip().split("\t")
             if s[0] == "sequence":
