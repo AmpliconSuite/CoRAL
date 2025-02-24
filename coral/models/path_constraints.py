@@ -2,12 +2,29 @@
 
 from __future__ import annotations
 
-from coral.breakpoint import breakpoint_utilities
+import logging
+from collections import defaultdict
 
+from coral.breakpoint import breakpoint_utilities
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.datatypes import (
+    BPIndexedAlignments,
+    EdgeId,
+    EdgeType,
+    FinalizedPathConstraint,
+    Interval,
+    Node,
+    PathConstraint,
+    ReferenceInterval,
+    Strand,
+    Walk,
+)
+
+logger = logging.getLogger(__name__)
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
 
 
-def valid_path(g, path):
+def valid_path(g: BreakpointGraph, path: Walk) -> bool:
     """Check if the input subpath constraint is valid in graph g
     A valid path must be an alternating sequence of nodes and edges;
             consist of >= 3 sequence edges;
@@ -21,569 +38,534 @@ def valid_path(g, path):
     """
     if len(path) <= 3 or len(path) % 2 == 0:
         return False
-    if path[0][0] != "s" or path[-1][0] != "s":
+    if path[0][0] != EdgeType.SEQUENCE or path[-1][0] != EdgeType.SEQUENCE:
         return False
     for i in range(len(path)):
         if i % 2 == 0:
-            if len(path[i]) != 2:
+            if len(path[i]) != 2:  # Check if current element is EdgeId
                 return False
         else:
-            if len(path[i]) != 3:
+            if len(path[i]) != 3:  # Check if current element is Node
                 return False
-            e1 = path[i - 1]
-            e2 = path[i + 1]
-            try:
-                if (e1[0] == "s" and e2[0] == "s") or (
-                    e1[0] != "s" and e2[0] != "s"
-                ):
-                    return False
-                if e1[1] not in g.nodes[path[i]][edge_type_to_index[e1[0]]]:
-                    return False
-                if e2[1] not in g.nodes[path[i]][edge_type_to_index[e2[0]]]:
-                    return False
-            except:
+            e1: EdgeId = path[i - 1]  # type: ignore[assignment]
+            e2: EdgeId = path[i + 1]  # type: ignore[assignment]
+            node: Node = path[i]  # type: ignore[assignment]
+            if (e1[0] == EdgeType.SEQUENCE and e2[0] == EdgeType.SEQUENCE) or (
+                e1[0] != EdgeType.SEQUENCE and e2[0] != EdgeType.SEQUENCE
+            ):
+                return False
+            if e1[1] not in g.node_adjacencies[node].get_edges_by_type(e1[0]):
+                return False
+            if e2[1] not in g.node_adjacencies[node].get_edges_by_type(e2[0]):
                 return False
     return True
 
 
-def alignment_to_path(g, rint, min_overlap=500):
-    """Traverse through the input breakpoint graph to convert a single alignment to a path
+def alignment_to_path(
+    g: BreakpointGraph, ref_intv: Interval, min_overlap: int = 500
+) -> Walk:
+    """Traverse through the input breakpoint graph to convert a single alignment
+      to a path.
 
     g: breakpoint graph (object)
-    rint: alignment interval on the reference genome
-    min_overlap: required overlap (in bp) between the alignment and the first/last sequence edge in the resulting path,
-            default value is 500bp
+    ref_intv: alignment interval on the reference genome
+    min_overlap: required overlap (in bp) between the alignment and the
+        first/last sequence edge in the resulting path, default value is 500bp
 
     Returns: the resulting path as a list of alternating nodes and edges
     """
-    seq_edge_list = []
-    for segi in range(len(g.sequence_edges)):
-        sseg = g.sequence_edges[segi]
-        if breakpoint_utilities.interval_overlap(rint, sseg):
-            seq_edge_list.append(segi)
-    if len(seq_edge_list) == 0:
-        return []
-    seq_edge_list = sorted(
-        seq_edge_list, key=lambda item: g.sequence_edges[item][1]
+    overlapping_seq_edges = sorted(
+        [
+            seq_edge
+            for seq_edge in g.sequence_edges
+            if ref_intv.does_overlap(seq_edge.interval)
+        ]
     )
-    segi0 = seq_edge_list[0]
+    if len(overlapping_seq_edges) <= 2:
+        return []
+
+    # Prune leftmost sequence edges
     if (
-        len(seq_edge_list) > 1
-        and min(g.sequence_edges[segi0][2], rint[2])
-        - max(g.sequence_edges[segi0][1], rint[1])
+        min(overlapping_seq_edges[0].end, ref_intv.end)
+        - max(overlapping_seq_edges[0].start, ref_intv.start)
         < min_overlap
     ):
-        del seq_edge_list[0]
-    segi0 = seq_edge_list[0]
-    while len(seq_edge_list) > 1 and g.sequence_edges[segi0][7] < min_overlap:
-        del seq_edge_list[0]
-        segi0 = seq_edge_list[0]
-    segi0 = seq_edge_list[-1]
-    if (
-        len(seq_edge_list) > 1
-        and min(g.sequence_edges[segi0][2], rint[2])
-        - max(g.sequence_edges[segi0][1], rint[1])
-        < min_overlap
-    ):  # need to parameterize this
-        del seq_edge_list[-1]
-    segi0 = seq_edge_list[-1]
-    while len(seq_edge_list) > 1 and g.sequence_edges[segi0][7] < min_overlap:
-        del seq_edge_list[-1]
-        segi0 = seq_edge_list[-1]
-    if len(seq_edge_list) <= 2:
+        del overlapping_seq_edges[0]
+    while (
+        len(overlapping_seq_edges) > 1
+        and overlapping_seq_edges[0].gap < min_overlap
+    ):
+        del overlapping_seq_edges[0]
+    if len(overlapping_seq_edges) <= 2:
         return []
-    segi0 = seq_edge_list[0]
-    node1 = (g.sequence_edges[segi0][0], g.sequence_edges[segi0][1], "-")
-    segi0 = seq_edge_list[-1]
-    node2 = (g.sequence_edges[segi0][0], g.sequence_edges[segi0][2], "+")
+
+    # Prune rightmost sequence edges
+    if (
+        min(overlapping_seq_edges[-1].end, ref_intv.end)
+        - max(overlapping_seq_edges[-1].start, ref_intv.start)
+        < min_overlap
+    ):
+        del overlapping_seq_edges[-1]
+    while (
+        len(overlapping_seq_edges) > 1
+        and overlapping_seq_edges[-1].gap < min_overlap
+    ):
+        del overlapping_seq_edges[-1]
+    if len(overlapping_seq_edges) <= 2:
+        return []
+
+    node1 = overlapping_seq_edges[0].start_node
+    node2 = overlapping_seq_edges[-1].end_node
     path_ = traverse_through_sequence_edge(g, node1, node2)[1:-1]
     return path_
 
 
-def chimeric_alignment_to_path_l(g, rints, ai, bp_node, min_overlap=500):
-    """Given a breakpoint graph, a list of consecutive alignments, and an end node,
-            return a traversal from the alignment indexed at ai to the end node
+def chimeric_alignment_to_path_l(
+    g: BreakpointGraph,
+    ref_intv: ReferenceInterval,
+    bp_node: Node,
+    min_overlap: int = 500,
+) -> Walk:
+    """Given a breakpoint graph, a reference alignment, and an end node,
+            return a traversal from the alignment to the end node
 
     g: breakpoint graph (object)
-    rints: alignment intervals on the reference genome
-    ai: index of the starting alignment
+    ref_intv: alignment interval on the reference genome
     bp_node: end node
-    min_overlap: required overlap (in bp) between the alignment and the first/last sequence edge in the resulting path,
-            default value is 500bp
+    min_overlap: required overlap (in bp) between the alignment and the
+        first/last sequence edge in the resulting path, default value is 500bp
 
     Returns: the resulting path as a list of alternating nodes and edges
             note that the resulting path (additionally) starts with a node
     """
-    al = rints[ai]
-    seq_edge_list = []
+    seq_edge_idxs: list[tuple[int, Strand]] = []
     for segi in range(len(g.sequence_edges)):
         sseg = g.sequence_edges[segi]
-        if al[-1] == "+":
-            if breakpoint_utilities.interval_overlap(al, sseg):
-                seq_edge_list.append([segi, "+"])
-        elif breakpoint_utilities.interval_overlap([al[0], al[2], al[1]], sseg):
-            seq_edge_list.append([segi, "-"])
-    if len(seq_edge_list) == 0:
+        if ref_intv.strand == Strand.FORWARD:
+            if ref_intv.does_overlap(sseg.interval):
+                seq_edge_idxs.append((segi, Strand.FORWARD))
+        elif ref_intv.reverse.does_overlap(sseg.interval):
+            seq_edge_idxs.append((segi, Strand.REVERSE))
+    if len(seq_edge_idxs) == 0:
         return []
-    if seq_edge_list[0][1] == "+":
-        seq_edge_list = sorted(
-            seq_edge_list, key=lambda item: g.sequence_edges[item[0]][1]
+    # TODO: clean up redundancy below
+    if seq_edge_idxs[0][1] == Strand.FORWARD:
+        seq_edge_idxs = sorted(
+            seq_edge_idxs, key=lambda item: g.sequence_edges[item[0]].start
         )
-        segi0 = seq_edge_list[0][0]
+        segi0 = seq_edge_idxs[0][0]
         if (
-            len(seq_edge_list) > 1
-            and min(g.sequence_edges[segi0][2], al[2])
-            - max(g.sequence_edges[segi0][1], al[1])
+            len(seq_edge_idxs) > 1
+            and min(g.sequence_edges[segi0].end, ref_intv.end)
+            - max(g.sequence_edges[segi0].start, ref_intv.start)
             < min_overlap
         ):
-            del seq_edge_list[0]
-        segi0 = seq_edge_list[0][0]
+            del seq_edge_idxs[0]
+        segi0 = seq_edge_idxs[0][0]
         while (
-            len(seq_edge_list) > 0 and g.sequence_edges[segi0][7] < min_overlap
+            len(seq_edge_idxs) > 0 and g.sequence_edges[segi0].gap < min_overlap
         ):
-            del seq_edge_list[0]
-            if len(seq_edge_list) > 0:
-                segi0 = seq_edge_list[0][0]
+            del seq_edge_idxs[0]
+            if len(seq_edge_idxs) > 0:
+                segi0 = seq_edge_idxs[0][0]
         # check if the rightmost node connects to the breakpoint edge at index edi
-        while len(seq_edge_list) > 0:
-            segi_last = seq_edge_list[-1][0]
-            rnode = (
-                g.sequence_edges[segi_last][0],
-                g.sequence_edges[segi_last][2],
-                "+",
-            )
-            if rnode != bp_node:
-                del seq_edge_list[-1]
+        while len(seq_edge_idxs) > 0:
+            segi_last = seq_edge_idxs[-1][0]
+            if g.sequence_edges[segi_last].end_node != bp_node:
+                del seq_edge_idxs[-1]
             else:
                 break
     else:
-        seq_edge_list = sorted(
-            seq_edge_list,
-            key=lambda item: g.sequence_edges[item[0]][1],
+        seq_edge_idxs = sorted(
+            seq_edge_idxs,
+            key=lambda item: g.sequence_edges[item[0]].start,
             reverse=True,
         )
-        segi0 = seq_edge_list[0][0]
+        segi0 = seq_edge_idxs[0][0]
         if (
-            len(seq_edge_list) > 1
-            and min(g.sequence_edges[segi0][2], al[1])
-            - max(g.sequence_edges[segi0][1], al[2])
+            len(seq_edge_idxs) > 1
+            and min(g.sequence_edges[segi0].end, ref_intv.start)
+            - max(g.sequence_edges[segi0].start, ref_intv.end)
             < min_overlap
         ):
-            del seq_edge_list[0]
-        segi0 = seq_edge_list[0][0]
+            del seq_edge_idxs[0]
+        segi0 = seq_edge_idxs[0][0]
         while (
-            len(seq_edge_list) > 0 and g.sequence_edges[segi0][7] < min_overlap
+            len(seq_edge_idxs) > 0 and g.sequence_edges[segi0].gap < min_overlap
         ):
-            del seq_edge_list[0]
-            if len(seq_edge_list) > 0:
-                segi0 = seq_edge_list[0][0]
-        # check if the rightmost node connects to the breakpoint edge at index edi
-        while len(seq_edge_list) > 0:
-            segi_last = seq_edge_list[-1][0]
-            rnode = (
-                g.sequence_edges[segi_last][0],
-                g.sequence_edges[segi_last][1],
-                "-",
-            )
-            if rnode != bp_node:
-                del seq_edge_list[-1]
+            del seq_edge_idxs[0]
+            if len(seq_edge_idxs) > 0:
+                segi0 = seq_edge_idxs[0][0]
+        # check if the rightmost node connects to the breakpoint edge at index
+        # edi
+        while len(seq_edge_idxs) > 0:
+            segi_last = seq_edge_idxs[-1][0]
+            if g.sequence_edges[segi_last].start_node != bp_node:
+                del seq_edge_idxs[-1]
             else:
                 break
-    if len(seq_edge_list) == 0:
+    if len(seq_edge_idxs) == 0:
         return []
-    path_l = []
-    for si in range(len(seq_edge_list)):
-        path_l.append(("s", seq_edge_list[si][0]))
-        if seq_edge_list[si][1] == "+":
-            path_l.append(
-                (
-                    g.sequence_edges[seq_edge_list[si][0]][0],
-                    g.sequence_edges[seq_edge_list[si][0]][2],
-                    "+",
-                ),
-            )
+    path_l: Walk = []
+    for si, (seq_edge_idx, seq_strand) in enumerate(seq_edge_idxs):
+        seq_edge = g.sequence_edges[seq_edge_idx]
+        path_l.append(EdgeId(EdgeType.SEQUENCE, seq_edge_idx))
+        if seq_strand == Strand.FORWARD:
+            path_l.append(seq_edge.end_node)
         else:
-            path_l.append(
-                (
-                    g.sequence_edges[seq_edge_list[si][0]][0],
-                    g.sequence_edges[seq_edge_list[si][0]][1],
-                    "-",
-                ),
-            )
-        if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "+":
-            if (
-                g.sequence_edges[seq_edge_list[si][0]][2] + 1
-                == g.sequence_edges[seq_edge_list[si + 1][0]][1]
-            ):
-                for ci in range(len(g.concordant_edges)):
-                    if (
-                        g.concordant_edges[ci][0]
-                        == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si][0]][2]
-                        == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][1]
-                        == g.concordant_edges[ci][4]
-                    ):
-                        path_l.append(("c", ci))
-                        path_l.append(
-                            (
-                                g.sequence_edges[seq_edge_list[si][0]][0],
-                                g.sequence_edges[seq_edge_list[si + 1][0]][1],
-                                "-",
-                            ),
-                        )
-                        break
-        if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "-":
-            if (
-                g.sequence_edges[seq_edge_list[si][0]][1] - 1
-                == g.sequence_edges[seq_edge_list[si + 1][0]][2]
-            ):
-                for ci in range(len(g.concordant_edges)):
-                    if (
-                        g.concordant_edges[ci][0]
-                        == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][2]
-                        == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si][0]][1]
-                        == g.concordant_edges[ci][4]
-                    ):
-                        path_l.append(("c", ci))
-                        path_l.append(
-                            (
-                                g.sequence_edges[seq_edge_list[si][0]][0],
-                                g.sequence_edges[seq_edge_list[si + 1][0]][2],
-                                "+",
-                            ),
-                        )
-                        break
+            path_l.append(seq_edge.start_node)
+        if si >= len(seq_edge_idxs) - 1:
+            break
+        next_seq_edge = g.sequence_edges[seq_edge_idxs[si + 1][0]]
+        if (
+            seq_strand == Strand.FORWARD
+            and seq_edge.end + 1 == next_seq_edge.start
+        ):
+            for ci in range(len(g.concordant_edges)):
+                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                    g.concordant_edges[ci],
+                    seq_edge,
+                    next_seq_edge,
+                ):
+                    path_l.append(EdgeId(EdgeType.CONCORDANT, ci))
+                    path_l.append(
+                        Node(
+                            seq_edge.chr,
+                            next_seq_edge.start,
+                            Strand.REVERSE,
+                        ),
+                    )
+                    break
+        elif (
+            seq_strand == Strand.REVERSE
+            and seq_edge.start - 1 == next_seq_edge.end
+        ):
+            for ci in range(len(g.concordant_edges)):
+                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                    g.concordant_edges[ci],
+                    next_seq_edge,
+                    seq_edge,
+                ):
+                    path_l.append(EdgeId(EdgeType.CONCORDANT, ci))
+                    path_l.append(
+                        Node(
+                            seq_edge.chr,
+                            next_seq_edge.end,
+                            Strand.FORWARD,
+                        ),
+                    )
+                    break
     return path_l
 
 
-def chimeric_alignment_to_path_r(g, rints, ai, bp_node, min_overlap=500):
-    """Given a breakpoint graph, a list of consecutive alignments, and a start node,
-            return a traversal from the starting node to the alignment indexed at ai
+# TODO: unify this with path_l method
+def chimeric_alignment_to_path_r(
+    g: BreakpointGraph,
+    ref_intv: ReferenceInterval,
+    bp_node: Node,
+    min_overlap: int = 500,
+) -> Walk:
+    """Given a breakpoint graph, a reference alignment, and a start
+    node, return a traversal from the starting node to the alignment.
 
     g: breakpoint graph (object)
-    rints: alignment intervals on the reference genome
-    ai: index of the end alignment
+    ref_intv: end alignment interval on the reference genome
     bp_node: start node
-    min_overlap: required overlap (in bp) between the alignment and the first/last sequence edge in the resulting path,
-            default value is 500bp
+    min_overlap: required overlap (in bp) between the alignment and the
+        first/last sequence edge in the resulting path, default value is 500bp
 
     Returns: the resulting path as a list of alternating nodes and edges
             note that the resulting path (additionally) ends with a node
     """
-    ar = rints[ai]
-    seq_edge_list = []
+    seq_edge_idxs: list[tuple[int, Strand]] = []
     for segi in range(len(g.sequence_edges)):
         sseg = g.sequence_edges[segi]
-        if ar[-1] == "+":
-            if breakpoint_utilities.interval_overlap(ar, sseg):
-                seq_edge_list.append([segi, "+"])
-        elif breakpoint_utilities.interval_overlap([ar[0], ar[2], ar[1]], sseg):
-            seq_edge_list.append([segi, "-"])
-    if len(seq_edge_list) == 0:
+        if ref_intv.strand == Strand.FORWARD:
+            if ref_intv.does_overlap(sseg.interval):
+                seq_edge_idxs.append((segi, Strand.FORWARD))
+        elif ref_intv.reverse.does_overlap(sseg.interval):
+            seq_edge_idxs.append((segi, Strand.REVERSE))
+    if len(seq_edge_idxs) == 0:
         return []
-    if seq_edge_list[0][1] == "+":
-        seq_edge_list = sorted(
-            seq_edge_list, key=lambda item: g.sequence_edges[item[0]][1]
+    if seq_edge_idxs[0][1] == Strand.FORWARD:
+        seq_edge_idxs = sorted(
+            seq_edge_idxs, key=lambda item: g.sequence_edges[item[0]].start
         )
-        segi1 = seq_edge_list[-1][0]
+        segi1 = seq_edge_idxs[-1][0]
+        last_seq_edge = g.sequence_edges[segi1]
         if (
-            min(g.sequence_edges[segi1][2], ar[2])
-            - max(g.sequence_edges[segi1][1], ar[1])
-            < 500
-        ):  # need to parameterize this
-            del seq_edge_list[-1]
-        if len(seq_edge_list) == 0:
+            min(last_seq_edge.end, ref_intv.end)
+            - max(last_seq_edge.start, ref_intv.start)
+            < min_overlap
+        ):
+            del seq_edge_idxs[-1]
+        if len(seq_edge_idxs) == 0:
             return []
-        segi1 = seq_edge_list[-1][0]
-        while len(seq_edge_list) > 0 and g.sequence_edges[segi1][7] < 500:
-            del seq_edge_list[-1]
-            if len(seq_edge_list) > 0:
-                segi1 = seq_edge_list[-1][0]
+        segi1 = seq_edge_idxs[-1][0]
+        while len(seq_edge_idxs) > 0 and g.sequence_edges[segi1].gap < 500:
+            del seq_edge_idxs[-1]
+            if len(seq_edge_idxs) > 0:
+                segi1 = seq_edge_idxs[-1][0]
         # check if the leftmost node connects to the breakpoint edge at index edi
-        while len(seq_edge_list) > 0:
-            segi_last = seq_edge_list[0][0]
-            lnode = (
-                g.sequence_edges[segi_last][0],
-                g.sequence_edges[segi_last][1],
-                "-",
-            )
-            if lnode != bp_node:
-                del seq_edge_list[0]
+        while len(seq_edge_idxs) > 0:
+            segi_last = seq_edge_idxs[0][0]
+            if g.sequence_edges[segi_last].start_node != bp_node:
+                del seq_edge_idxs[0]
             else:
                 break
     else:
-        seq_edge_list = sorted(
-            seq_edge_list,
-            key=lambda item: g.sequence_edges[item[0]][1],
+        seq_edge_idxs = sorted(
+            seq_edge_idxs,
+            key=lambda item: g.sequence_edges[item[0]].start,
             reverse=True,
         )
-        segi1 = seq_edge_list[-1][0]
+        segi1 = seq_edge_idxs[-1][0]
         if (
-            min(g.sequence_edges[segi1][2], ar[1])
-            - max(g.sequence_edges[segi1][1], ar[2])
-            < 500
-        ):  # need to parameterize this
-            del seq_edge_list[-1]
-        if len(seq_edge_list) == 0:
+            min(g.sequence_edges[segi1].end, ref_intv.start)
+            - max(g.sequence_edges[segi1].start, ref_intv.end)
+            < min_overlap
+        ):
+            del seq_edge_idxs[-1]
+        if len(seq_edge_idxs) == 0:
             return []
-        segi1 = seq_edge_list[-1][0]
-        while len(seq_edge_list) > 0 and g.sequence_edges[segi1][7] < 500:
-            del seq_edge_list[-1]
-            if len(seq_edge_list) > 0:
-                segi1 = seq_edge_list[-1][0]
-        while len(seq_edge_list) > 0:
-            segi_last = seq_edge_list[0][0]
-            lnode = (
-                g.sequence_edges[segi_last][0],
-                g.sequence_edges[segi_last][2],
-                "+",
-            )
-            if lnode != bp_node:
-                del seq_edge_list[0]
+        segi1 = seq_edge_idxs[-1][0]
+        while (
+            len(seq_edge_idxs) > 0 and g.sequence_edges[segi1].gap < min_overlap
+        ):
+            del seq_edge_idxs[-1]
+            if len(seq_edge_idxs) > 0:
+                segi1 = seq_edge_idxs[-1][0]
+        while len(seq_edge_idxs) > 0:
+            segi_last = seq_edge_idxs[0][0]
+            if g.sequence_edges[segi_last].end_node != bp_node:
+                del seq_edge_idxs[0]
             else:
                 break
-    if len(seq_edge_list) == 0:
+    if len(seq_edge_idxs) == 0:
         return []
-    path_r = []
-    for si in range(len(seq_edge_list)):
-        if seq_edge_list[si][1] == "+":
-            path_r.append(
-                (
-                    g.sequence_edges[seq_edge_list[si][0]][0],
-                    g.sequence_edges[seq_edge_list[si][0]][1],
-                    "-",
-                ),
-            )
+    path_r: Walk = []
+    for si, (seq_edge_idx, seq_strand) in enumerate(seq_edge_idxs):
+        seq_edge = g.sequence_edges[seq_edge_idx]
+        if seq_edge_idxs[si][1] == Strand.FORWARD:
+            path_r.append(seq_edge.start_node)
         else:
-            path_r.append(
-                (
-                    g.sequence_edges[seq_edge_list[si][0]][0],
-                    g.sequence_edges[seq_edge_list[si][0]][2],
-                    "+",
-                ),
-            )
-        path_r.append(("s", seq_edge_list[si][0]))
-        if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "+":
-            if (
-                g.sequence_edges[seq_edge_list[si][0]][2] + 1
-                == g.sequence_edges[seq_edge_list[si + 1][0]][1]
-            ):
-                for ci in range(len(g.concordant_edges)):
-                    if (
-                        g.concordant_edges[ci][0]
-                        == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si][0]][2]
-                        == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][1]
-                        == g.concordant_edges[ci][4]
-                    ):
-                        path_r.append(
-                            (
-                                g.sequence_edges[seq_edge_list[si][0]][0],
-                                g.sequence_edges[seq_edge_list[si][0]][2],
-                                "+",
-                            ),
-                        )
-                        path_r.append(("c", ci))
-                        break
-        if si < len(seq_edge_list) - 1 and seq_edge_list[si][1] == "-":
-            if (
-                g.sequence_edges[seq_edge_list[si][0]][1] - 1
-                == g.sequence_edges[seq_edge_list[si + 1][0]][2]
-            ):
-                for ci in range(len(g.concordant_edges)):
-                    if (
-                        g.concordant_edges[ci][0]
-                        == g.sequence_edges[seq_edge_list[si][0]][0]
-                        and g.sequence_edges[seq_edge_list[si + 1][0]][2]
-                        == g.concordant_edges[ci][1]
-                        and g.sequence_edges[seq_edge_list[si][0]][1]
-                        == g.concordant_edges[ci][4]
-                    ):
-                        path_r.append(
-                            (
-                                g.sequence_edges[seq_edge_list[si][0]][0],
-                                g.sequence_edges[seq_edge_list[si][0]][1],
-                                "-",
-                            ),
-                        )
-                        path_r.append(("c", ci))
-                        break
+            path_r.append(seq_edge.end_node)
+        path_r.append(EdgeId(EdgeType.SEQUENCE, seq_edge_idx))
+
+        if si >= len(seq_edge_idxs) - 1:
+            break
+        next_seq_edge = g.sequence_edges[seq_edge_idxs[si + 1][0]]
+        if seq_strand == Strand.FORWARD and (
+            seq_edge.end + 1 == next_seq_edge.start
+        ):
+            for ci in range(len(g.concordant_edges)):
+                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                    g.concordant_edges[ci],
+                    seq_edge,
+                    next_seq_edge,
+                ):
+                    path_r.append(seq_edge.end_node)
+                    path_r.append(EdgeId(EdgeType.CONCORDANT, ci))
+                    break
+        if seq_strand == Strand.REVERSE and (
+            seq_edge.start - 1 == next_seq_edge.end
+        ):
+            for ci in range(len(g.concordant_edges)):
+                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                    g.concordant_edges[ci],
+                    next_seq_edge,
+                    seq_edge,
+                ):
+                    path_r.append(seq_edge.start_node)
+                    path_r.append(EdgeId(EdgeType.CONCORDANT, ci))
+                    break
     return path_r
 
 
-def chimeric_alignment_to_path_i(g, rints, ai1, ai2, di):
+def chimeric_alignment_to_path_i(
+    g: BreakpointGraph,
+    ref_intvs: list[ReferenceInterval],
+    bp_alignment: BPIndexedAlignments,
+) -> Walk:
     """Given a breakpoint graph and a list of consecutive alignments,
-            return a traversal from the alignment indexed at ai1 to the alignment indexed at ai2,
-            through discordant edge indexed at di
+    return a traversal from the alignment indexed at ai1 to the alignment
+    indexed at ai2, through discordant edge indexed at di.
 
     g: breakpoint graph (object)
-    rints: alignment intervals on the reference genome
-    ai1: index of the start alignment
-    ai2: index of the end alignment
-    di: index of discordant edge in g
+    ref_intvs: alignment intervals on the reference genome
+    bp_alignment: tuple of (index of the start alignment, index of the end
+        alignment, index of discordant edge)
 
     Returns: the resulting path as a list of alternating nodes and edges
     """
-    path_ = [("d", di)]
-    node1 = (
-        g.discordant_edges[di][0],
-        g.discordant_edges[di][1],
-        g.discordant_edges[di][2],
-    )
-    node2 = (
-        g.discordant_edges[di][3],
-        g.discordant_edges[di][4],
-        g.discordant_edges[di][5],
-    )
-    if ai1 > ai2:
+    path_: Walk = [EdgeId(EdgeType.DISCORDANT, bp_alignment.discordant_idx)]
+    discordant_edge = g.discordant_edges[bp_alignment.discordant_idx]
+    node1 = discordant_edge.node1
+    node2 = discordant_edge.node2
+    if bp_alignment.alignment1 > bp_alignment.alignment2:
         path_ = (
-            chimeric_alignment_to_path_l(g, rints, ai2, node2)
+            chimeric_alignment_to_path_l(
+                g, ref_intvs[bp_alignment.alignment2], node2
+            )
             + path_
-            + chimeric_alignment_to_path_r(g, rints, ai1, node1)
+            + chimeric_alignment_to_path_r(
+                g, ref_intvs[bp_alignment.alignment1], node1
+            )
         )
     else:
         path_ = (
-            chimeric_alignment_to_path_l(g, rints, ai1, node1)
+            chimeric_alignment_to_path_l(
+                g, ref_intvs[bp_alignment.alignment1], node1
+            )
             + path_
-            + chimeric_alignment_to_path_r(g, rints, ai2, node2)
+            + chimeric_alignment_to_path_r(
+                g, ref_intvs[bp_alignment.alignment2], node2
+            )
         )
     return path_
 
 
-def traverse_through_sequence_edge(g, start_node, end_node):
+def traverse_through_sequence_edge(
+    g: BreakpointGraph, start_node: Node, end_node: Node
+) -> Walk:
     """Given a breakpoint graph and two nodes, return a traversal through sequence and concordant edges between the two nodes
 
     g: breakpoint graph (object)
     start_node: start node
-    end_node: end node - start and end node must locate at different (left/right) ends on the corresponding sequence edges
+    end_node: end node - start and end node must locate at different
+        (left/right) ends on the corresponding sequence edges
 
     Returns: the resulting path as a list of alternating nodes and edges
             note that the resulting path (additionally) starts and ends with the given nodes
     """
-    assert start_node[2] != end_node[2]
-    path_ = [start_node]
-    seqi = g.nodes[start_node][0][0]
+    assert start_node.strand != end_node.strand
+    path_: Walk = [start_node]
+    seqi = g.node_adjacencies[start_node].sequence[0]
     seq_edge = g.sequence_edges[seqi]
-    next_end = (seq_edge[0], seq_edge[1], "-")
-    if start_node[2] == "-":
-        next_end = (seq_edge[0], seq_edge[2], "+")
-    path_.append(("s", seqi))
+    next_end = seq_edge.start_node
+    if start_node.strand == Strand.REVERSE:
+        next_end = seq_edge.end_node
+    path_.append(EdgeId(EdgeType.SEQUENCE, seqi))
     path_.append(next_end)
     while next_end != end_node:
-        try:
-            ci = g.nodes[next_end][1][0]
-        except:
-            return (
-                path_  # ignore the alignments spanning two amplicon intervals
-            )
-        path_.append(("c", ci))
+        # ignore the alignments spanning two amplicon intervals
+        if not (conc_edges := g.node_adjacencies[next_end].concordant):
+            return path_
+
+        ci = conc_edges[0]
+        path_.append(EdgeId(EdgeType.CONCORDANT, ci))
         cedge = g.concordant_edges[ci]
-        next_start = (cedge[0], cedge[1], cedge[2])
+        next_start = cedge.node1
         if next_start == next_end:
-            next_start = (cedge[3], cedge[4], cedge[5])
+            next_start = cedge.node2
         path_.append(next_start)
-        seqi = g.nodes[next_start][0][0]
+
+        seqi = g.node_adjacencies[next_start].sequence[0]
         seq_edge = g.sequence_edges[seqi]
-        next_end = (seq_edge[0], seq_edge[1], "-")
-        if next_start[2] == "-":
-            next_end = (seq_edge[0], seq_edge[2], "+")
-        path_.append(("s", seqi))
+        next_end = seq_edge.start_node
+        if next_start.strand == Strand.REVERSE:
+            next_end = seq_edge.end_node
+        path_.append(EdgeId(EdgeType.SEQUENCE, seqi))
         path_.append(next_end)
     return path_
 
 
-def chimeric_alignment_to_path(g, rints, ai_list, bp_list):
+def chimeric_alignment_to_path(
+    g: BreakpointGraph,
+    ref_intvs: list[ReferenceInterval],
+    ai_list: list[tuple[int, int]],
+    bp_list: list[int],
+) -> Walk:
     """Convert chimeric alignments to path"""
-    path_ = []
-    lastnode = ()
+    path_: Walk = []
+    lastnode: Node
     for i in range(len(bp_list)):
         di = bp_list[i]
-        node1 = (
-            g.discordant_edges[di][0],
-            g.discordant_edges[di][1],
-            g.discordant_edges[di][2],
-        )
-        node2 = (
-            g.discordant_edges[di][3],
-            g.discordant_edges[di][4],
-            g.discordant_edges[di][5],
-        )
-        if ai_list[i][0] > ai_list[i][1]:
+        disc_edge = g.discordant_edges[di]
+        node1 = disc_edge.node1
+        node2 = disc_edge.node2
+
+        ai1, ai2 = ai_list[i]
+
+        if ai1 > ai2:
             if i == 0:
                 path_ = chimeric_alignment_to_path_l(
-                    g, rints, ai_list[i][1], node2
+                    g, ref_intvs[ai2], node2
                 ) + [
-                    ("d", bp_list[i]),
+                    EdgeId(EdgeType.DISCORDANT, di),
                 ]
                 lastnode = node1
             else:
                 path_ += traverse_through_sequence_edge(g, lastnode, node2)
-                path_.append(("d", bp_list[i]))
+                path_.append(EdgeId(EdgeType.DISCORDANT, di))
                 lastnode = node1
                 if i == len(bp_list) - 1:
                     path_ += chimeric_alignment_to_path_r(
-                        g, rints, ai_list[i][0], node1
+                        g, ref_intvs[ai1], node1
                     )
         elif i == 0:
-            path_ = chimeric_alignment_to_path_l(
-                g, rints, ai_list[i][0], node1
-            ) + [
-                ("d", bp_list[i]),
+            path_ = chimeric_alignment_to_path_l(g, ref_intvs[ai1], node1) + [
+                EdgeId(EdgeType.DISCORDANT, di),
             ]
             lastnode = node2
         else:
             path_ += traverse_through_sequence_edge(g, lastnode, node1)
-            path_.append(("d", bp_list[i]))
+            path_.append(EdgeId(EdgeType.DISCORDANT, bp_list[i]))
             lastnode = node2
             if i == len(bp_list) - 1:
                 path_ += chimeric_alignment_to_path_r(
-                    g, rints, ai_list[i][1], node2
+                    g, ref_intvs[ai_list[i][1]], node2
                 )
     return path_
 
 
-def longest_path_dict(path_constraints_):
-    """Convert paths from a list of alternating nodes and edges into a dict of edges.
-    Only keep the longest paths, i.e., those which are not a subpath of any other path
+def longest_path_dict(
+    path_constraints_: list[PathConstraint],
+) -> list[FinalizedPathConstraint]:
+    """Convert paths from a list of alternating nodes and edges into a dict of
+    edges. Only keep the longest paths, i.e., those which are not a subpath of
+    any other path.
     """
-    res_paths = [[], [], []]
-    for pathi in range(len(path_constraints_[0])):
-        path = path_constraints_[0][pathi]
-        path_constraint = dict()
-        for ei in range(len(path)):
-            if ei % 2 == 0:
-                try:
-                    path_constraint[path[ei]] += 1
-                except:
-                    path_constraint[path[ei]] = 1
-        res_paths[0].append(path_constraint)
-        res_paths[1].append(pathi)
-        res_paths[2].append(path_constraints_[1][pathi])
-    for pathi in range(len(res_paths[0]))[::-1]:
-        path_constraint = res_paths[0][pathi]
-        subpath_flag = -1
-        for pathi_ in range(len(res_paths[0])):
-            path_constraint_ = res_paths[0][pathi_]
-            s1 = 1
-            for edge in path_constraint.keys():
-                if (
-                    edge not in path_constraint_
-                    or path_constraint_[edge] < path_constraint[edge]
-                ):
-                    s1 = 0
-                    break
-            if s1 == 1 and pathi_ != pathi:
-                subpath_flag = pathi_
-                break
-        if subpath_flag >= 0:
-            del res_paths[0][pathi]
-            del res_paths[1][pathi]
-            res_paths[2][subpath_flag] = max(
-                res_paths[2][subpath_flag], res_paths[2][pathi]
+    final_paths: list[FinalizedPathConstraint] = []
+    for path_idx in range(len(path_constraints_)):
+        path = path_constraints_[path_idx].path
+        edge_counts: dict[EdgeId, int] = defaultdict(int)
+        for edge_idx in range(len(path)):
+            # Only track edge counts, not nodes
+            if edge_idx % 2 == 0:
+                edge_counts[path[edge_idx]] += 1  # type: ignore[index]
+        final_paths.append(
+            FinalizedPathConstraint(
+                edge_counts=edge_counts,
+                pc_idx=path_idx,
+                support=path_constraints_[path_idx].support,
             )
-            del res_paths[2][pathi]
-    return res_paths
+        )
+    logger.debug(f"Finalized paths ({len(final_paths)}): {final_paths}")
+    for path_idx in range(len(final_paths))[::-1]:
+        confirmed_parent_path_idx: int | None = None
+        path_edge_counts = final_paths[path_idx].edge_counts
+        for parent_pc_idx, parent_pc in enumerate(final_paths):
+            parent_path_edge_counts = parent_pc.edge_counts
+            found_subpath = True
+            for edge in path_edge_counts:
+                if (
+                    edge not in parent_path_edge_counts
+                    or parent_path_edge_counts[edge] < path_edge_counts[edge]
+                ):
+                    found_subpath = False
+                    break
+
+            if found_subpath and parent_pc_idx != path_idx:
+                confirmed_parent_path_idx = parent_pc_idx
+                break
+        if confirmed_parent_path_idx is not None:
+            logger.debug(
+                f"Removing {path_idx}, found to be subpath of {confirmed_parent_path_idx}"
+            )
+            final_paths[confirmed_parent_path_idx].support = max(
+                final_paths[confirmed_parent_path_idx].support,
+                final_paths[path_idx].support,
+            )
+            del final_paths[path_idx]
+    return final_paths

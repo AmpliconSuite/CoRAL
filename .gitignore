@@ -8,3 +8,6 @@ configs/
 *.txt
 *.log
 *.lp
+*.pdf
+*.ipynb
+*.code-workspace
