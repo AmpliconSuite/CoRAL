@@ -21,14 +21,14 @@ def convert_cycles_to_bed(
         t = line.strip().split()
         if t[0] == "Segment":
             all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
-        if t[0][:5] == "Cycle":
+        if t[0][:5] == "Cycle" or t[0][:4] == "Path":
             st = t[0].split(";")
             cycle_id = 1
             cycle_weight = 1.0
             cycle_segs = ["0+", "0-"]
             for s in st:
                 s_name, s_value = s.split("=")
-                if s_name == "Cycle":
+                if s_name == "Cycle" or s_name == "Path":
                     cycle_id = s_value  # type: ignore[assignment]
                 if s_name == "Copy_count":
                     cycle_weight = float(s_value)

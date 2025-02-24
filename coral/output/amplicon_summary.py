@@ -70,6 +70,8 @@ def get_single_path_output(
     output_path_constraints: bool = True,
 ) -> str:
     """Generate the output string for a given path produced by optimization."""
+    if not bp_graph.walks.paths[path_idx]:
+        return ""
 
     path_weights = bp_graph.walk_weights.paths
     logger.debug(f"Traversing next path, CN = {path_weights[path_idx]}")
@@ -138,7 +140,6 @@ def output_amplicon_solution(
             bp_graph, heaviest_walk[1], 1, output_path_constraints=False
         )
         output_file.write(cycle_output)
-
 
 def output_amplicon_info(
     bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool

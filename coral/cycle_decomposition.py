@@ -516,11 +516,12 @@ def solve_single_graph(
     p_bp_cn: float = 0.9,
     resolution: float = 0.1,
     *,
+    should_force_greedy: bool = False,
     should_postprocess: bool = False,
 ) -> datatypes.CycleSolution:
     while k <= bp_graph.num_edges:
         # When problem is too large, we begin with the greedy optimization
-        if does_graph_require_greedy_solve(bp_graph, k):
+        if should_force_greedy or does_graph_require_greedy_solve(bp_graph, k):
             lp_solution = greedy_solve(
                 bp_graph=bp_graph,
                 total_weights=total_weights,
@@ -598,7 +599,9 @@ def cycle_decomposition_single_graph(
     resolution: float = 0.1,
     *,
     should_postprocess: bool = False,
+    should_force_greedy: bool = False,
     output_all_path_constraints: bool = False,
+    should_profile: bool = False,
 ) -> None:
     logger.info(
         f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
@@ -632,16 +635,25 @@ def cycle_decomposition_single_graph(
         k = bp_graph.num_edges
         logger.info(f"Reset num cycles/paths to {k}.")
 
-    lp_solution = solve_single_graph(
-        bp_graph=bp_graph,
-        k=k,
-        total_weights=total_weights,
-        node_order=node_order,
-        solver_options=solver_options,
+    if should_profile:
+        import cProfile
+        cProfile.run(
+            "solve_single_graph(bp_graph, k, total_weights, node_order, "
+            "solver_options, alpha, p_total_weight, resolution, "
+            "should_force_greedy, should_postprocess)"
+        )
+    else:
+        lp_solution = solve_single_graph(
+            bp_graph=bp_graph,
+            k=k,
+            total_weights=total_weights,
+            node_order=node_order,
+            solver_options=solver_options,
         alpha=alpha,
         p_total_weight=p_total_weight,
         resolution=resolution,
         should_postprocess=should_postprocess,
+        should_force_greedy=should_force_greedy,
     )
     bp_graph.walks = lp_solution.walks
     bp_graph.walk_weights = lp_solution.walk_weights
@@ -655,7 +667,7 @@ def cycle_decomposition_single_graph(
 
 
 def cycle_decomposition_all_graphs(
-    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    bp_graphs: list[BreakpointGraph],
     solver_options: datatypes.SolverOptions,
     alpha: float = 0.01,
     p_total_weight: float = 0.9,
@@ -663,11 +675,12 @@ def cycle_decomposition_all_graphs(
     *,
     should_postprocess: bool = False,
     output_all_path_constraints: bool = False,
+    should_force_greedy: bool = False,
+    should_profile: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
     was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
-    for amplicon_idx in range(len(bb.lr_graph)):
-        bp_graph = bb.lr_graph[amplicon_idx]
+    for amplicon_idx, bp_graph in enumerate(bp_graphs):
         bp_graph.amplicon_idx = amplicon_idx
         cycle_decomposition_single_graph(
             bp_graph,
@@ -677,22 +690,25 @@ def cycle_decomposition_all_graphs(
             resolution,
             should_postprocess=should_postprocess,
             output_all_path_constraints=output_all_path_constraints,
+            should_force_greedy=should_force_greedy,
+            should_profile=should_profile,
         )
         was_amplicon_solved[amplicon_idx] = True
     output.output_summary_amplicon_stats(
         was_amplicon_solved,
-        bb,
+        bp_graphs,
         output_dir=solver_options.output_dir,
     )
 
 
 def reconstruct_cycles(
-    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    bp_graphs: list[BreakpointGraph],
     solver_options: datatypes.SolverOptions,
     cycle_decomp_alpha: float = 0.01,
     *,
     should_postprocess_greedy_sol: bool = False,
     output_all_path_constraints: bool = False,
+    should_force_greedy: bool = False,
 ) -> None:
     logging.basicConfig(
         filename=f"{solver_options.output_dir}/cycle_decomp.log",
@@ -703,11 +719,12 @@ def reconstruct_cycles(
     logger.info("Computed all subpath constraints.")
 
     cycle_decomposition_all_graphs(
-        bb,
+        bp_graphs,
         solver_options=solver_options,
         alpha=cycle_decomp_alpha,
         should_postprocess=should_postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
+        should_force_greedy=should_force_greedy,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(

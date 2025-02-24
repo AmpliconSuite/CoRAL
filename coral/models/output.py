@@ -106,17 +106,17 @@ def output_amplicon_walks(
 
 def output_summary_amplicon_stats(
     was_amplicon_solved: Dict[int, bool],
-    bb: infer_breakpoint_graph.LongReadBamToBreakpointMetadata,
+    bp_graphs: list[BreakpointGraph],
     output_dir: str,
 ) -> None:
     logger.info("Outputting solution info for all amplicons.")
 
     with Path(f"{output_dir}/amplicon_summary.txt").open("w") as fp:
         fp.write(
-            f"{sum(was_amplicon_solved.values())}/{len(bb.lr_graph)} amplicons "
+            f"{sum(was_amplicon_solved.values())}/{len(bp_graphs)} amplicons "
             "solved.\n"
         )
-        for amplicon_idx, bp_graph in enumerate(bb.lr_graph):
+        for amplicon_idx, bp_graph in enumerate(bp_graphs):
             fp.write(
                 "------------------------------------------------------------\n"
             )

@@ -302,8 +302,13 @@ class LongReadBamToBreakpointMetadata:
             )
             intervals_to_merge.append((lastai, num_amplicons - 1))
 
-        interval_idxs_to_delete: set[int] = set()
-        for ai1, ai2 in intervals_to_merge[::-1]:
+        orig_intervals = copy.deepcopy(self.amplicon_intervals)
+        original_interval_idxs: list[int] = sorted(
+            range(len(self.amplicon_intervals)),
+            key=lambda i: self.amplicon_intervals[i],
+        )
+
+        for ai1, ai2 in reversed(intervals_to_merge):
             start_intv, end_intv = (
                 self.amplicon_intervals[ai1],
                 self.amplicon_intervals[ai2],
@@ -312,10 +317,14 @@ class LongReadBamToBreakpointMetadata:
             prev_intv = copy.deepcopy(start_intv)
             start_intv.end = end_intv.end
             logger.info(
-                f"Extend amplicon interval {prev_intv} to {start_intv}."
+                f"Extend amplicon interval {ai1} {prev_intv} to {start_intv}."
             )
+
+            # These will all be collapsed into the starting interval
+            intvs_to_remove = range(ai1 + 1, ai2 + 1)
+
             # Modify ccid
-            for ai in range(ai1 + 1, ai2 + 1):
+            for ai in intvs_to_remove:
                 intermediate_intv = self.amplicon_intervals[ai]
                 if intermediate_intv.amplicon_id != start_intv.amplicon_id:
                     ccid = intermediate_intv.amplicon_id
@@ -331,29 +340,26 @@ class LongReadBamToBreakpointMetadata:
                         interval.amplicon_id = start_intv.amplicon_id
                         logger.info(f"Updated amplicon interval: {interval}")
 
-            # Modify interval connections
+            # Create duplicate connections, to modify while merging
             connection_map = {
                 connection: connection
                 for connection in self.amplicon_interval_connections
             }
-            merged_idx = ai1
-            num_removed_intvs = ai2 - ai1
-            for ai in range(ai1, ai2 + 1):
+
+            merged_idx = original_interval_idxs[ai1]
+            for ai in intvs_to_remove:
                 for prev_conn in connection_map:
                     prev_src, prev_dst = connection_map[prev_conn]
 
                     # Update connections from prev interval to merged interval,
                     # in ascending order
                     if ai == prev_src:
-                        if prev_dst > ai2:
-                            dst = prev_dst - num_removed_intvs
-                        else:
-                            dst = prev_dst
                         connection_map[prev_conn] = (
-                            min(merged_idx, dst),
-                            max(merged_idx, dst),
+                            min(merged_idx, prev_dst),
+                            max(merged_idx, prev_dst),
                         )
                     if ai == prev_dst:
+                        prev_src = connection_map[prev_conn][0]
                         connection_map[prev_conn] = (
                             min(prev_src, merged_idx),
                             max(prev_src, merged_idx),
@@ -364,10 +370,10 @@ class LongReadBamToBreakpointMetadata:
                     logger.info(
                         f"Reset connection between amplicon intervals "
                         f"{prev_conn} to {new_conn}, i.e., "
-                        f"{self.amplicon_intervals[prev_conn[0]]} and "
-                        f"{self.amplicon_intervals[prev_conn[1]]}, to "
-                        f"{self.amplicon_intervals[new_conn[0]]} and "
-                        f"{self.amplicon_intervals[new_conn[1]]}."
+                        f"{orig_intervals[prev_conn[0]]} and "
+                        f"{orig_intervals[prev_conn[1]]}, to "
+                        f"{self.amplicon_intervals.index(new_conn[0])} and "
+                        f"{self.amplicon_intervals.index(new_conn[1])}."
                     )
                     self.amplicon_interval_connections[new_conn] |= (
                         self.amplicon_interval_connections[prev_conn]
@@ -378,15 +384,35 @@ class LongReadBamToBreakpointMetadata:
                         del self.amplicon_interval_connections[new_conn]
 
             # Delete intervals
-            interval_idxs_to_delete.update(range(ai1 + 1, ai2 + 1))
+            for ai in reversed(intvs_to_remove):
+                intv = self.amplicon_intervals[ai]
+                logger.info(
+                    f"Delete amplicon interval {ai} - {intv}."
+                )
+                del self.amplicon_intervals[ai]
+                del original_interval_idxs[ai]
+
+
+        for ai, interval in enumerate(self.amplicon_intervals):
+            logger.info(f"\t{ai} (Prev. {original_interval_idxs[ai]}) - "
+                        f"Amplicon interval: {interval}")
+        # Need to remap connections based on reduced set of intervals
+        orig_to_new_idx = {
+            old_idx: new_idx
+            for new_idx, old_idx in enumerate(original_interval_idxs)
+        }
+        logger.info(f"{self.amplicon_interval_connections=}")
+        self.amplicon_interval_connections = defaultdict(
+            set,
+            {
+                (orig_to_new_idx[conn[0]], orig_to_new_idx[conn[1]]): bp_idxs
+                for conn, bp_idxs in self.amplicon_interval_connections.items()
+            },
+        )
 
         logger.info("Resetting amplicon ccids.")
         self.reset_amplicon_ccids()
 
-        for ai in sorted(interval_idxs_to_delete)[::-1]:
-            intv = self.amplicon_intervals[ai]
-            logger.info(f"Delete amplicon interval {ai} - {intv}.")
-            del self.amplicon_intervals[ai]
 
     def reset_amplicon_ccids(self) -> None:
         ai_explored = np.zeros(len(self.amplicon_intervals))
@@ -399,6 +425,10 @@ class LongReadBamToBreakpointMetadata:
                     ai_explored[ai_] = 1
                     curr_intv = self.amplicon_intervals[ai_]
                     if curr_intv.amplicon_id != ai_ccid:
+                        logger.info(
+                            f"Reset amplicon interval of {curr_intv} to "
+                            f"{ai_ccid}."
+                        )
                         curr_intv.amplicon_id = ai_ccid
                     for ai1, ai2 in self.amplicon_interval_connections:
                         if ai1 == ai_ and ai_explored[ai2] == 0:
@@ -454,10 +484,13 @@ class LongReadBamToBreakpointMetadata:
             f"Identified {len(self.amplicon_intervals)} amplicon intervals in "
             "total.",
         )
-        self.sort_amplicon_intervals_and_connections()
-
         for i, interval in enumerate(self.amplicon_intervals):
             logger.info(f"\t{i} - Amplicon interval: {interval}")
+
+        for i, (ai, a2) in enumerate(self.amplicon_interval_connections):
+            logger.info(f"\t{i} - Connection: {ai} -> {a2}")
+
+        self.sort_amplicon_intervals_and_connections()
 
         # Merge amplicon intervals
         logger.info("Begin merging adjacent intervals.")
@@ -467,8 +500,8 @@ class LongReadBamToBreakpointMetadata:
             f"There are {len(self.amplicon_intervals)} amplicon intervals after"
             " merging."
         )
-        for interval in self.amplicon_intervals:
-            logger.info(f"\tAmplicon interval {interval} after merging.")
+        for i, interval in enumerate(self.amplicon_intervals):
+            logger.info(f"\t{i} - Amplicon interval: {interval}")
 
     def addbp(
         self,
