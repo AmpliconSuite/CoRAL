@@ -315,7 +315,8 @@ def eulerian_path_t(
                     last_edge_dir = constants.INVERT_STRAND_DIRECTION[node[2]]
                     eulerian_path[-1] = node
                     last_seq_edge = g.node_adjacencies[node].sequence[0]
-        del edges_cur[src_edge]
+        if edges_cur:
+            del edges_cur[src_edge]
         eulerian_path.append(EdgeId(EdgeType.SEQUENCE, last_seq_edge))
         if last_edge_dir == "+":
             eulerian_subpath.append(

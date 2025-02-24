@@ -179,7 +179,7 @@ class GraphViz:
             cycle2bed.convert_cycles_to_bed(
                 cycle_file, conv_cycle_fn, num_cycles
             )
-            cycle_file = conv_cycle_fn
+            cycle_file = open(conv_cycle_fn, "r")
 
         elif not cycle_file.name.endswith(".bed"):
             logger.error(cycle_file.name + "\n")
@@ -883,7 +883,7 @@ class GraphViz:
         dpi=300,
         hide_genes=False,
         gene_font_size=12,
-    ):
+    ) -> None:
         """Plot cycles & paths returned from cycle decomposition"""
         width = max(15, 2 * self.num_amplified_intervals)
         cycles_to_plot = [cycle_id for cycle_id in self.cycles.keys()]
@@ -1779,7 +1779,7 @@ def plot_amplicons(
         cycle_only_ = False
         if num_cycles:
             cycle_ids_ = [str(i + 1) for i in range(num_cycles)]
-        if only_cyclic_paths:
+        if plot_cycles and not plot_graph:
             cycle_only_ = True
 
         graph_given_ = graph_file is not None

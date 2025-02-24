@@ -51,6 +51,7 @@ pyranges = "^0.1.2"
 seaborn = "^0.13.2"
 typer = "^0.12.5"
 torch = { version =">=2.5.1, =2.*", source="pytorch-cpu"} # Required by pomegranate/cnvkit
+memray = "^1.15.0"
 
 [[tool.poetry.source]]
 name = "pytorch-cpu"
