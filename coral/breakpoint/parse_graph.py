@@ -1,4 +1,5 @@
 from __future__ import annotations
+import io
 
 import typer
 
@@ -124,7 +125,7 @@ def parse_path(
     return path, edge_counts
 
 
-def parse_breakpoint_graph(graph_file: typer.FileText) -> BreakpointGraph:
+def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
     bp_graph = BreakpointGraph()
     for line in graph_file:
         s = line.strip().split("\t")
@@ -178,4 +179,11 @@ def parse_breakpoint_graph(graph_file: typer.FileText) -> BreakpointGraph:
     # Match line 397 in breakpoint_graph.py
     # TODO: Understand why this is needed
     bp_graph.max_cn -= 1.0
+
+    if not bp_graph.amplicon_intervals:
+        raise ValueError(
+            "No amplicon intervals found in breakpoint graph. Are you "
+            "using a *_graph.txt file generated with CoRAL v2.1.0+?"
+        )
+
     return bp_graph

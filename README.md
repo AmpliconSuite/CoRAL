@@ -171,7 +171,7 @@ Cycle=1;Copy_count=82.34616279663038;Segments=2+,4+,6+;Path_constraints_satisfie
 Cycle=2;Copy_count=2.8436550275157644;Segments=0+,2+,3+,4+,5+,6+,0-;Path_constraints_satisfied=1,2
 ```
 Note that if ```--output-all-path-constraints``` is specified, then all path constraints given by long reads will be written to in ```*.cycles``` file.
-* Other outputs include the ```output_dir_amplicon*_model.lp``` file(s) and ```output_dir_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrainted) program in a human readable format, and the standard output produced by Gurobi.
+* Other outputs include the ```output_dir_amplicon*_model.lp``` file(s) and ```output_dir_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrained) program in a human readable format, and the standard output produced by Gurobi.
 
 
 ## 3. ```plot```

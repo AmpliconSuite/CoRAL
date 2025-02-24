@@ -66,6 +66,13 @@ PostProcessFlag = Annotated[
         help="Postprocess the cycles/paths returned in greedy cycle extraction."
     ),
 ]
+ForceGreedyFlag = Annotated[
+    bool,
+    typer.Option(
+        help="If specified, force greedy cycle extraction even if the graph is "
+        "below heuristic threshold."
+    ),
+]
 SolverArg = Annotated[Solver, typer.Option(help="LP solver to use.")]
 ThreadsArg = Annotated[
     int,
@@ -145,6 +152,7 @@ def reconstruct(
             help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."
         ),
     ] = 1.0,
+    force_greedy: ForceGreedyFlag = False,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
 
@@ -168,11 +176,12 @@ def reconstruct(
     )
     if not (output_bp or skip_cycle_decomp):
         cycle_decomposition.reconstruct_cycles(
-            b2bn,
+            b2bn.lr_graph,
             solver_options,
             cycle_decomp_alpha,
             should_postprocess_greedy_sol=postprocess_greedy_sol,
             output_all_path_constraints=output_all_path_constraints,
+            should_force_greedy=force_greedy,
         )
     b2bn.closebam()
     print("\nCompleted reconstruction.")
@@ -192,6 +201,7 @@ def cycle_decomposition_mode(
     solver: SolverArg = Solver.GUROBI,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
+    force_greedy: ForceGreedyFlag = False,
 ) -> None:
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -205,7 +215,7 @@ def cycle_decomposition_mode(
 
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
     amplicon_idx = int(bp_graph.name.split("_")[0].split("amplicon")[1])
-    parsed_bp_graph.amplicon_idx = amplicon_idx
+    parsed_bp_graph.amplicon_idx = amplicon_idx - 1
 
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
@@ -220,6 +230,59 @@ def cycle_decomposition_mode(
         alpha,
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
+        should_force_greedy=force_greedy,
+    )
+
+
+@coral_app.command(
+    name="cycle_all", help="Pass all breakpoint files in directory to LP solver."
+)
+def cycle_decomposition_all_mode(
+    bp_dir: Annotated[
+        pathlib.Path, typer.Option(help="Directory containing BP graph files.")
+    ],
+    output_dir: OutputDirArg,
+    alpha: AlphaArg = 0.01,
+    time_limit_s: TimeLimitArg = 7200,
+    threads: ThreadsArg = -1,
+    solver: SolverArg = Solver.GUROBI,
+    output_all_path_constraints: OutputPCFlag = False,
+    postprocess_greedy_sol: PostProcessFlag = False,
+    force_greedy: ForceGreedyFlag = False,
+) -> None:
+    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=f"{output_dir}/infer_breakpoint_graph.log",
+        filemode="w+",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
+    )
+    logging.getLogger("pyomo").setLevel(logging.ERROR)
+
+    bp_graphs = []
+    for bp_file in bp_dir.glob("*_graph.txt"):
+        with open(bp_file, "r") as f:
+            parsed_bp_graph = parse_breakpoint_graph(f)
+            amplicon_idx = int(bp_file.name.split("_")[0].split("amplicon")[1])
+            # We 1-index on outputting graph files
+            parsed_bp_graph.amplicon_idx = amplicon_idx - 1
+            bp_graphs.append(parsed_bp_graph)
+
+    solver_options = datatypes.SolverOptions(
+        num_threads=threads,
+        time_limit_s=time_limit_s,
+        output_dir=output_dir,
+        model_prefix="pyomo",
+        solver=solver,
+    )
+    cycle_decomposition.cycle_decomposition_all_graphs(
+        bp_graphs,
+        solver_options,
+        alpha,
+        should_postprocess=postprocess_greedy_sol,
+        output_all_path_constraints=output_all_path_constraints,
+        should_force_greedy=force_greedy,
     )
 
 
