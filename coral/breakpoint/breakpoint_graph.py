@@ -82,6 +82,10 @@ class BreakpointGraph:
         default_factory=lambda: WalkData([], [])
     )
 
+    # Only filled in after LP solution, when profiling is enabled
+    runtime_s: float | None = None
+    peak_ram_gb: float | None = None
+
     @property
     def num_nodes(self) -> int:
         """Number of nodes in the breakpoint graph (excluding s and t)."""

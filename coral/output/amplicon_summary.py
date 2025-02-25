@@ -162,3 +162,6 @@ def output_amplicon_info(
         output_amplicon_solution(bp_graph, output_file)
     else:
         output_file.write("Amplicon was unsolved.\n")
+
+    output_file.write(f"Peak RAM = {bp_graph.peak_ram_gb} GB\n")
+    output_file.write(f"Runtime = {bp_graph.runtime_s} s\n")
