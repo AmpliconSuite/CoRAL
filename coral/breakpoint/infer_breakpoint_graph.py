@@ -372,8 +372,8 @@ class LongReadBamToBreakpointMetadata:
                         f"{prev_conn} to {new_conn}, i.e., "
                         f"{orig_intervals[prev_conn[0]]} and "
                         f"{orig_intervals[prev_conn[1]]}, to "
-                        f"{self.amplicon_intervals.index(new_conn[0])} and "
-                        f"{self.amplicon_intervals.index(new_conn[1])}."
+                        f"{original_interval_idxs.index(new_conn[0])} and "
+                        f"{original_interval_idxs.index(new_conn[1])}."
                     )
                     self.amplicon_interval_connections[new_conn] |= (
                         self.amplicon_interval_connections[prev_conn]

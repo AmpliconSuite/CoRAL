@@ -16,7 +16,7 @@ import intervaltree
 import numpy as np
 import pyomo.environ as pyo
 
-from coral import core_types, core_utils
+from coral import core_types
 from coral.constants import CHR_TAG_TO_IDX
 
 if TYPE_CHECKING:

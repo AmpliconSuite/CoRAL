@@ -6,6 +6,7 @@ import pathlib
 import pickle
 from typing import Annotated
 
+import memray
 import pysam
 import typer
 
@@ -153,10 +154,11 @@ def reconstruct(
         ),
     ] = 1.0,
     force_greedy: ForceGreedyFlag = False,
+    profile: Annotated[bool,typer.Option(help="Profile resource usage.")] = False
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
 
-    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
         filemode="w+",
@@ -182,6 +184,7 @@ def reconstruct(
             should_postprocess_greedy_sol=postprocess_greedy_sol,
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=force_greedy,
+            should_profile=profile,
         )
     b2bn.closebam()
     print("\nCompleted reconstruction.")
@@ -202,8 +205,9 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
+    profile: Annotated[bool,typer.Option(help="Profile resource usage.")] = False
 ) -> None:
-    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
@@ -231,6 +235,7 @@ def cycle_decomposition_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
+        should_profile=profile,
     )
 
 
@@ -249,8 +254,9 @@ def cycle_decomposition_all_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
+    profile: Annotated[bool,typer.Option(help="Profile resource usage.")] = False
 ) -> None:
-    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
@@ -283,6 +289,7 @@ def cycle_decomposition_all_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
+        should_profile=profile,
     )
 
 
