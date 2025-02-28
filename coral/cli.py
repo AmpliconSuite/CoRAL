@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import pickle
 from typing import Annotated
@@ -8,8 +9,17 @@ from typing import Annotated
 import pysam
 import typer
 
-from coral import cycle2bed, cycle_decomposition, hsr, plot_amplicons
+from coral import (
+    bam_types,
+    cycle2bed,
+    cycle_decomposition,
+    datatypes,
+    hsr,
+    plot_amplicons,
+    plot_cn,
+)
 from coral.breakpoint import infer_breakpoint_graph
+from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.datatypes import Solver
 
@@ -137,6 +147,8 @@ def reconstruct(
     ] = 1.0,
 ) -> None:
     print(f"Performing reconstruction with options: {ctx.params}")
+
+    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
         filemode="w+",
@@ -144,31 +156,23 @@ def reconstruct(
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.INFO)
-    b2bn = infer_breakpoint_graph.reconstruct_graph(
-        lr_bam,
-        cnv_seed,
-        cn_seg,
-        output_dir,
-        output_bp,
-        skip_cycle_decomp,
-        output_all_path_constraints,
-        min_bp_support,
-        cycle_decomp_alpha,
-        cycle_decomp_time_limit,
-        cycle_decomp_threads,
-        postprocess_greedy_sol,
-        log_file,
+    b2bn = infer_breakpoint_graph.reconstruct_graphs(
+        lr_bam, cnv_seed, cn_seg, output_dir, output_bp, min_bp_support
+    )
+    solver_options = datatypes.SolverOptions(
+        num_threads=cycle_decomp_threads,
+        time_limit_s=cycle_decomp_time_limit,
+        output_dir=output_dir,
+        model_prefix="pyomo",
+        solver=solver,
     )
     if not (output_bp or skip_cycle_decomp):
         cycle_decomposition.reconstruct_cycles(
-            output_dir,
-            output_all_path_constraints,
-            cycle_decomp_alpha,
-            cycle_decomp_time_limit,
-            cycle_decomp_threads,
-            solver,
-            postprocess_greedy_sol,
             b2bn,
+            solver_options,
+            cycle_decomp_alpha,
+            should_postprocess_greedy_sol=postprocess_greedy_sol,
+            output_all_path_constraints=output_all_path_constraints,
         )
     b2bn.closebam()
     print("\nCompleted reconstruction.")
@@ -179,10 +183,9 @@ def reconstruct(
 )
 def cycle_decomposition_mode(
     bp_graph: Annotated[
-        typer.FileBinaryRead, typer.Option(help="Existing BP graph file.")
+        typer.FileText, typer.Option(help="Existing BP graph file.")
     ],
     output_dir: OutputDirArg,
-    lr_bam: BamArg,
     alpha: AlphaArg = 0.01,
     time_limit_s: TimeLimitArg = 7200,
     threads: ThreadsArg = -1,
@@ -190,20 +193,33 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
 ) -> None:
-    bb = infer_breakpoint_graph.LongReadBamToBreakpointMetadata(
-        lr_bamfh=pysam.AlignmentFile(str(lr_bam), "rb"),
-        lr_graph=[pickle.load(bp_graph)],
-    )  # type: ignore[arg-type]
-    bb.fetch()
-    cycle_decomposition.reconstruct_cycles(
-        output_dir,
-        output_all_path_constraints,
+    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=f"{output_dir}/infer_breakpoint_graph.log",
+        filemode="w+",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
+    )
+    logging.getLogger("pyomo").setLevel(logging.ERROR)
+
+    parsed_bp_graph = parse_breakpoint_graph(bp_graph)
+    amplicon_idx = int(bp_graph.name.split("_")[0].split("amplicon")[1])
+    parsed_bp_graph.amplicon_idx = amplicon_idx
+
+    solver_options = datatypes.SolverOptions(
+        num_threads=threads,
+        time_limit_s=time_limit_s,
+        output_dir=output_dir,
+        model_prefix="pyomo",
+        solver=solver,
+    )
+    cycle_decomposition.cycle_decomposition_single_graph(
+        parsed_bp_graph,
+        solver_options,
         alpha,
-        time_limit_s,
-        threads,
-        solver,
-        postprocess_greedy_sol=postprocess_greedy_sol,
-        bb=bb,
+        should_postprocess=postprocess_greedy_sol,
+        output_all_path_constraints=output_all_path_constraints,
     )
 
 
@@ -252,26 +268,28 @@ def plot_mode(
     ref: Annotated[str, typer.Option(help="Reference genome.")],
     graph: Annotated[
         typer.FileText | None,
-        typer.Option(help="AmpliconSuite-formatted *.graph file."),
-    ],
-    cycle_file: Annotated[
-        typer.FileText | None,
-        typer.Option(help="AmpliconSuite-formatted cycles file."),
+        typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
     ],
     bam: BamArg,
     output_prefix: OutputPrefixArg,
+    cycle_file: Annotated[
+        typer.FileText | None,
+        typer.Option(
+            help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
+        ),
+    ] = None,
     num_cycles: Annotated[
         int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
-    ],
+    ] = None,
     region: Annotated[
         str | None,
         typer.Option(
             help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
         ),
-    ],
+    ] = None,
     plot_graph: Annotated[
         bool, typer.Option(help="Visualize breakpoint graph.")
-    ] = False,
+    ] = True,
     plot_cycles: Annotated[
         bool, typer.Option(help="Visualize (selected) cycles.")
     ] = False,
@@ -310,6 +328,8 @@ def plot_mode(
     ] = False,
 ) -> None:
     print(f"Performing plot mode with options: {ctx.params}")
+    if "/" in output_prefix:
+        os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
     plot_amplicons.plot_amplicons(
         ref,
         bam,
@@ -337,12 +357,14 @@ def cycle2bed_mode(
     ctx: typer.Context,
     cycle_file: Annotated[
         typer.FileText,
-        typer.Option(help="AmpliconSuite-formatted cycles file."),
+        typer.Option(
+            help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
+        ),
     ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
     num_cycles: Annotated[
         int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
-    ],
+    ] = None,
     rotate_to_min: Annotated[
         bool,
         typer.Option(
@@ -354,3 +376,20 @@ def cycle2bed_mode(
     cycle2bed.convert_cycles_to_bed(
         cycle_file, output_file, rotate_to_min, num_cycles
     )
+
+
+@coral_app.command(
+    name="plot_cn",
+    help="Generate CN plots from .cnr (Copy Number Ratio) files generated by CNVkit.",
+)
+def plot_cn_mode(
+    ctx: typer.Context,
+    cnr: Annotated[
+        typer.FileText,
+        typer.Option(help="CNVkit-generated .cnr (Copy Number Ratio) file."),
+    ],
+    output_dir: OutputDirArg,
+    name: Annotated[str, typer.Option(help="Name of sample.")],
+) -> None:
+    print(f"Performing plot mode with options: {ctx.params}")
+    plot_cn.plot_cnr(cnr, output_dir, name)

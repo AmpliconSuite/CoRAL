@@ -5,6 +5,7 @@ from typing import List
 
 import pyomo.environ as pyo
 
+from coral import datatypes
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import EdgeToCN
 from coral.models import constraints
@@ -27,7 +28,7 @@ def get_minimize_objective(
             obj_value -= (
                 model.x[seqi, i]
                 * model.w[i]
-                * bp_graph.sequence_edges[seqi][-2]
+                * bp_graph.sequence_edges[seqi].gap
                 / total_weights
             )
     if is_post:
@@ -40,14 +41,14 @@ def get_minimize_objective(
 def get_greedy_objective(
     model: pyo.Model,
     bp_graph: BreakpointGraph,
-    pc_list: List,
-    is_pc_unsatisfied: List[bool],
+    pc_list: list[datatypes.FinalizedPathConstraint],
+    is_pc_unsatisfied: list[bool],
     pp: float,
 ) -> pyo.Objective:
     obj_value = 0.0
     for seqi in range(bp_graph.num_seq_edges):
         obj_value += (
-            model.x[seqi, 0] * model.w[0] * bp_graph.sequence_edges[seqi][-2]
+            model.x[seqi, 0] * model.w[0] * bp_graph.sequence_edges[seqi].gap
         )
     for pi in range(len(pc_list)):
         if is_pc_unsatisfied[pi]:
@@ -75,7 +76,7 @@ class CycleLPModel(pyo.ConcreteModel):
         self.conc_edge_idx = pyo.RangeSet(0, len(bp_graph.concordant_edges) - 1)
         self.disc_edge_idx = pyo.RangeSet(0, len(bp_graph.discordant_edges) - 1)
         self.src_edge_idx = pyo.RangeSet(0, len(bp_graph.source_edges) - 1)
-        self.node_idx = pyo.RangeSet(0, len(bp_graph.nodes) - 1)
+        self.node_idx = pyo.RangeSet(0, len(bp_graph.node_adjacencies) - 1)
         # endregion
 
         # region Variables
@@ -132,8 +133,7 @@ def get_model(
     bp_graph: BreakpointGraph,
     k: int,
     total_weights: float,
-    node_order,
-    pc_list,
+    node_order: dict[datatypes.Node, int],
     model_name: str,
     is_post: bool = False,
     is_greedy: bool = False,
@@ -152,7 +152,7 @@ def get_model(
         name=f"{model_name}_{k}",
         bp_graph=bp_graph,
         k=k,
-        pc_list=pc_list,
+        pc_list=bp_graph.longest_path_constraints,
         is_post=is_post,
     )
 
@@ -170,11 +170,20 @@ def get_model(
 
     if not is_greedy:
         model.ObjectiveMinCycles = get_minimize_objective(
-            model, bp_graph, k, total_weights, pc_list, is_post
+            model,
+            bp_graph,
+            k,
+            total_weights,
+            bp_graph.longest_path_constraints,
+            is_post,
         )
     else:
         model.ObjectiveGreedy = get_greedy_objective(
-            model, bp_graph, pc_list, is_pc_unsatisfied or [], pp
+            model,
+            bp_graph,
+            bp_graph.longest_path_constraints,
+            is_pc_unsatisfied or [],
+            pp,
         )
 
     # Must include at least 0.9 * total CN weights (bilinear constraint)
@@ -238,11 +247,7 @@ def get_model(
     for i in range(k):
         for di in range(bp_graph.num_disc_edges):
             dedge = bp_graph.discordant_edges[di]
-            if (
-                dedge[0] == dedge[3]
-                and dedge[1] == dedge[4]
-                and dedge[2] == dedge[5]
-            ):  # exclude self loops
+            if dedge.is_self_loop:  # exclude self loops
                 model.ConstraintXY1D.add(
                     model.y1[
                         (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di),
@@ -270,14 +275,18 @@ def get_model(
 
     model.ConstraintSubpathEdges = pyo.ConstraintList()
     for constraint in constraints.get_shared_subpath_edge_constraints(
-        model, k, pc_list, bp_graph
+        model, k, bp_graph
     ):
         model.ConstraintSubpathEdges.add(constraint)
 
-    if pc_list and not is_greedy:
+    if bp_graph.longest_path_constraints and not is_greedy:
         model.ConstraintSubpathEdgesAddtl = pyo.ConstraintList()
         for constraint in constraints.get_addtl_subpath_edge_constraints(
-            model, k, pc_list, is_post, p_path_constraints
+            model,
+            k,
+            bp_graph.longest_path_constraints,
+            is_post,
+            p_path_constraints,
         ):
             model.ConstraintSubpathEdgesAddtl.add(constraint)
 

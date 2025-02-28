@@ -18,6 +18,7 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_overlap_l,
 )
 from coral.constants import CHR_SIZES
+from coral.datatypes import Interval
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -73,8 +74,8 @@ def locate_hsrs(
     bp_match_cutoff: int,
     bp_match_cutoff_clustering: int,
 ):
-    ecdna_intervals: list[list[Any]] = []
-    ecdna_intervals_ext: list[list[Any]] = []
+    ecdna_intervals: list[Interval] = []
+    ecdna_intervals_ext: list[Interval] = []
 
     cycle_filename = cycle_file.name
     if cycle_file.name.endswith("_cycles.txt"):
@@ -98,9 +99,13 @@ def locate_hsrs(
                 continue
 
             s = line.strip().split()
-            ecdna_intervals.append([s[0], int(s[1]), int(s[2])])
+            ecdna_intervals.append(Interval(s[0], int(s[1]), int(s[2])))
             ecdna_intervals_ext.append(
-                [s[0], int(s[1]) - bp_match_cutoff, int(s[2]) + bp_match_cutoff]
+                Interval(
+                    s[0],
+                    int(s[1]) - bp_match_cutoff,
+                    int(s[2]) + bp_match_cutoff,
+                )
             )
     print("ecDNA intervals:")
     for ival in ecdna_intervals:
@@ -133,7 +138,7 @@ def locate_hsrs(
     print("Fetched %d chimeric alignments." % len(chimeric_alignments))
 
     bp_list = []
-    for r in chimeric_alignments.keys():
+    for r in chimeric_alignments:
         cycle_flag = False
         r_int = chimeric_alignments[r][0]
         rr_int = chimeric_alignments[r][1]
@@ -257,8 +262,13 @@ def locate_hsrs(
 
     for bp in bp_refined:
         if (
-            interval_overlap_l([bp[0], bp[1], bp[1]], ecdna_intervals_ext) >= 0
-            and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext)
+            interval_overlap_l(
+                Interval(bp[0], bp[1], bp[1]), ecdna_intervals_ext
+            )
+            >= 0
+            and interval_overlap_l(
+                Interval(bp[3], bp[4], bp[4]), ecdna_intervals_ext
+            )
             < 0
         ):
             if bp[3] in starting_pos:
@@ -273,8 +283,13 @@ def locate_hsrs(
                     ypos = len(bp[-1])
                     plt.plot(xpos, ypos, "bo")
         elif (
-            interval_overlap_l([bp[0], bp[1], bp[1]], ecdna_intervals_ext) < 0
-            and interval_overlap_l([bp[3], bp[4], bp[4]], ecdna_intervals_ext)
+            interval_overlap_l(
+                Interval(bp[0], bp[1], bp[1]), ecdna_intervals_ext
+            )
+            < 0
+            and interval_overlap_l(
+                Interval(bp[3], bp[4], bp[4]), ecdna_intervals_ext
+            )
             >= 0
         ):
             if bp[0] in starting_pos:
