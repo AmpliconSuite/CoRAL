@@ -1,6 +1,8 @@
 import io
 import logging
+import os
 
+from coral import datatypes, global_state
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.output.path_output import eulerian_cycle_t, eulerian_path_t
 
@@ -141,6 +143,7 @@ def output_amplicon_solution(
         )
         output_file.write(cycle_output)
 
+
 def output_amplicon_info(
     bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool
 ) -> None:
@@ -149,7 +152,9 @@ def output_amplicon_info(
     output_file.write("AmpliconIntervals:\n")
     for interval in bp_graph.amplicon_intervals:
         output_file.write(f"\t{interval}\n")
-    output_file.write(f"Total Amplicon Size: {bp_graph.total_interval_size}\n")
+    output_file.write(
+        f"Total Amplicon Size: {bp_graph.total_interval_size:,d}\n"
+    )
 
     output_file.write(f"# Chromosomes: {bp_graph.num_chromosomes}\n")
     output_file.write(f"# Sequence Edges: {bp_graph.num_seq_edges}\n")
@@ -163,5 +168,28 @@ def output_amplicon_info(
     else:
         output_file.write("Amplicon was unsolved.\n")
 
-    output_file.write(f"Peak RAM = {bp_graph.peak_ram_gb} GB\n")
-    output_file.write(f"Runtime = {bp_graph.runtime_s} s\n")
+
+def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
+    with global_state.STATE_PROVIDER.summary_filepath.open("a") as fp:
+        fp.write("-----------------------------------------------\n")
+        fp.write("Solver Settings: \n")
+        fp.write(f"Solver: {solver_options.solver.name}\n")
+        threads_used = (
+            solver_options.num_threads
+            if solver_options.num_threads != -1
+            else os.cpu_count()
+        )
+        fp.write(f"Threads: {threads_used}\n")
+        fp.write(f"Time Limit: {solver_options.time_limit_s} s\n")
+        fp.write("-----------------------------------------------\n")
+        fp.write("Resource Usage Summary:\n")
+        for fn_call, profile in sorted(global_state.PROFILED_FN_CALLS.items()):
+            fn_tag = (
+                f"{fn_call.fn_name}/{fn_call.call_ctr}"
+                if fn_call.call_ctr is not None
+                else fn_call.fn_name
+            )
+            fp.write(
+                f"{fn_tag} | Peak RAM: {profile.peak_ram_gb} GB | "
+                f"Runtime: {profile.runtime_s} s\n"
+            )

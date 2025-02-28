@@ -9,6 +9,7 @@ import logging
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Sequence
 
 import cvxopt  # type: ignore[import-untyped]
 import cvxopt.modeling  # type: ignore[import-untyped]
@@ -128,6 +129,10 @@ class BreakpointGraph:
     @property
     def num_chromosomes(self) -> int:
         return len({seq.chr for seq in self.sequence_edges})
+
+    @property
+    def breakpoint_edges(self) -> Sequence[datatypes.BreakpointEdge]:
+        return [*self.discordant_edges, *self.concordant_edges]
 
     def add_endnode(self, node_: datatypes.Node) -> None:
         """Add a new node to the list corresponding to interval ends.

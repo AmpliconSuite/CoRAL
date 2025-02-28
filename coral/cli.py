@@ -3,19 +3,17 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-import pickle
 from typing import Annotated
 
-import memray
-import pysam
 import typer
 
 from coral import (
-    bam_types,
     cycle2bed,
     cycle_decomposition,
     datatypes,
+    global_state,
     hsr,
+    output,
     plot_amplicons,
     plot_cn,
 )
@@ -23,6 +21,7 @@ from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.cnv_seed import run_seeding
 from coral.datatypes import Solver
+from coral.output import cycle_output
 from coral.scoring import score_simulation
 
 coral_app = typer.Typer(
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     cns_filename = cns_file.name
-    if cns_filename.endswith(".bed") or cns_filename.endswith(".cns"):
+    if cns_filename.endswith((".bed", ".cns")):
         return cns_file
     raise typer.BadParameter(
         "Invalid cn-seg file format! (Only .bed and .cns formats are supported.)"
@@ -54,7 +53,9 @@ CnSegArg = Annotated[
         callback=validate_cns_file,
     ),
 ]
-OutputDirArg = Annotated[str, typer.Option(help="Directory of output files.")]
+OutputDirArg = Annotated[
+    pathlib.Path, typer.Option(help="Directory of output files.")
+]
 OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
 OutputPCFlag = Annotated[
     bool,
@@ -169,6 +170,9 @@ def reconstruct(
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.INFO)
+    global_state.STATE_PROVIDER.should_profile = profile
+    global_state.STATE_PROVIDER.output_dir = output_dir
+
     b2bn = infer_breakpoint_graph.reconstruct_graphs(
         lr_bam, cnv_seed, cn_seg, output_dir, output_bp, min_bp_support
     )
@@ -187,9 +191,11 @@ def reconstruct(
             should_postprocess_greedy_sol=postprocess_greedy_sol,
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=force_greedy,
-            should_profile=profile,
         )
+
     b2bn.closebam()
+    if profile:
+        output.summary.add_resource_usage_summary(solver_options)
     print("\nCompleted reconstruction.")
 
 
@@ -221,6 +227,8 @@ def cycle_decomposition_mode(
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.ERROR)
+    global_state.STATE_PROVIDER.should_profile = profile
+    global_state.STATE_PROVIDER.output_dir = output_dir
 
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
     amplicon_idx = int(bp_graph.name.split("_")[0].split("amplicon")[1])
@@ -240,7 +248,6 @@ def cycle_decomposition_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
-        should_profile=profile,
     )
 
 
@@ -273,12 +280,16 @@ def cycle_decomposition_all_mode(
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.ERROR)
+    global_state.STATE_PROVIDER.should_profile = profile
+    global_state.STATE_PROVIDER.output_dir = output_dir
 
     bp_graphs = []
-    for bp_file in bp_dir.glob("*_graph.txt"):
-        with open(bp_file, "r") as f:
+    for bp_filepath in bp_dir.glob("*_graph.txt"):
+        with bp_filepath.open("r") as f:
             parsed_bp_graph = parse_breakpoint_graph(f)
-            amplicon_idx = int(bp_file.name.split("_")[0].split("amplicon")[1])
+            amplicon_idx = int(
+                bp_filepath.name.split("_")[0].split("amplicon")[1]
+            )
             # We 1-index on outputting graph files
             parsed_bp_graph.amplicon_idx = amplicon_idx - 1
             bp_graphs.append(parsed_bp_graph)
@@ -297,8 +308,9 @@ def cycle_decomposition_all_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
-        should_profile=profile,
     )
+    if profile:
+        output.summary.add_resource_usage_summary(solver_options)
 
 
 @coral_app.command(
@@ -408,6 +420,7 @@ def plot_mode(
     print(f"Performing plot mode with options: {ctx.params}")
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
+
     plot_amplicons.plot_amplicons(
         ref,
         bam,
@@ -493,10 +506,11 @@ def score_mode(
     ] = 100,
 ) -> None:
     print(f"Performing score mode with options: {ctx.params}")
-    score_simulation.score_reconstruction(
+    score = score_simulation.score_reconstruction(
         true_cycles,
         true_graphs,
         bp_dir,
         cnv_seeds,
         tolerance,
     )
+    print(score)

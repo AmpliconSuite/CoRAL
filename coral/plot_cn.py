@@ -1,3 +1,4 @@
+import pathlib
 
 import matplotlib
 import matplotlib.axes
@@ -23,7 +24,8 @@ def parse_cnr_file(file: typer.FileText) -> list:
     filename (str): The path to the CNR file to be parsed.
 
     Returns:
-    list of dict: A list where each item represents a line from the CNR file as a dictionary.
+    list of dict: A list where each item represents a line from the CNR file as
+    a dictionary.
     """
     cnr_data = []
     # Skip the header line
@@ -105,6 +107,8 @@ def plot_cnr_data(cnr_data: list[dict], output_dir: str, name: str) -> None:
     plt.savefig(f"{output_dir}/{name}.pdf", dpi=30, bbox_inches="tight")
 
 
-def plot_cnr(cnr_file: typer.FileText, output_dir: str, name: str) -> None:
+def plot_cnr(
+    cnr_file: typer.FileText, output_dir: pathlib.Path, name: str
+) -> None:
     parsed_data = parse_cnr_file(cnr_file)
     plot_cnr_data(parsed_data, output_dir, name)

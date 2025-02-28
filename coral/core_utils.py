@@ -1,20 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import functools
+import logging
 import pathlib
+import tempfile
 import time
-from typing import TYPE_CHECKING, Callable, Generic, NamedTuple, ParamSpec, TypeVar
+from dataclasses import dataclass
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    ParamSpec,
+    TypeVar,
+)
 
 import memray
 
-from coral.datatypes import SolverOptions
+from coral import datatypes, global_state
 
 if TYPE_CHECKING:
     from coral.datatypes import EdgeId, Node, Walk
-    from coral.breakpoint.breakpoint_graph import BreakpointGraph
+
+
 P = ParamSpec("P")
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 def path_to_str(path: Walk, edge_counts: dict[EdgeId, int]) -> str:
@@ -81,40 +91,66 @@ def path_to_str__old(path: Walk) -> str:
                 path_str += f"{prev_node.strand.inverse.value}\t"
     return path_str
 
-class ProfileResult(NamedTuple,Generic[T]):
-    peak_ram_gb: float | None
-    runtime_s: float | None
-    result: T
+
+def profile_fn_with_call_counter(fn: Callable[P, T]) -> Callable[P, T]:
+    call_ctr = 0
+
+    @functools.wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        if not global_state.STATE_PROVIDER.should_profile:
+            return fn(*args, **kwargs)
+
+        nonlocal call_ctr
+        call_ctr += 1
+        fn_call = datatypes.FnCall(fn.__name__, call_ctr)
+
+        start = time.perf_counter()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                profile_path = f"{temp_dir}/{fn.__name__}_profile.bin"
+                with memray.Tracker(profile_path):
+                    result = fn(*args, **kwargs)
+                mem_stats = memray._memray.compute_statistics(profile_path)
+                global_state.PROFILED_FN_CALLS[fn_call] = (
+                    datatypes.ProfileResult(
+                        peak_ram_gb=mem_stats.peak_memory_allocated / 1e9,
+                        runtime_s=time.perf_counter() - start,
+                    )
+                )
+                return result
+        except AttributeError:  # Avoid crashing if private API changes
+            logger.error("Failed to profile function due to memray error")
+
+        return fn(*args, **kwargs)
+
+    return wrapper
+
 
 def profile_fn(fn: Callable[P, T]) -> Callable[P, T]:
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        if not kwargs.get("should_profile"):
+        if not global_state.STATE_PROVIDER.should_profile:
             return fn(*args, **kwargs)
-        
-        if not kwargs.get("bp_graph") or not kwargs.get("solver_options"):
-            raise ValueError("bp_graph and solver_options must be provided")
 
-        solver_options: SolverOptions = kwargs.get("solver_options") # type: ignore[assignment]
-        bp_graph: BreakpointGraph = kwargs.get("bp_graph") # type: ignore[assignment]
-
-        profile_path = f"{solver_options.output_dir}" \
-            f"/amplicon_{bp_graph.amplicon_idx}_mem_profile.bin"
-        # Tracker errors if file already exists
-        if pathlib.Path(profile_path).exists():
-            pathlib.Path(profile_path).unlink()
+        fn_call = datatypes.FnCall(fn.__name__, None)
 
         start = time.perf_counter()
         try:
-            with memray.Tracker(profile_path):
-                result = fn(*args, **kwargs)
-            mem_stats = memray._memray.compute_statistics(profile_path)
-            bp_graph.peak_ram_gb = mem_stats.peak_memory_allocated / 1e9
-            end = time.perf_counter()
-            bp_graph.runtime_s = end - start
-            return result
-        except:
-            pass # Avoid crashing if private API changes
+            with tempfile.TemporaryDirectory() as temp_dir:
+                profile_path = f"{temp_dir}/{fn.__name__}_profile.bin"
+                with memray.Tracker(profile_path):
+                    result = fn(*args, **kwargs)
+                mem_stats = memray._memray.compute_statistics(profile_path)
+                global_state.PROFILED_FN_CALLS[fn_call] = (
+                    datatypes.ProfileResult(
+                        peak_ram_gb=mem_stats.peak_memory_allocated / 1e9,
+                        runtime_s=time.perf_counter() - start,
+                    )
+                )
+                return result
+        except AttributeError:  # Avoid crashing if private API changes
+            logger.error("Failed to profile function due to memray error")
 
         return fn(*args, **kwargs)
+
     return wrapper
