@@ -2,10 +2,15 @@
 Utilities for scoring reconstructions against simulated amplicons.
 """
 
+from __future__ import annotations
+
 import sys
 import warnings
 from itertools import combinations, product
 from typing import Optional
+
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.datatypes import Node, Strand
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -19,36 +24,22 @@ from coral.scoring import io_utils, scoring_utils
 
 
 def breakpoint_match(
-    bp1: tuple[str, int, str, str, int, str],
-    bp2: tuple[str, int, str, str, int, str],
+    node1: Node,
+    node2: Node,
+    other_node1: Node,
+    other_node2: Node,
     tolerance: int = 100,
 ) -> bool:
-    (
-        chromosome1,
-        position1,
-        orientation1,
-        chromosome2,
-        position2,
-        orientation2,
-    ) = bp1
-    (
-        _chromosome1,
-        _position1,
-        _orientation1,
-        _chromosome2,
-        _position2,
-        _orientation2,
-    ) = bp2
+    if node1.chr != other_node1.chr or node2.chr != other_node2.chr:
+        return False
 
-    if chromosome1 == _chromosome1 and chromosome2 == _chromosome2:
-        if orientation1 == _orientation1 and orientation2 == _orientation2:
-            if (
-                abs(position1 - _position1) < tolerance
-                and abs(position2 - _position2) < tolerance
-            ):
-                return True
+    if node1.strand != other_node1.strand or node2.strand != other_node2.strand:
+        return False
 
-    return False
+    return (
+        abs(node1.pos - other_node1.pos) < tolerance
+        and abs(node2.pos - other_node2.pos) < tolerance
+    )
 
 
 def repartition_intervals(cycle, intervals):
@@ -267,52 +258,60 @@ def get_fragments_similarity_unweighted(
     return (1.0 - overlap_distance), length_ratio
 
 
-def find_overlapping_sequence_edges(edges1, edges2, tolerance=1000):
+def find_overlapping_sequence_edges(
+    true_graph: BreakpointGraph,
+    reconstructed_graph: BreakpointGraph,
+    tolerance: int = 1000,
+) -> tuple[int, float]:
     # naively test if we find an edge that looks similar
     # for all edges in edges1
     num_edges_found = 0
-    for _, edge1 in edges1.iterrows():
-        bp1 = (edge1.Chrom1, edge1.Start, "-", edge1.Chrom2, edge1.End, "+")
+    for edge in true_graph.sequence_edges:
+        node1 = Node(edge.chr, edge.start, Strand.REVERSE)
+        node2 = Node(edge.chr, edge.end, Strand.FORWARD)
 
-        for _, edge2 in edges2.iterrows():
-            bp2 = (edge2.Chrom1, edge2.Start, "-", edge2.Chrom2, edge2.End, "+")
-
-            if breakpoint_match(bp1, bp2, tolerance):
+        for other_edge in reconstructed_graph.sequence_edges:
+            other_node1 = Node(other_edge.chr, other_edge.start, Strand.REVERSE)
+            other_node2 = Node(other_edge.chr, other_edge.end, Strand.FORWARD)
+            if breakpoint_match(
+                node1, node2, other_node1, other_node2, tolerance
+            ):
                 num_edges_found += 1
                 break
 
-    return num_edges_found, num_edges_found / len(edges1)
+    return num_edges_found, num_edges_found / len(true_graph.sequence_edges)
 
 
-def find_overlapping_bp_edges(edges1, edges2, tolerance=1000):
+def find_overlapping_bp_edges(
+    true_graph: BreakpointGraph,
+    reconstructed_graph: BreakpointGraph,
+    tolerance: int = 1000,
+) -> tuple[int, float]:
     # naively test if we find an edge that looks similar
     # for all edges in edges1
     num_edges_found = 0
-    for _, edge1 in edges1.iterrows():
-        bp1 = (
-            edge1.Chrom1,
-            edge1.Pos1,
-            edge1.Orient1,
-            edge1.Chrom2,
-            edge1.Pos2,
-            edge1.Orient2,
-        )
+    for edge in true_graph.breakpoint_edges:
+        node1 = Node(edge.node1.chr, edge.node1.pos, edge.node1.strand)
+        node2 = Node(edge.node2.chr, edge.node2.pos, edge.node2.strand)
 
-        for _, edge2 in edges2.iterrows():
-            bp2 = (
-                edge2.Chrom1,
-                edge2.Pos1,
-                edge2.Orient1,
-                edge2.Chrom2,
-                edge2.Pos2,
-                edge2.Orient2,
+        for other_edge in reconstructed_graph.breakpoint_edges:
+            other_node1 = Node(
+                other_edge.node1.chr,
+                other_edge.node1.pos,
+                other_edge.node1.strand,
             )
-
-            if breakpoint_match(bp1, bp2, tolerance):
+            other_node2 = Node(
+                other_edge.node2.chr,
+                other_edge.node2.pos,
+                other_edge.node2.strand,
+            )
+            if breakpoint_match(
+                node1, node2, other_node1, other_node2, tolerance
+            ):
                 num_edges_found += 1
                 break
 
-    return num_edges_found, num_edges_found / len(edges1)
+    return num_edges_found, num_edges_found / len(true_graph.breakpoint_edges)
 
 
 def create_cycle_graph(cycle):

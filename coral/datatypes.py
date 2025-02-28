@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import enum
+import os
+import pathlib
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -503,9 +505,9 @@ class Solver(str, enum.Enum):
 
 @dataclass
 class SolverOptions:
-    num_threads: int = -1
+    output_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
+    num_threads: int = field(default_factory=os.cpu_count)  # type: ignore[assignment]
     time_limit_s: int = 7200
-    output_dir: str = "models"
     model_prefix: str = "pyomo"
     solver: Solver = Solver.GUROBI
 
@@ -748,3 +750,13 @@ class PathMetric:
     path_idxs: list[int]  # Associated path indices
     path_length: int  # Cumulative path length
     path_support: int  # Cumulative path support
+
+
+class ProfileResult(NamedTuple):
+    peak_ram_gb: float | None
+    runtime_s: float | None
+
+
+class FnCall(NamedTuple):
+    fn_name: str
+    call_ctr: int | None

@@ -88,6 +88,7 @@ coral = "coral.cli:coral_app"
 [tool.ruff]
 lint.select = ["ALL"]
 lint.ignore = [
+  "EM101",   # String literal in exception
   "E501",
   "D",       # Docstrings
   "TD",      # TODO metadata
@@ -120,7 +121,7 @@ exclude = [
   "plot_amplicons.py", 
   "plot_cn.py"
 ]
-plugins = "numpy.typing.mypy_plugin"
+# plugins = "numpy.typing.mypy_plugin"
 strict = false
 
 [tool.pyright]

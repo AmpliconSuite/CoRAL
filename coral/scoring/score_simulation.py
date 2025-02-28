@@ -14,6 +14,9 @@ import warnings
 from itertools import combinations, product
 from typing import Optional
 
+from coral.breakpoint import parse_graph
+from coral.breakpoint.parse_graph import parse_breakpoint_graph
+
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 import networkx as nx
@@ -54,7 +57,7 @@ AMPLICON_COLS = [
 def score_reconstruction(
     true_cycles_file: io.TextIOWrapper,
     true_graph_file: io.TextIOWrapper,
-    reconstructed_graph_files: list[io.TextIOWrapper],
+    bp_graph_dir: pathlib.Path,
     cnv_seeds_file: io.TextIOWrapper,
     tolerance: int = 100,
     decoil: bool = False,
@@ -78,7 +81,7 @@ def score_reconstruction(
 
     true_intervals, _ = io_utils.read_cycles_intervals_to_bed(true_cycles_file)
     true_cycles_bed = io_utils.read_cycles_file_to_bed(true_cycles_file)
-    cnv_seeds = pyranges.read_bed(cnv_seeds_file)
+    cnv_seeds = pyranges.read_bed(cnv_seeds_file.name)
     cnv_seeds_relaxed = cnv_seeds.extend(int(tolerance))
 
     # compute overlapping CNV intervals
@@ -90,51 +93,47 @@ def score_reconstruction(
     (
         simulated_seq_edges,
         simulated_bp_edges,
-    ) = io_utils.read_breakpoint_graph(true_graph_file)
-    bp_graph = parse(simulated_bp_edges)
+    ) = io_utils.read_breakpoint_graph(true_graph_file.name)
+    true_graph = parse_graph.parse_breakpoint_graph(true_graph_file)
 
-    n_sequence_edges = len(simulated_seq_edges)
-    n_breakpoint_edges = len(simulated_bp_edges)
+    reconstruction_to_statistics: dict[str, tuple[int, int, int, int]] = {}
+    for bp_filepath in bp_graph_dir.glob("*_graph.txt"):
+        with bp_filepath.open("r") as f:
+            reconstructed_graph = parse_graph.parse_breakpoint_graph(f)
 
-    reconstruction_to_statistics = {}
-    for reconstructed_graph_file in reconstructed_graph_files:
-        (
-            reconstructed_seq_edges,
-            reconstructed_bp_edges,
-        ) = io_utils.read_breakpoint_graph(reconstructed_graph_file)
-
-        (
-            num_overlapping_sequence,
-            _,
-        ) = scoring_utils.find_overlapping_sequence_edges(
-            simulated_seq_edges,
-            reconstructed_seq_edges,
-            tolerance=tolerance,
+        (num_overlapping_sequence, _) = (
+            scoring_utils.find_overlapping_sequence_edges(
+                true_graph,
+                reconstructed_graph,
+                tolerance=tolerance,
+            )
         )
 
         (num_overlapping_bp, _) = scoring_utils.find_overlapping_bp_edges(
-            simulated_bp_edges,
-            reconstructed_bp_edges,
+            true_graph,
+            reconstructed_graph,
             tolerance=tolerance,
         )
 
-        reconstruction_to_statistics[reconstructed_graph_file] = (
+        reconstruction_to_statistics[bp_filepath.name] = (
             num_overlapping_sequence,
             num_overlapping_bp,
-            len(reconstructed_seq_edges),
-            len(reconstructed_bp_edges),
+            len(reconstructed_graph.sequence_edges),
+            len(reconstructed_graph.breakpoint_edges),
         )
 
         # compute fragment overlap
-        reconstructed_cycles_file = re.sub(
+        reconstructed_cycles_file_name = re.sub(
             r"graphs/amplicon(\d+)_graph.txt",
             r"cycles/amplicon\1_cycles.txt",
-            reconstructed_graph_file,
+            bp_filepath.name,
         )
-        if os.path.exists(reconstructed_cycles_file):
-            reconstructed_cycles_bed = io_utils.read_cycles_file_to_bed(
-                reconstructed_cycles_file
-            )
+        reconstructed_cycles_filepath = pathlib.Path(
+            reconstructed_cycles_file_name
+        )
+        if reconstructed_cycles_filepath.exists():
+            with reconstructed_cycles_filepath.open("r") as f:
+                reconstructed_cycles_bed = io_utils.read_cycles_file_to_bed(f)
 
             binned_genome, _ = io_utils.bin_genome(
                 true_cycles_bed.df, reconstructed_cycles_bed.df
@@ -149,11 +148,15 @@ def score_reconstruction(
             )
 
             _best_copy_number_ratio = scoring_utils.get_cycle_copy_number_ratio(
-                reconstructed_cycles_bed.df, reconstructed_seq_edges, n=1
+                reconstructed_cycles_bed.df,
+                reconstructed_graph.sequence_edges,
+                n=1,
             )
             _top_three_copy_number_ratio = (
                 scoring_utils.get_cycle_copy_number_ratio(
-                    reconstructed_cycles_bed.df, reconstructed_seq_edges, n=3
+                    reconstructed_cycles_bed.df,
+                    reconstructed_graph.sequence_edges,
+                    n=3,
                 )
             )
 
@@ -191,9 +194,9 @@ def score_reconstruction(
                     max_normalized_lcs,
                 )
 
-    for reconstruction in reconstruction_to_statistics.keys():
+    for reconstruction_name in reconstruction_to_statistics:
         if (
-            reconstruction_to_statistics[reconstruction][1]
+            reconstruction_to_statistics[reconstruction_name][1]
             > n_breakpoint_edges_covered
         ):
             (
@@ -201,7 +204,7 @@ def score_reconstruction(
                 n_breakpoint_edges_covered,
                 n_reconstructed_sequence_edges_total,
                 n_reconstructed_breakpoint_edges_total,
-            ) = reconstruction_to_statistics[reconstruction]
+            ) = reconstruction_to_statistics[reconstruction_name]
 
     return (
         n_amplified_intervals,
@@ -226,9 +229,7 @@ def score_simulations(
     simulation_dir_path: pathlib.Path,
     output_dir: pathlib.Path,
     tolerance: int,
-    base_coverage: float,
-    debug: Optional[str],
-):
+) -> None:
     amplicon_statistics = pd.DataFrame(columns=AMPLICON_COLS)
 
     to_skip: list[str] = []

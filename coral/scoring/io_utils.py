@@ -3,6 +3,9 @@ Utilities for reading and processing breakpoint graphs and cycles file from
 AmpliconArchitect.
 """
 
+from __future__ import annotations
+
+import io
 import re
 
 import numpy as np
@@ -10,20 +13,21 @@ import pandas as pd
 import pyranges
 
 
-def read_cycles_intervals_to_bed(file):
+def read_cycles_intervals_to_bed(
+    file: io.TextIOWrapper,
+) -> tuple[pyranges.PyRanges, pyranges.PyRanges]:
     intervals = []
     segments = []
     cycles = []
 
-    with open(file, "r") as f:
-        for line in f:
-            if line.startswith("Interval"):
-                _, _, chrom, start, end = line.split("\t")
-                intervals.append((chrom, start, end))
+    for line in file:
+        if line.startswith("Interval"):
+            _, _, chrom, start, end = line.split("\t")
+            intervals.append((chrom, start, end))
 
-            if line.startswith("Segment"):
-                _, _id, chrom, start, end = line.split("\t")
-                segments.append((_id, chrom, start, end))
+        if line.startswith("Segment"):
+            _, _id, chrom, start, end = line.split("\t")
+            segments.append((_id, chrom, start, end))
 
     intervals_pr = pyranges.PyRanges(
         chromosomes=[interval[0] for interval in intervals],
@@ -38,14 +42,15 @@ def read_cycles_intervals_to_bed(file):
     return intervals_pr, segments_pr
 
 
-def read_cycles_file_to_bed(input_file, num_cycles=None):
-    all_segs = dict()
-    cycles = dict()
-    with open(input_file) as fp:
-        for line in fp:
-            t = line.strip().split()
-            if t[0] == "Segment":
-                all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
+def read_cycles_file_to_bed(
+    input_file: io.TextIOWrapper, num_cycles: int | None = None
+) -> pyranges.PyRanges:
+    all_segs: dict[str, list[str, int, int]] = {}
+    cycles: dict[int, list[bool, float, list[list[str, int, int, str]]]] = {}
+    for line in input_file:
+        t = line.strip().split()
+        if t[0] == "Segment":
+            all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
             if t[0][:5] == "Cycle":
                 st = t[0].split(";")
                 cycle_id = 1
