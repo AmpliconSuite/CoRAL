@@ -41,7 +41,7 @@ scanpydoc = { version = ">=0.5", optional = true }
 typing-extensions = ">=3.7.4"
 typing_extensions = { version = "*", python = "<3.9", optional = true }
 click = "^8.1.7"
-mypy = "^1.11.2"
+mypy = "1.14.1" # v0.15.0 repeatedly crashes extension
 pomegranate = "^1.1.0" # Py3.12 support
 pydantic = "^2.9.2"
 pyomo = "^6.8.0"
@@ -52,6 +52,8 @@ seaborn = "^0.13.2"
 typer = "^0.12.5"
 torch = { version =">=2.5.1, =2.*", source="pytorch-cpu"} # Required by pomegranate/cnvkit
 memray = "^1.15.0"
+pandera = "0.23.0" # Bug with parsers running twice (pre-v0.23.0) causes issues https://github.com/unionai-oss/pandera/issues/1842
+decorator = "^5.2.1"
 
 [[tool.poetry.source]]
 name = "pytorch-cpu"
