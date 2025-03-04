@@ -6,12 +6,11 @@ import random
 from pathlib import Path
 from typing import Dict
 
-from coral import constants, core_utils
-from coral.breakpoint import infer_breakpoint_graph
+from coral import core_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import FinalizedPathConstraint, Walk
-from coral.output.amplicon_summary import (
+from coral.output.summary import (
     get_single_cycle_output,
     get_single_path_output,
     output_amplicon_info,
@@ -132,3 +131,15 @@ def write_path_constraint_to_file(
     fp.write(f"Path constraint\t{finalized_pc.pc_idx+1}\t")
     fp.write(core_utils.path_to_str(path, finalized_pc.edge_counts))
     fp.write(f"\tSupport={finalized_pc.support}")
+
+
+def add_graph_construction_stats_to_summary(
+    peak_ram_gb: float, runtime_s: float, fp: io.TextIOWrapper
+) -> None:
+    fp.write("------------------------------------------------------------\n")
+    fp.write(
+        "Overall Stats: Breakpoint Graph Construction + Amplified Interval "
+        "Search\n"
+    )
+    fp.write(f"Peak RAM: {peak_ram_gb} GB\n")
+    fp.write(f"Runtime: {runtime_s} s\n")

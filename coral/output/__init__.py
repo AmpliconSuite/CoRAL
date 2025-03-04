@@ -1,3 +1,3 @@
-from . import amplicon_summary
+from . import summary
 
-__all__ = ["amplicon_summary"]
+__all__ = ["summary"]

@@ -17,7 +17,7 @@ import numpy as np
 import pysam
 import typer
 
-from coral import bam_types, core_types
+from coral import bam_types, core_types, core_utils
 from coral.breakpoint import breakpoint_utilities, path_utilities
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.breakpoint_types import CNSSegData
@@ -221,7 +221,7 @@ class LongReadBamToBreakpointMetadata:
         )
         logger.debug(f"Reset min_cluster_cutoff to {self.min_cluster_cutoff}.")
 
-    def pos2cni(self, chr, pos):
+    def pos2cni(self, chr: str, pos: int) -> core_types.CNSIdx:
         return self.cns_tree[chr][pos]
 
     def hash_alignment_to_seg(
@@ -253,7 +253,8 @@ class LongReadBamToBreakpointMetadata:
         return chimeras_by_read, chr_cns_to_chimeras
 
     def widen_seed_intervals(self) -> None:
-        """Widen seed intervals to fully encompass CN segments that the interval falls within."""
+        """Widen seed intervals to fully encompass CN segments that the
+        interval falls within."""
         for interval in self.amplicon_intervals:
             chr_tag = interval.chr
             lcni, rcni = self.cns_tree[chr_tag].get_cns_ends(interval)
@@ -386,16 +387,15 @@ class LongReadBamToBreakpointMetadata:
             # Delete intervals
             for ai in reversed(intvs_to_remove):
                 intv = self.amplicon_intervals[ai]
-                logger.info(
-                    f"Delete amplicon interval {ai} - {intv}."
-                )
+                logger.info(f"Delete amplicon interval {ai} - {intv}.")
                 del self.amplicon_intervals[ai]
                 del original_interval_idxs[ai]
 
-
         for ai, interval in enumerate(self.amplicon_intervals):
-            logger.info(f"\t{ai} (Prev. {original_interval_idxs[ai]}) - "
-                        f"Amplicon interval: {interval}")
+            logger.info(
+                f"\t{ai} (Prev. {original_interval_idxs[ai]}) - "
+                f"Amplicon interval: {interval}"
+            )
         # Need to remap connections based on reduced set of intervals
         orig_to_new_idx = {
             old_idx: new_idx
@@ -412,7 +412,6 @@ class LongReadBamToBreakpointMetadata:
 
         logger.info("Resetting amplicon ccids.")
         self.reset_amplicon_ccids()
-
 
     def reset_amplicon_ccids(self) -> None:
         ai_explored = np.zeros(len(self.amplicon_intervals))
@@ -1580,11 +1579,12 @@ class LongReadBamToBreakpointMetadata:
         self.lr_bamfh.close()
 
 
+@core_utils.profile_fn
 def reconstruct_graphs(
     lr_bam_filename: pathlib.Path,
     cnv_seed_file: typer.FileText,
     cn_seg_file: typer.FileText,
-    output_dir: str,
+    output_dir: pathlib.Path,
     output_bp: bool,
     min_bp_support: float,
 ) -> LongReadBamToBreakpointMetadata:
@@ -1616,7 +1616,9 @@ def reconstruct_graphs(
             with pickle_path.open("rb") as file:
                 chimeric_alignments = pickle.load(file)
         except Exception as e:
-            logger.error(f"Error loading chimeric alignments: {e}, re-fetching")
+            logger.error(
+                f"Unable to load chimeric alignments: {e}, re-fetching"
+            )
             chimeric_alignments, edit_dist_stats = (
                 breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
             )

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 import pathlib
+from collections import defaultdict
 from typing import Dict, List, Optional
 
 import memray
@@ -21,13 +21,14 @@ import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
-from coral import datatypes, models
+from coral import core_utils, datatypes, models
 from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.core_utils import profile_fn
-from coral.models import cycle_utils, output
+from coral.core_utils import profile_fn_with_call_counter
+from coral.models import cycle_utils
 from coral.models.concrete import initialize_post_processing_solver
 from coral.models.path_constraints import longest_path_dict
+from coral.output import cycle_output
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,9 @@ def minimize_cycles(
     logger.debug(f"Completed model setup, wrote to {model_filepath}.lp.")
 
     solver = cycle_utils.get_solver(solver_options)
-    results: pyomo.opt.SolverResults = solver.solve(model, tee=True)
+    results: pyomo.opt.SolverResults = solver.solve(
+        model, logfile=f"{model_filepath}.log"
+    )
 
     logger.debug(
         f"Completed optimization with status {results.solver.status}, condition {results.solver.termination_condition}."
@@ -136,7 +139,7 @@ def minimize_cycles_post(
     init_sol: datatypes.InitialSolution,
     p_total_weight: float = 0.9,
     resolution: float = 0.1,
-    solver_options: Optional[datatypes.SolverOptions] = None,
+    solver_options: datatypes.SolverOptions | None = None,
 ) -> datatypes.CycleSolution:
     """Cycle decomposition by postprocessing the greedy MIQCP solution.
 
@@ -226,7 +229,9 @@ def minimize_cycles_post(
     initialize_post_processing_solver(model, init_sol)
 
     solver = cycle_utils.get_solver(solver_options)
-    results: pyomo.opt.SolverResults = solver.solve(model, tee=True)
+    results: pyomo.opt.SolverResults = solver.solve(
+        model, logfile=f"{model_filepath}.log"
+    )
     return cycle_utils.parse_solver_output(
         results.solver.status,
         results.solver.termination_condition,
@@ -377,7 +382,9 @@ def maximize_weights_greedy(
         )
 
         solver = cycle_utils.get_solver(solver_options)
-        results: pyomo.opt.SolverResults = solver.solve(model, tee=True)
+        results: pyomo.opt.SolverResults = solver.solve(
+            model, logfile=f"{model_filepath}.log"
+        )
         curr_sol = cycle_utils.parse_solver_output(
             results.solver.status,
             results.solver.termination_condition,
@@ -446,7 +453,8 @@ def does_graph_require_greedy_solve(bp_graph: BreakpointGraph, k: int) -> bool:
         >= 10000
     )
 
-@profile_fn
+
+@core_utils.profile_fn_with_call_counter
 def solve_single_graph(
     bp_graph: BreakpointGraph,
     k: int,
@@ -460,7 +468,6 @@ def solve_single_graph(
     *,
     should_force_greedy: bool = False,
     should_postprocess: bool = False,
-    should_profile: bool = False,
 ) -> datatypes.CycleSolution:
     while k <= bp_graph.num_edges:
         # When problem is too large, we begin with the greedy optimization
@@ -544,7 +551,6 @@ def cycle_decomposition_single_graph(
     should_postprocess: bool = False,
     should_force_greedy: bool = False,
     output_all_path_constraints: bool = False,
-    should_profile: bool = False,
 ) -> None:
     logger.info(
         f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
@@ -579,23 +585,22 @@ def cycle_decomposition_single_graph(
         logger.info(f"Reset num cycles/paths to {k}.")
 
     lp_solution = solve_single_graph(
-            bp_graph=bp_graph,
-            k=k,
-            total_weights=total_weights,
-            node_order=node_order,
-            solver_options=solver_options,
+        bp_graph=bp_graph,
+        k=k,
+        total_weights=total_weights,
+        node_order=node_order,
+        solver_options=solver_options,
         alpha=alpha,
         p_total_weight=p_total_weight,
         resolution=resolution,
         should_postprocess=should_postprocess,
         should_force_greedy=should_force_greedy,
-        should_profile=should_profile,
     )
     bp_graph.walks = lp_solution.walks
     bp_graph.walk_weights = lp_solution.walk_weights
     bp_graph.path_constraints_satisfied = lp_solution.satisfied_pc
 
-    output.output_amplicon_walks(
+    cycle_output.output_amplicon_walks(
         bp_graph,
         solver_options.output_dir,
         output_all_path_constraints=output_all_path_constraints,
@@ -612,7 +617,6 @@ def cycle_decomposition_all_graphs(
     should_postprocess: bool = False,
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
-    should_profile: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
     was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
@@ -627,14 +631,9 @@ def cycle_decomposition_all_graphs(
             should_postprocess=should_postprocess,
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=should_force_greedy,
-            should_profile=should_profile,
         )
         was_amplicon_solved[amplicon_idx] = True
-    output.output_summary_amplicon_stats(
-        was_amplicon_solved,
-        bp_graphs,
-        output_dir=solver_options.output_dir,
-    )
+    cycle_output.output_summary_amplicon_stats(was_amplicon_solved, bp_graphs)
 
 
 def reconstruct_cycles(
@@ -645,7 +644,6 @@ def reconstruct_cycles(
     should_postprocess_greedy_sol: bool = False,
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
-    should_profile: bool = False,
 ) -> None:
     logging.basicConfig(
         filename=f"{solver_options.output_dir}/cycle_decomp.log",
@@ -662,7 +660,6 @@ def reconstruct_cycles(
         should_postprocess=should_postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=should_force_greedy,
-        should_profile=should_profile,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(
@@ -687,7 +684,8 @@ def postprocess_solution(
         lp_solution: solution container parsed from the MIQCP solver output
 
     Returns:
-        CycleLPSolution - modifies the input solution object directly with the postprocessed values.
+        CycleLPSolution - modifies the input solution object directly with the
+        postprocessed values.
     """
     lp_solution = minimize_cycles_post(
         amplicon_idx + 1,

@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import io
+import logging
 
 import typer
 
@@ -19,6 +21,8 @@ from coral.datatypes import (
     Walk,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def parse_sequence_edge(line: str) -> SequenceEdge:
     s = line.strip().split("\t")
@@ -28,7 +32,7 @@ def parse_sequence_edge(line: str) -> SequenceEdge:
         end=int(s[2].split(":")[1][:-1]),
         cn=float(s[3]),
         lr_nc=float(s[4]),
-        lr_count=int(s[6]),
+        lr_count=int(float(s[6])),
     )
 
 
@@ -36,6 +40,9 @@ def parse_concordant_edge(line: str) -> ConcordantEdge:
     s = line.strip().split("\t")
     node1_str = s[1].split("->")[0]
     node2_str = s[1].split("->")[1]
+    if s[2] == "":
+        s.pop(2)  # Some older simulations had a superfluous \t character
+
     return ConcordantEdge(
         node1=Node(
             chr=node1_str.split(":")[0],
@@ -47,7 +54,7 @@ def parse_concordant_edge(line: str) -> ConcordantEdge:
             pos=int(node2_str.split(":")[1][:-1]),
             strand=Strand(node2_str.split(":")[1][-1]),
         ),
-        lr_count=int(s[3]),
+        lr_count=int(float(s[3])),  # Some older graphs outputted float
         cn=float(s[2]),
     )
 
@@ -56,6 +63,9 @@ def parse_discordant_edge(line: str) -> DiscordantEdge:
     s = line.strip().split("\t")
     node1_str = s[1].split("->")[0]
     node2_str = s[1].split("->")[1]
+    if s[2] == "":
+        s.pop(2)  # Some older simulations had a superfluous \t character
+
     return DiscordantEdge(
         node1=Node(
             chr=node1_str.split(":")[0],
@@ -67,7 +77,7 @@ def parse_discordant_edge(line: str) -> DiscordantEdge:
             pos=int(node2_str.split(":")[1][:-1]),
             strand=Strand(node2_str.split(":")[1][-1]),
         ),
-        lr_count=int(s[3]),
+        lr_count=int(float(s[3])),  # Some older graphs outputted float
         cn=float(s[2]),
     )
 
@@ -181,7 +191,7 @@ def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
     bp_graph.max_cn -= 1.0
 
     if not bp_graph.amplicon_intervals:
-        raise ValueError(
+        logger.warning(
             "No amplicon intervals found in breakpoint graph. Are you "
             "using a *_graph.txt file generated with CoRAL v2.1.0+?"
         )
