@@ -6,6 +6,7 @@ AmpliconArchitect.
 from __future__ import annotations
 
 import io
+import pathlib
 import re
 
 import numpy as np
@@ -14,20 +15,21 @@ import pyranges
 
 
 def read_cycles_intervals_to_bed(
-    file: io.TextIOWrapper,
-) -> tuple[pyranges.PyRanges, pyranges.PyRanges]:
+    file: pathlib.Path,
+) -> pyranges.PyRanges:
     intervals = []
     segments = []
     cycles = []
 
-    for line in file:
-        if line.startswith("Interval"):
-            _, _, chrom, start, end = line.split("\t")
-            intervals.append((chrom, start, end))
+    with file.open("r") as f:
+        for line in f:
+            if line.startswith("Interval"):
+                _, _, chrom, start, end = line.split("\t")
+                intervals.append((chrom, start, end))
 
-        if line.startswith("Segment"):
-            _, _id, chrom, start, end = line.split("\t")
-            segments.append((_id, chrom, start, end))
+            if line.startswith("Segment"):
+                _, _id, chrom, start, end = line.split("\t")
+                segments.append((_id, chrom, start, end))
 
     intervals_pr = pyranges.PyRanges(
         chromosomes=[interval[0] for interval in intervals],
@@ -39,26 +41,27 @@ def read_cycles_intervals_to_bed(
         starts=[segment[2] for segment in segments],
         ends=[segment[3] for segment in segments],
     )
-    return intervals_pr, segments_pr
+    return intervals_pr  # , segments_pr
 
 
 def read_cycles_file_to_bed(
-    input_file: io.TextIOWrapper, num_cycles: int | None = None
+    cycle_filepath: pathlib.Path, num_cycles: int | None = None
 ) -> pyranges.PyRanges:
-    all_segs: dict[str, list[str, int, int]] = {}
-    cycles: dict[int, list[bool, float, list[list[str, int, int, str]]]] = {}
-    for line in input_file:
-        t = line.strip().split()
-        if t[0] == "Segment":
-            all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
-            if t[0][:5] == "Cycle":
+    all_segs: dict[str, list[str | int]] = {}
+    cycles: dict[int, list[bool, float, list[list[str | int]]]] = {}
+    with cycle_filepath.open("r") as f:
+        for line in f:
+            t = line.strip().split()
+            if t[0] == "Segment":
+                all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
+            if t[0][:5] == "Cycle" or t[0][:5] == "Path=":
                 st = t[0].split(";")
                 cycle_id = 1
                 cycle_weight = 1.0
                 cycle_segs = ["0+", "0-"]
                 for s in st:
                     s = s.split("=")
-                    if s[0] == "Cycle":
+                    if s[0] == "Cycle" or s[0] == "Path":
                         cycle_id = s[1]
                     if s[0] == "Copy_count":
                         cycle_weight = float(s[1])
@@ -79,23 +82,22 @@ def read_cycles_file_to_bed(
                     if int(segi) > 0:
                         if cycle == []:
                             cycle.append(all_segs[segi] + [segdir])
+                        elif (
+                            cycle[-1][-1] == "+"
+                            and segdir == "+"
+                            and cycle[-1][0] == all_segs[segi][0]
+                            and cycle[-1][2] + 1 == all_segs[segi][1]
+                        ):
+                            cycle[-1][2] = all_segs[segi][2]
+                        elif (
+                            cycle[-1][-1] == "-"
+                            and segdir == "-"
+                            and cycle[-1][0] == all_segs[segi][0]
+                            and cycle[-1][1] - 1 == all_segs[segi][2]
+                        ):
+                            cycle[-1][1] = all_segs[segi][1]
                         else:
-                            if (
-                                cycle[-1][-1] == "+"
-                                and segdir == "+"
-                                and cycle[-1][0] == all_segs[segi][0]
-                                and cycle[-1][2] + 1 == all_segs[segi][1]
-                            ):
-                                cycle[-1][2] = all_segs[segi][2]
-                            elif (
-                                cycle[-1][-1] == "-"
-                                and segdir == "-"
-                                and cycle[-1][0] == all_segs[segi][0]
-                                and cycle[-1][1] - 1 == all_segs[segi][2]
-                            ):
-                                cycle[-1][1] = all_segs[segi][1]
-                            else:
-                                cycle.append(all_segs[segi] + [segdir])
+                            cycle.append(all_segs[segi] + [segdir])
                 if (
                     cycle[-1][-1] == "+"
                     and cycle[0][-1] == "+"
@@ -148,11 +150,11 @@ def read_cycles_file_to_bed(
     return pyranges.PyRanges(bed_df)
 
 
-def read_breakpoint_graph(file):
+def read_breakpoint_graph(file: pathlib.Path):
     sequence_edges = []
     breakpoint_edges = []
 
-    with open(file, "r") as f:
+    with file.open("r") as f:
         for line in f:
             if line.startswith("sequence"):
                 _, left, right, copycount, coverage, size = line.split("\t")[:6]
@@ -197,21 +199,9 @@ def read_breakpoint_graph(file):
                     re.split(r":\d+", right_breakpoint)[1],
                 )
 
-                if left_chrom > right_chrom:
-                    breakpoint_edges.append(
-                        [
-                            edge_class,
-                            right_chrom,
-                            right_pos,
-                            right_orient,
-                            left_chrom,
-                            left_pos,
-                            left_orient,
-                            copycount,
-                            read_pairs.strip(),
-                        ]
-                    )
-                elif left_chrom == right_chrom and left_pos > right_pos:
+                if left_chrom > right_chrom or (
+                    left_chrom == right_chrom and left_pos > right_pos
+                ):
                     breakpoint_edges.append(
                         [
                             edge_class,
@@ -270,12 +260,17 @@ def read_breakpoint_graph(file):
     return sequence_edges, breakpoint_edges
 
 
-def bin_genome(true_segments, reconstructed_segments, margin_size=10000):
+def bin_genome(
+    true_segments: pd.DataFrame,
+    reconstructed_segments: pd.DataFrame,
+    margin_size: int = 10000,
+) -> tuple[pd.DataFrame, list[str]]:
     """
     Bin the intervals by the breakpoints union.
     Warning: Setting a margin size can effect the output of different distances
     """
 
+    ()
     df_bins = pd.DataFrame(
         np.concatenate(
             (

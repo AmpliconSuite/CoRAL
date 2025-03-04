@@ -10,7 +10,7 @@ from itertools import combinations, product
 from typing import Optional
 
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.datatypes import Node, Strand
+from coral.datatypes import Node, SequenceEdge, Strand
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -23,7 +23,22 @@ import scipy
 from coral.scoring import io_utils, scoring_utils
 
 
-def breakpoint_match(
+def is_breakpoint_match(
+    node1: Node,
+    node2: Node,
+    other_node1: Node,
+    other_node2: Node,
+    tolerance: int = 100,
+) -> bool:
+    # Need to check both orientations
+    return is_oriented_breakpoint_match(
+        node1, node2, other_node1, other_node2, tolerance
+    ) or is_oriented_breakpoint_match(
+        node1, node2, other_node2, other_node1, tolerance
+    )
+
+
+def is_oriented_breakpoint_match(
     node1: Node,
     node2: Node,
     other_node1: Node,
@@ -92,8 +107,10 @@ def find_longest_subsequence(sequence1, sequence2, segment_lengths):
 
 
 def compute_normalized_longest_cycle_subsequence(
-    true_cycle, reconstructed_cycles, _
-):
+    true_cycle: pd.DataFrame,
+    reconstructed_cycles: pd.DataFrame,
+    binned_genome: pyranges.PyRanges,
+) -> tuple[float, float]:
     flip_orientation = lambda x: "+" if x == "-" else "-"
 
     overall_max_lcs, overall_max_normalized_lcs = 0, 0
@@ -202,8 +219,10 @@ def compute_normalized_longest_cycle_subsequence(
 
 
 def get_fragments_similarity_unweighted(
-    true_fragments, reconstructed_fragments, bins
-):
+    true_fragments: pyranges.PyRanges,
+    reconstructed_fragments: pyranges.PyRanges,
+    bins: pyranges.PyRanges,
+) -> tuple[float, float]:
     """
     Compute the overlap distance between the fragment counts of two reconstructions which overlap every genomic bin.
 
@@ -262,7 +281,7 @@ def find_overlapping_sequence_edges(
     true_graph: BreakpointGraph,
     reconstructed_graph: BreakpointGraph,
     tolerance: int = 1000,
-) -> tuple[int, float]:
+) -> int:
     # naively test if we find an edge that looks similar
     # for all edges in edges1
     num_edges_found = 0
@@ -273,28 +292,28 @@ def find_overlapping_sequence_edges(
         for other_edge in reconstructed_graph.sequence_edges:
             other_node1 = Node(other_edge.chr, other_edge.start, Strand.REVERSE)
             other_node2 = Node(other_edge.chr, other_edge.end, Strand.FORWARD)
-            if breakpoint_match(
+            if is_breakpoint_match(
                 node1, node2, other_node1, other_node2, tolerance
             ):
                 num_edges_found += 1
                 break
 
-    return num_edges_found, num_edges_found / len(true_graph.sequence_edges)
+    return num_edges_found  # , num_edges_found / len(true_graph.sequence_edges)
 
 
 def find_overlapping_bp_edges(
     true_graph: BreakpointGraph,
     reconstructed_graph: BreakpointGraph,
     tolerance: int = 1000,
-) -> tuple[int, float]:
+) -> int:
     # naively test if we find an edge that looks similar
     # for all edges in edges1
     num_edges_found = 0
-    for edge in true_graph.breakpoint_edges:
+    for edge in true_graph.discordant_edges:
         node1 = Node(edge.node1.chr, edge.node1.pos, edge.node1.strand)
         node2 = Node(edge.node2.chr, edge.node2.pos, edge.node2.strand)
 
-        for other_edge in reconstructed_graph.breakpoint_edges:
+        for other_edge in reconstructed_graph.discordant_edges:
             other_node1 = Node(
                 other_edge.node1.chr,
                 other_edge.node1.pos,
@@ -305,13 +324,15 @@ def find_overlapping_bp_edges(
                 other_edge.node2.pos,
                 other_edge.node2.strand,
             )
-            if breakpoint_match(
+            if is_breakpoint_match(
                 node1, node2, other_node1, other_node2, tolerance
             ):
                 num_edges_found += 1
                 break
 
-    return num_edges_found, num_edges_found / len(true_graph.breakpoint_edges)
+    return (
+        num_edges_found  # , num_edges_found / len(true_graph.breakpoint_edges)
+    )
 
 
 def create_cycle_graph(cycle):
@@ -587,22 +608,37 @@ def score_triplets_correct(true_cycle, reconstructed_cycles):
     return best_triplets_correct
 
 
-def get_cycle_copy_number_ratio(cycles_bed, sequence_edges, n=1) -> float:
+def get_seq_edge_df(sequence_edges: list[SequenceEdge]) -> pd.DataFrame:
+    seq_edge_df = scoring_utils.get_seq_edges_from_decoil(
+        sequence_edges,
+        base_coverage=13.0,
+    )
+    return seq_edge_df
+
+
+def get_cycle_copy_number_ratio(
+    cycles_bed_df: pd.DataFrame, sequence_edges: list[SequenceEdge], n: int = 1
+) -> float:
     """Computes the ratio of the best cycle weighted copy-number to the total."""
-    sequence_edges["CopyCount"] = sequence_edges["CopyCount"].astype(float)
-    # sequence_edges['ident'] = sequence_edges.apply(lambda x: (x.Chrom1, x.Start, x.Chrom2, x.End), axis=1)
-    # to_drop = sequence_edges.loc[sequence_edges['CopyCount'] < 5.0, 'ident'].values
+    # sequence_edges["CopyCount"] = sequence_edges["CopyCount"].astype(float)
+    # # sequence_edges['ident'] = sequence_edges.apply(lambda x: (x.Chrom1, x.Start, x.Chrom2, x.End), axis=1)
+    # # to_drop = sequence_edges.loc[sequence_edges['CopyCount'] < 5.0, 'ident'].values
 
-    # sequence_edges = sequence_edges[~sequence_edges['ident'].isin(to_drop)]
+    # # sequence_edges = sequence_edges[~sequence_edges['ident'].isin(to_drop)]
 
-    sequence_edges = sequence_edges[sequence_edges["CopyCount"] >= 5.0]
+    # sequence_edges = sequence_edges[sequence_edges["CopyCount"] >= 5.0]
 
-    total_weight = sequence_edges.apply(
-        lambda x: x.CopyCount * abs(x.End - x.Start), axis=1
-    ).sum()
+    seq_edges = [edge for edge in sequence_edges if edge.cn >= 5.0]
+    total_weight = sum(
+        [edge.cn * abs(edge.end - edge.start) for edge in seq_edges]
+    )
+
+    # total_weight = sequence_edges.apply(
+    #     lambda x: x.CopyCount * abs(x.End - x.Start), axis=1
+    # ).sum()
 
     cycle_to_ratio = []
-    for _, cycle in cycles_bed.groupby("cycle_id"):
+    for _, cycle in cycles_bed_df.groupby("cycle_id"):
         # cycle['ident'] = cycle.apply(lambda x: (x.Chromosome, x.Start, x.Chromosome, x.End), axis=1)
         # cycle = cycle[~cycle['ident'].isin(to_drop)]
 

@@ -491,26 +491,39 @@ def plot_cn_mode(
 )
 def score_mode(
     ctx: typer.Context,
-    true_cycles: Annotated[
-        typer.FileText, typer.Option(help="Ground-truth cycles file.")
+    # true_cycles: Annotated[
+    #     typer.FileText, typer.Option(help="Ground-truth cycles file.")
+    # ],
+    # true_graphs: Annotated[
+    #     typer.FileText, typer.Option(help="Ground-truth graphs file.")
+    # ],
+    ground_truth: Annotated[
+        pathlib.Path, typer.Option(help="Ground-truth directory.")
     ],
-    true_graphs: Annotated[
-        typer.FileText, typer.Option(help="Ground-truth graphs file.")
+    reconstruction_dir: Annotated[
+        pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
-    bp_dir: Annotated[
-        pathlib.Path, typer.Option(help="Breakpoint graph directory.")
-    ],
-    cnv_seeds: Annotated[typer.FileText, typer.Option(help="CNV seeds file.")],
+    output_dir: OutputDirArg,
     tolerance: Annotated[
         int, typer.Option(help="Breakpoint matching tolerance.")
     ] = 100,
+    to_skip: Annotated[
+        list[str] | None, typer.Option(help="List of datasets to skip.")
+    ] = None,
 ) -> None:
     print(f"Performing score mode with options: {ctx.params}")
-    score = score_simulation.score_reconstruction(
-        true_cycles,
-        true_graphs,
-        bp_dir,
-        cnv_seeds,
-        tolerance,
+    pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=f"{output_dir}/score_reconstruction.log",
+        filemode="w+",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
-    print(score)
+    score_simulation.score_simulations(
+        ground_truth,
+        reconstruction_dir,
+        output_dir,
+        tolerance,
+        to_skip if to_skip else [],
+    )

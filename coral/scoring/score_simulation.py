@@ -5,6 +5,7 @@ amplicon structures.
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import os
 import pathlib
@@ -14,8 +15,16 @@ import warnings
 from itertools import combinations, product
 from typing import Optional
 
+import pandera as pa
+import pandera.typing as pat
+
 from coral.breakpoint import parse_graph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
+from coral.scoring import scoring_types
+from coral.scoring.scoring_types import (
+    AmpliconReconstructionStats,
+    OverallReconstructionStats,
+)
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -55,53 +64,41 @@ AMPLICON_COLS = [
 
 
 def score_reconstruction(
-    true_cycles_file: io.TextIOWrapper,
-    true_graph_file: io.TextIOWrapper,
-    bp_graph_dir: pathlib.Path,
-    cnv_seeds_file: io.TextIOWrapper,
+    ground_truth_dir: pathlib.Path,
+    reconstruction_dir: pathlib.Path,
+    cnv_seeds_file: pathlib.Path,
+    amplicon: str,
     tolerance: int = 100,
     decoil: bool = False,
-) -> None:
+) -> OverallReconstructionStats:
     # define statistics
-    n_amplified_intervals = 0
-    n_sequence_edges = 0
-    n_breakpoint_edges = 0
-    n_amplified_intervals_covered = 0
-    n_sequence_edges_covered = 0
-    n_breakpoint_edges_covered = 0
-    n_reconstructed_sequence_edges_total = 0
-    n_reconstructed_breakpoint_edges_total = 0
-    fragment_overlap = 0
-    reconstruction_length_ratio = 0
-    cycle_triplets_correct = np.nan
-    best_copy_number_ratio = 0
-    top_three_copy_number_ratio = 0
-    overall_max_lcs = 0
-    overall_max_normalized_lcs = 0
 
-    true_intervals, _ = io_utils.read_cycles_intervals_to_bed(true_cycles_file)
-    true_cycles_bed = io_utils.read_cycles_file_to_bed(true_cycles_file)
-    cnv_seeds = pyranges.read_bed(cnv_seeds_file.name)
+    # compute overlapping sequence & discordant edges
+    with (ground_truth_dir / f"graphs/{amplicon}_graph.txt").open("r") as f:
+        true_graph = parse_graph.parse_breakpoint_graph(f)
+    cycle_filepath = ground_truth_dir / f"cycles/{amplicon}_cycles.txt"
+    true_intervals = io_utils.read_cycles_intervals_to_bed(cycle_filepath)
+    true_cycles_bed = io_utils.read_cycles_file_to_bed(cycle_filepath)
+    cnv_seeds = pyranges.read_bed(str(cnv_seeds_file))
     cnv_seeds_relaxed = cnv_seeds.extend(int(tolerance))
 
     # compute overlapping CNV intervals
     overlapping_cnv_seeds = true_intervals.intersect(cnv_seeds_relaxed)
-    n_amplified_intervals = len(true_intervals)
-    n_amplified_intervals_covered = len(overlapping_cnv_seeds)
 
-    # compute overlapping sequence & discordant edges
-    (
-        simulated_seq_edges,
-        simulated_bp_edges,
-    ) = io_utils.read_breakpoint_graph(true_graph_file.name)
-    true_graph = parse_graph.parse_breakpoint_graph(true_graph_file)
+    recon_stats = scoring_types.OverallReconstructionStats(
+        n_amplified_intervals=len(true_intervals),
+        n_amplified_intervals_covered=len(overlapping_cnv_seeds),
+        n_sequence_edges=len(true_graph.sequence_edges),
+        n_breakpoint_edges=len(true_graph.discordant_edges),
+    )
 
-    reconstruction_to_statistics: dict[str, tuple[int, int, int, int]] = {}
-    for bp_filepath in bp_graph_dir.glob("*_graph.txt"):
-        with bp_filepath.open("r") as f:
+    per_amplicon_stats: dict[str, AmpliconReconstructionStats] = {}
+
+    for bp_graph_path in reconstruction_dir.glob("*_graph.txt"):
+        with bp_graph_path.open("r") as f:
             reconstructed_graph = parse_graph.parse_breakpoint_graph(f)
 
-        (num_overlapping_sequence, _) = (
+        num_overlapping_seq_edges = (
             scoring_utils.find_overlapping_sequence_edges(
                 true_graph,
                 reconstructed_graph,
@@ -109,32 +106,33 @@ def score_reconstruction(
             )
         )
 
-        (num_overlapping_bp, _) = scoring_utils.find_overlapping_bp_edges(
+        num_overlapping_bp_edges = scoring_utils.find_overlapping_bp_edges(
             true_graph,
             reconstructed_graph,
             tolerance=tolerance,
         )
 
-        reconstruction_to_statistics[bp_filepath.name] = (
-            num_overlapping_sequence,
-            num_overlapping_bp,
+        per_amplicon_stats[bp_graph_path.name] = AmpliconReconstructionStats(
+            num_overlapping_seq_edges,
+            num_overlapping_bp_edges,
             len(reconstructed_graph.sequence_edges),
             len(reconstructed_graph.breakpoint_edges),
         )
 
-        # compute fragment overlap
         reconstructed_cycles_file_name = re.sub(
-            r"graphs/amplicon(\d+)_graph.txt",
-            r"cycles/amplicon\1_cycles.txt",
-            bp_filepath.name,
+            r"amplicon(\d+)_graph.txt",
+            r"amplicon\1_cycles.txt",
+            bp_graph_path.name,
         )
         reconstructed_cycles_filepath = pathlib.Path(
-            reconstructed_cycles_file_name
+            reconstruction_dir / f"{reconstructed_cycles_file_name}"
         )
         if reconstructed_cycles_filepath.exists():
-            with reconstructed_cycles_filepath.open("r") as f:
-                reconstructed_cycles_bed = io_utils.read_cycles_file_to_bed(f)
+            reconstructed_cycles_bed = io_utils.read_cycles_file_to_bed(
+                reconstructed_cycles_filepath
+            )
 
+            # compute fragment overlap
             binned_genome, _ = io_utils.bin_genome(
                 true_cycles_bed.df, reconstructed_cycles_bed.df
             )
@@ -160,27 +158,31 @@ def score_reconstruction(
                 )
             )
 
-            if _fragment_overlap > fragment_overlap:
-                fragment_overlap = _fragment_overlap
-                reconstruction_length_ratio = _reconstruction_length_ratio
+            if _fragment_overlap > recon_stats.fragment_overlap:
+                recon_stats.fragment_overlap = _fragment_overlap
+                recon_stats.reconstruction_length_ratio = (
+                    _reconstruction_length_ratio
+                )
 
-                best_copy_number_ratio = _best_copy_number_ratio
-                top_three_copy_number_ratio = _top_three_copy_number_ratio
+                recon_stats.best_copy_number_ratio = _best_copy_number_ratio
+                recon_stats.top_three_copy_number_ratio = (
+                    _top_three_copy_number_ratio
+                )
 
             if len(true_cycles_bed.df) < 3:
-                cycle_triplets_correct = np.nan
+                recon_stats.cycle_triplets_correct = np.nan
             else:
                 _cycle_triplets_correct = scoring_utils.score_triplets_correct(
                     true_cycles_bed.df, reconstructed_cycles_bed.df
                 )
 
-                if not np.isnan(_cycle_triplets_correct) and np.isnan(
-                    cycle_triplets_correct
+                if (
+                    not np.isnan(_cycle_triplets_correct)
+                    and np.isnan(recon_stats.cycle_triplets_correct)
+                ) or (
+                    _cycle_triplets_correct > recon_stats.cycle_triplets_correct
                 ):
-                    cycle_triplets_correct = _cycle_triplets_correct
-
-                elif _cycle_triplets_correct > cycle_triplets_correct:
-                    cycle_triplets_correct = _cycle_triplets_correct
+                    recon_stats.cycle_triplets_correct = _cycle_triplets_correct
 
             (
                 max_lcs,
@@ -188,94 +190,83 @@ def score_reconstruction(
             ) = scoring_utils.compute_normalized_longest_cycle_subsequence(
                 true_cycles_bed.df, reconstructed_cycles_bed.df, binned_genome
             )
-            if max_lcs > overall_max_lcs:
-                overall_max_lcs, overall_max_normalized_lcs = (
-                    max_lcs,
-                    max_normalized_lcs,
-                )
+            if max_lcs > recon_stats.overall_max_lcs:
+                recon_stats.overall_max_lcs = max_lcs
+                recon_stats.overall_max_normalized_lcs = max_normalized_lcs
 
-    for reconstruction_name in reconstruction_to_statistics:
+    for amplicon_stats in per_amplicon_stats.values():
         if (
-            reconstruction_to_statistics[reconstruction_name][1]
-            > n_breakpoint_edges_covered
+            amplicon_stats.n_overlapping_bp_edges
+            > recon_stats.n_breakpoint_edges_covered
         ):
-            (
-                n_sequence_edges_covered,
-                n_breakpoint_edges_covered,
-                n_reconstructed_sequence_edges_total,
-                n_reconstructed_breakpoint_edges_total,
-            ) = reconstruction_to_statistics[reconstruction_name]
+            recon_stats.n_breakpoint_edges_covered = (
+                amplicon_stats.n_overlapping_bp_edges
+            )
+            recon_stats.n_sequence_edges_covered = (
+                amplicon_stats.n_overlapping_seq_edges
+            )
+            recon_stats.n_reconstructed_sequence_edges_total = (
+                amplicon_stats.n_reconstructed_sequence_edges_total
+            )
+            recon_stats.n_reconstructed_breakpoint_edges_total = (
+                amplicon_stats.n_reconstructed_breakpoint_edges_total
+            )
 
-    return (
-        n_amplified_intervals,
-        n_sequence_edges,
-        n_breakpoint_edges,
-        n_amplified_intervals_covered,
-        n_sequence_edges_covered,
-        n_breakpoint_edges_covered,
-        n_reconstructed_sequence_edges_total,
-        n_reconstructed_breakpoint_edges_total,
-        fragment_overlap,
-        reconstruction_length_ratio,
-        cycle_triplets_correct,
-        best_copy_number_ratio,
-        top_three_copy_number_ratio,
-        overall_max_lcs,
-        overall_max_normalized_lcs,
-    )
+    return recon_stats
 
 
 def score_simulations(
-    simulation_dir_path: pathlib.Path,
+    ground_truth: pathlib.Path,
+    reconstruction_dir: pathlib.Path,
     output_dir: pathlib.Path,
     tolerance: int,
+    to_skip: list[str],
 ) -> None:
     amplicon_statistics = pd.DataFrame(columns=AMPLICON_COLS)
 
     to_skip: list[str] = []
 
-    simulation_directory = str(simulation_dir_path)
+    simulation_directory = str(ground_truth)
     solver, date, threads = "scip", "20241211", "1"
     # solver_path = f"{solver}/{threads}/{date}"
     solver_path = f"{solver}/{threads}"  # /{date}"
-    datasets = [x for x in os.listdir(simulation_directory)]
-    for dataset in tqdm.tqdm(datasets, desc="Iterating through test datasets"):
-        if dataset in to_skip:
-            print(f"Skipping {dataset}!")
+    dataset_paths = list(ground_truth.iterdir())
+
+    for dataset_path in tqdm.tqdm(
+        dataset_paths, desc="Iterating through test datasets"
+    ):
+        if dataset_path.name in to_skip:
+            print(f"Skipping {dataset_path.name}!")
             continue
-
-        simulated_amplicons = np.unique(
+        simulated_amplicons: np.ndarray[str, np.dtype[np.str_]] = np.unique(
             [
                 amplicon.split("_graph")[0]
                 for amplicon in os.listdir(
-                    f"{simulation_directory}/{dataset}/ref/graphs"
+                    ground_truth / dataset_path / "ref" / "graphs"
                 )
             ]
         )
-
-        amplicon_summaries = pd.read_csv(
-            f"{simulation_directory}/{dataset}/simulated_amplicons.txt",
+        raw_df = pd.read_csv(
+            ground_truth / dataset_path / "simulated_amplicons.txt",
             sep="\t",
-            header=None,
+            names=[
+                "type",
+                "breakpoints",
+                "coverage",
+                "replicate",
+            ],
         )
-        amplicon_summaries.columns = [
-            "type",
-            "breakpoints",
-            "coverage",
-            "replicate",
-        ]
-        amplicon_summaries.index = amplicon_summaries.apply(
-            lambda x: f"{x.type}_{x.breakpoints}_{x.replicate}", axis=1
+        amplicon_summaries: pat.DataFrame[
+            scoring_types.SimulatedAmpliconSchema
+        ] = scoring_types.SimulatedAmpliconSchema.validate(raw_df)
+        amplicon_summaries.set_index(
+            amplicon_summaries.apply(
+                lambda x: f"{x.type}_bp{x.breakpoints}_amplicon{x.replicate}",
+                axis=1,
+            ),
+            inplace=True,
         )
 
-        reconstructed_amplicons = np.unique(
-            [
-                amplicon.split("_graph")[0]
-                for amplicon in os.listdir(
-                    f"{simulation_directory}/{dataset}/{solver_path}/graphs"
-                )
-            ]
-        )
         for amplicon in tqdm.tqdm(
             simulated_amplicons, desc="Iterating through simulated amplicons"
         ):
@@ -285,24 +276,32 @@ def score_simulations(
                 _,
                 simulated_bp_edges,
             ) = io_utils.read_breakpoint_graph(
-                f"{simulation_directory}/{dataset}/ref/graphs/{amplicon}_graph.txt"
+                simulation_directory
+                / dataset_path
+                / "ref"
+                / "graphs"
+                / f"{amplicon}_graph.txt"
             )
             n_breakpoints = len(simulated_bp_edges)
-
-            results = score_reconstruction(
-                f"{simulation_directory}/{dataset}/ref/cycles/{amplicon}_cycles.txt",
-                f"{simulation_directory}/{dataset}/ref/graphs/{amplicon}_graph.txt",
-                [
-                    f"{simulation_directory}/{dataset}/{solver_path}/graphs/{reconstructed_amplicon}_graph.txt"
-                    for reconstructed_amplicon in reconstructed_amplicons
-                ],
-                f"{simulation_directory}/{dataset}/CNV_SEEDS.bed",
-                tolerance,
+            recon_stats = score_reconstruction(
+                ground_truth_dir=dataset_path / "ref",
+                reconstruction_dir=reconstruction_dir / dataset_path.name,
+                cnv_seeds_file=simulation_directory
+                / dataset_path
+                / "CNV_SEEDS.bed",
+                amplicon=amplicon,
+                tolerance=tolerance,
             )
             results_df = pd.DataFrame(
                 [
-                    [dataset, "CoRAL", amplicon, coverage, n_breakpoints]
-                    + list(results)
+                    [
+                        dataset_path.name,
+                        "CoRAL",
+                        amplicon,
+                        coverage,
+                        n_breakpoints,
+                    ]
+                    + list(dataclasses.astuple(recon_stats))
                 ],
                 columns=amplicon_statistics.columns,
             )
@@ -323,4 +322,4 @@ def score_simulations(
         lambda x: x.amplicon.split("_")[0], axis=1
     )
 
-    amplicon_statistics.to_csv(f"{output_dir}/amplicon_stats.csv", sep="\t")
+    amplicon_statistics.to_csv(f"{output_dir}/amplicon_stats.tsv", sep="\t")

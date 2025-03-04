@@ -30,7 +30,6 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_overlap_l,
 )
 from coral.constants import CHR_TAG_TO_IDX
-from coral.core_utils import profile_fn_with_call_counter
 from coral.datatypes import (
     AmpliconInterval,
     BPAlignments,
@@ -222,7 +221,7 @@ class LongReadBamToBreakpointMetadata:
         )
         logger.debug(f"Reset min_cluster_cutoff to {self.min_cluster_cutoff}.")
 
-    def pos2cni(self, chr, pos):
+    def pos2cni(self, chr: str, pos: int) -> core_types.CNSIdx:
         return self.cns_tree[chr][pos]
 
     def hash_alignment_to_seg(
@@ -254,7 +253,8 @@ class LongReadBamToBreakpointMetadata:
         return chimeras_by_read, chr_cns_to_chimeras
 
     def widen_seed_intervals(self) -> None:
-        """Widen seed intervals to fully encompass CN segments that the interval falls within."""
+        """Widen seed intervals to fully encompass CN segments that the
+        interval falls within."""
         for interval in self.amplicon_intervals:
             chr_tag = interval.chr
             lcni, rcni = self.cns_tree[chr_tag].get_cns_ends(interval)
