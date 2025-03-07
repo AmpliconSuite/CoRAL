@@ -21,7 +21,7 @@ license = "MIT"
 name = "CoRAL"
 readme = 'README.md'
 repository = "https://github.com/AmpliconSuite/CoRAL"
-version = "2.0.0"
+version = "2.1.0"
 
 packages = [{ include = "coral" }]
 
