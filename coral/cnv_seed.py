@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import copy
+import importlib.resources
 import logging
 import os
-import pathlib
 
 import typer
 
+from coral import supplemental_data
 from coral.constants import CHR_SIZES, CNSIZE_MAX
 from coral.datatypes import ChrArmInfo, CNSInterval, Interval, SingleArmInfo
 
@@ -16,13 +17,9 @@ logger = logging.getLogger(__name__)
 def parse_centromere_arms() -> dict[str, ChrArmInfo]:
     chr_arms: dict[str, ChrArmInfo] = {}
 
-    # TODO: clean up structure of reference files
-    __location__ = os.path.realpath(
-        os.path.join(os.getcwd(), os.path.dirname(__file__))
-    )
-    with open(
-        os.path.join(__location__, "annotations", "GRCh38_centromere.bed")
-    ) as fp:
+    with (
+        importlib.resources.files(supplemental_data) / "GRCh38_centromere.bed"
+    ).open("r") as fp:
         p_line = fp.readline()
         # Iterate through centromere file in pairs of lines to match p + q arms
         while p_line:

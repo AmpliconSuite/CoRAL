@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib.resources
 import logging
 import os
 import pathlib
@@ -9,10 +10,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import DefaultDict, Optional
 
+import intervaltree
 import matplotlib as mpl
 import numpy as np
 import typer
-from intervaltree import IntervalTree
 
 from coral.breakpoint import (
     breakpoint_utilities,  # type: ignore[import-untyped]
@@ -25,7 +26,7 @@ from matplotlib import gridspec, ticker
 from matplotlib.patches import Arc, Rectangle
 from pylab import rcParams  # type: ignore[import-untyped]
 
-from coral import cycle2bed
+from coral import core_types, cycle2bed, supplemental_data
 
 rcParams["pdf.fonttype"] = 42
 
@@ -65,8 +66,8 @@ class GraphViz:
     discordant_edges: list[list] = field(default_factory=list)
     cycles: dict[str, list] = field(default_factory=dict)
     cycle_flags: dict[str, list] = field(default_factory=dict)
-    genes: DefaultDict[str, IntervalTree] = field(
-        default_factory=lambda: defaultdict(IntervalTree)
+    genes: DefaultDict[str, intervaltree.IntervalTree] = field(
+        default_factory=lambda: defaultdict(intervaltree.IntervalTree)
     )
     plot_bounds: tuple[str, int, int] | None = None
 
@@ -74,28 +75,18 @@ class GraphViz:
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
 
     def parse_genes(
-        self, ref, gene_subset_list=None, restrict_to_bushman=False
+        self,
+        ref_genome: core_types.ReferenceGenome,
+        gene_subset_list=None,
+        restrict_to_bushman=False,
     ):
-        __location__ = os.path.realpath(
-            os.path.join(os.getcwd(), os.path.dirname(__file__))
-        )
-        if ref == "GRCh37" or ref == "hg19":
-            refGene_name = "refGene_hg19.txt"
-        elif ref == "GRCm38" or ref == "mm10":
-            refGene_name = "refGene_mm10.txt"
-        else:
-            refGene_name = "refGene_" + ref + ".txt"
-
-        seenNames = set()
         bushman_set = set()
         if restrict_to_bushman:
-            with open(
-                os.path.join(
-                    __location__,
-                    "annotations",
-                    "Bushman_group_allOnco_May2018.tsv",
-                ),
-            ) as infile:
+            bushman_filepath = (
+                importlib.resources.files(supplemental_data)
+                / "Bushman_group_allOnco_May2018.tsv"
+            )
+            with bushman_filepath.open("r") as infile:
                 _ = next(infile)
                 for line in infile:
                     fields = line.rstrip().rsplit()
@@ -103,25 +94,25 @@ class GraphViz:
                         continue
                     bushman_set.add(fields[-1].strip('"'))
 
-        with open(
-            os.path.join(__location__, "annotations", refGene_name)
-        ) as infile:
+        seen_names = set()
+        ref_gene_filepath = (
+            importlib.resources.files(supplemental_data)
+            / f"refGene_{ref_genome}.txt"
+        )
+        with ref_gene_filepath.open("r") as infile:
             for line in infile:
-                fields = line.rsplit("\t")
-                currChrom = fields[2]
-                if (
-                    ref == "GRCh37" or ref == "GRCm38"
-                ) and not currChrom.startswith("hpv"):
-                    currChrom = currChrom[3:]
+                fields: list[str] = line.rsplit("\t")
+                curr_chrom: str = fields[2]
+                if ref_genome in {
+                    core_types.ReferenceGenome.hg19,
+                    core_types.ReferenceGenome.hg38,
+                } and not curr_chrom.startswith("hpv"):
+                    curr_chrom = curr_chrom[3:]
 
                 tstart = int(fields[4])
                 tend = int(fields[5])
                 gname = fields[-4]
-                is_other_feature = (
-                    gname.startswith("LOC")
-                    or gname.startswith("LINC")
-                    or gname.startswith("MIR")
-                )
+                is_other_feature = gname.startswith(("LOC", "LINC", "MIR"))
                 if (
                     restrict_to_bushman
                     and gname not in bushman_set
@@ -130,10 +121,10 @@ class GraphViz:
                 ):
                     continue
 
-                if gname not in seenNames and not is_other_feature:
-                    seenNames.add(gname)
-                    currGene = Gene(currChrom, tstart, tend, fields)
-                    self.genes[currChrom][tstart:tend] = currGene
+                if gname not in seen_names and not is_other_feature:
+                    seen_names.add(gname)
+                    curr_gene = Gene(curr_chrom, tstart, tend, fields)
+                    self.genes[curr_chrom][tstart:tend] = curr_gene
 
     def parse_graph_file(self, graph_file: typer.FileText) -> None:
         for line in graph_file:
@@ -166,8 +157,11 @@ class GraphViz:
                 )
 
     def parse_cycle_file(
-        self, cycle_file: typer.FileText, output_prefix, num_cycles
-    ):
+        self,
+        cycle_file: typer.FileText,
+        output_prefix: str,
+        num_cycles: int | None,
+    ) -> None:
         # check if it ends with .bed, if not convert it
         if cycle_file.name.endswith("_cycles.txt"):
             # convert it to a bed
@@ -201,8 +195,8 @@ class GraphViz:
             else:
                 self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
 
-    def graph_amplified_intervals(self):
-        for chrom in self.sequence_edges_by_chr.keys():
+    def graph_amplified_intervals(self) -> None:
+        for chrom in self.sequence_edges_by_chr:
             lstart, lend = -2, -2
             if chrom not in self.intervals_from_graph:
                 self.intervals_from_graph[chrom] = []
@@ -220,7 +214,9 @@ class GraphViz:
             self.intervals_from_graph[chrom].append([lstart, lend])
             self.num_amplified_intervals += 1
 
-    def merge_intervals(self, interval_list, padding=0.0):
+    def merge_intervals(
+        self, interval_list: list[tuple[int, int]], padding: float = 0.0
+    ) -> list[tuple[int, int]]:
         # takes a list of interval tuples (pos1, pos2). Assumes from same chrom
         # return a list of interval tuples that are merged if overlapping or directly adjacent, or within padding distance
         sorted_intervals = sorted(interval_list)
@@ -235,11 +231,14 @@ class GraphViz:
         return merged
 
     def cycle_amplified_intervals(
-        self, cycle_ids=None, cycle_only=False, graph_given=False
-    ):
+        self,
+        cycle_ids: list[str] | None = None,
+        cycle_only: bool = False,
+        graph_given: bool = False,
+    ) -> None:
         """Derive amplified intervals from (selected) cycles"""
         self.num_amplified_intervals = 0
-        if cycle_ids == None:
+        if cycle_ids is None:
             cycle_ids = [cycle_id for cycle_id in self.cycle_flags]
         if cycle_only:
             cycle_ids = [
@@ -284,7 +283,9 @@ class GraphViz:
             )
             self.num_amplified_intervals += len(self.intervals_from_cycle[chr])
 
-    def set_gene_heights(self, rel_genes, padding=0.0):
+    def set_gene_heights(
+        self, rel_genes: list[Gene], padding: float = 0.0
+    ) -> None:
         if not rel_genes:
             return
 
@@ -293,30 +294,31 @@ class GraphViz:
         intervals = [(x.gstart, x.gend) for x in rel_genes]
         merged = self.merge_intervals(intervals, padding=padding)
 
-        gene_ival_t = IntervalTree()
+        gene_ival_t = intervaltree.IntervalTree[str]()
         for x in rel_genes:
             gene_ival_t.addi(x.gstart, x.gend, x.gname)
 
         for mi in merged:
-            ghits = gene_ival_t[mi[0] : mi[1]]
+            ghits: list[intervaltree.Interval] = gene_ival_t[mi[0] : mi[1]]
             gene_heights = np.linspace(0.15, 0.75, len(ghits))
             for g, h in zip(ghits, gene_heights):
                 gname_to_gobj[g.data].height = h
 
     def plot_graph(
         self,
-        title,
-        output_fn,
-        margin_between_intervals=2,
-        height=7.5,
-        fontsize=18,
-        dpi=300,
-        max_cov_cutoff=float("inf"),
-        quality_threshold=0,
-        hide_genes=False,
-        gene_font_size=12,
-    ):
-        """Plot discordant edges and coverage on sequence edges in breakpoint graph"""
+        title: str,
+        output_fn: str,
+        margin_between_intervals: float = 2,
+        height: float = 7.5,
+        fontsize: float = 18,
+        dpi: int = 300,
+        max_cov_cutoff: float = float("inf"),
+        quality_threshold: float = 0,
+        hide_genes: bool = False,
+        gene_font_size: float = 12,
+    ) -> None:
+        """Plot discordant edges and coverage on sequence edges in breakpoint
+        graph."""
         if not self.plot_bounds:
             width = max(15, 2 * self.num_amplified_intervals)
         else:
@@ -469,7 +471,8 @@ class GraphViz:
                 )
                 # check if either bp overlaps before plotting
                 if self.plot_bounds:
-                    # Check if both breakpoints belong to the same chromosome as in plot bounds
+                    # Check if both breakpoints belong to the same chromosome
+                    # as in plot bounds
                     hit1 = (
                         chr1 == self.plot_bounds[0]
                         and self.plot_bounds[1] <= pos1 <= self.plot_bounds[2]

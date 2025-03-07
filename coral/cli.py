@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from coral import (
+    core_types,
     cycle2bed,
     cycle_decomposition,
     datatypes,
@@ -94,6 +95,10 @@ AlphaArg = Annotated[
     typer.Option(
         help="Parameter used to balance CN weight and path constraints in greedy cycle extraction."
     ),
+]
+ReferenceGenomeArg = Annotated[
+    core_types.ReferenceGenome,
+    typer.Option(help="Reference genome."),
 ]
 
 
@@ -355,7 +360,7 @@ def hsr_mode(
 )
 def plot_mode(
     ctx: typer.Context,
-    ref: Annotated[str, typer.Option(help="Reference genome.")],
+    ref: ReferenceGenomeArg,
     graph: Annotated[
         typer.FileText | None,
         typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
