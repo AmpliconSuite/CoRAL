@@ -17,6 +17,7 @@ from coral import (
     output,
     plot_amplicons,
     plot_cn,
+    summary,
 )
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
@@ -432,17 +433,17 @@ def plot_mode(
         graph,
         cycle_file,
         output_prefix,
-        plot_graph,
-        plot_cycles,
-        only_cyclic_paths,
         num_cycles,
         max_coverage,
         min_mapq,
         gene_subset_list,
-        hide_genes,
         gene_fontsize,
-        bushman_genes,
         region,
+        should_plot_graph=plot_graph,
+        should_plot_cycles=plot_cycles,
+        should_hide_genes=hide_genes,
+        should_restrict_to_bushman_genes=bushman_genes,
+        should_plot_only_cyclic_walks=only_cyclic_paths,
     )
 
 
@@ -496,12 +497,6 @@ def plot_cn_mode(
 )
 def score_mode(
     ctx: typer.Context,
-    # true_cycles: Annotated[
-    #     typer.FileText, typer.Option(help="Ground-truth cycles file.")
-    # ],
-    # true_graphs: Annotated[
-    #     typer.FileText, typer.Option(help="Ground-truth graphs file.")
-    # ],
     ground_truth: Annotated[
         pathlib.Path, typer.Option(help="Ground-truth directory.")
     ],
@@ -532,3 +527,20 @@ def score_mode(
         tolerance,
         to_skip if to_skip else [],
     )
+
+
+@coral_app.command(
+    name="plot_resources",
+    help="Generate plots of resource usage.",
+)
+def plot_resource_usage(
+    ctx: typer.Context,
+    reconstruction_dir: Annotated[
+        pathlib.Path, typer.Option(help="Reconstruction directory.")
+    ],
+    output_dir: OutputDirArg,
+) -> None:
+    print(f"Performing plot resource usage mode with options: {ctx.params}")
+    pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
+
+    summary.resource_usage.plot_resource_usage(reconstruction_dir, output_dir)

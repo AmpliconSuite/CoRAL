@@ -314,8 +314,9 @@ class GraphViz:
         dpi: int = 300,
         max_cov_cutoff: float = float("inf"),
         quality_threshold: float = 0,
-        hide_genes: bool = False,
         gene_font_size: float = 12,
+        *,
+        hide_genes: bool = False,
     ) -> None:
         """Plot discordant edges and coverage on sequence edges in breakpoint
         graph."""
@@ -365,7 +366,7 @@ class GraphViz:
         sorted_chrs = breakpoint_utilities.sort_chrom_names(
             self.intervals_from_graph.keys()
         )
-        amplified_intervals_start = dict()
+        amplified_intervals_start = {}
         ymax = 0
         x = margin_between_intervals
         for chrom in sorted_chrs:
@@ -1727,19 +1728,20 @@ def plot_amplicons(
     graph_file: typer.FileText | None,
     cycle_file: typer.FileText | None,
     output_prefix: str,
-    plot_graph: bool,
-    plot_cycles: bool,
-    only_cyclic_paths: bool,
     num_cycles: int | None,
     max_coverage: float,
     min_mapq: float,
     gene_subset_list: list[str],
-    hide_genes: bool,
     gene_fontsize: float,
-    bushman_genes: bool,
     region: str | None,
+    *,
+    should_plot_graph: bool,
+    should_plot_cycles: bool,
+    should_hide_genes: bool,
+    should_restrict_to_bushman_genes: bool,
+    should_plot_only_cyclic_walks: bool,
 ):
-    if plot_graph:
+    if should_plot_graph:
         if not graph_file:
             print("Please specify the breakpoint graph file to plot.")
             sys.exit(1)
@@ -1747,7 +1749,7 @@ def plot_amplicons(
             print("Please specify the bam file to plot.")
             sys.exit(1)
 
-    if plot_cycles and not cycle_file:
+    if should_plot_cycles and not cycle_file:
         print("Please specify the cycle file, in *.bed format, to plot.")
         sys.exit(1)
 
@@ -1755,8 +1757,8 @@ def plot_amplicons(
         ref = "hg38"
 
     g = GraphViz()
-    g.parse_genes(ref, set(gene_subset_list), bushman_genes)
-    if plot_graph:
+    g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes)
+    if should_plot_graph:
         g.open_bam(bam)
         g.parse_graph_file(graph_file)  # type: ignore[arg-type]
         if region:
@@ -1772,17 +1774,17 @@ def plot_amplicons(
             output_prefix + "_graph",
             max_cov_cutoff=max_coverage,
             quality_threshold=min_mapq,
-            hide_genes=hide_genes,
+            hide_genes=should_hide_genes,
             gene_font_size=gene_fontsize,
         )
 
-    if plot_cycles:
+    if should_plot_cycles:
         g.parse_cycle_file(cycle_file, output_prefix, num_cycles)  # type: ignore[arg-type]
         cycle_ids_ = None
         cycle_only_ = False
         if num_cycles:
             cycle_ids_ = [str(i + 1) for i in range(num_cycles)]
-        if plot_cycles and not plot_graph:
+        if should_plot_cycles and not should_plot_graph:
             cycle_only_ = True
 
         graph_given_ = graph_file is not None
@@ -1804,7 +1806,7 @@ def plot_amplicons(
                 output_prefix + "_cycles",
                 num_cycles=num_cycles,
                 cycle_only=cycle_only_,
-                hide_genes=hide_genes,
+                hide_genes=should_hide_genes,
                 gene_font_size=gene_fontsize,
             )
         else:
@@ -1812,7 +1814,7 @@ def plot_amplicons(
                 gtitle,
                 output_prefix + "_cycles",
                 cycle_only=cycle_only_,
-                hide_genes=hide_genes,
+                hide_genes=should_hide_genes,
                 gene_font_size=gene_fontsize,
             )
     g.close_bam()

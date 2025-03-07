@@ -277,6 +277,14 @@ class AmpliconInterval(Interval):
     def __str__(self) -> str:
         return f"Amplicon{self.amplicon_id}>{super().__str__()}"
 
+    @classmethod
+    def from_str(cls, s: str) -> AmpliconInterval:
+        return cls(
+            chr=s.split(">")[0].split("Amplicon")[1],
+            start=int(s.split(">")[1].split("-")[0]),
+            end=int(s.split(">")[1].split("-")[1]),
+        )
+
 
 @dataclass
 class ChimericAlignment:
