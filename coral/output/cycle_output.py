@@ -5,16 +5,14 @@ import logging
 import pathlib
 import random
 from pathlib import Path
-from typing import Dict
 
-from coral import core_utils, global_state
+from coral import core_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import FinalizedPathConstraint, Walk
 from coral.output.summary import (
     get_single_cycle_output,
     get_single_path_output,
-    output_amplicon_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,27 +102,6 @@ def output_amplicon_walks(
             )
             fp.write(output_str)
     fp.close()
-
-
-def output_summary_amplicon_stats(
-    was_amplicon_solved: Dict[int, bool],
-    bp_graphs: list[BreakpointGraph],
-) -> None:
-    logger.info("Outputting solution info for all amplicons.")
-
-    with global_state.STATE_PROVIDER.summary_filepath.open("w") as fp:
-        print(fp.name)
-        fp.write(
-            f"{sum(was_amplicon_solved.values())}/{len(bp_graphs)} amplicons "
-            "solved.\n"
-        )
-        for amplicon_idx, bp_graph in enumerate(bp_graphs):
-            fp.write(
-                "------------------------------------------------------------\n"
-            )
-            output_amplicon_info(
-                bp_graph, fp, was_amplicon_solved[amplicon_idx]
-            )
 
 
 def write_path_constraint_to_file(

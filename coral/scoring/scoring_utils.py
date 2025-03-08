@@ -117,7 +117,7 @@ def compute_normalized_longest_cycle_subsequence(
 
     for cycle in reconstructed_cycles["cycle_id"].unique():
         _true_cycle = true_cycle.copy()
-        _true_cycle["segment"] = _true_cycle.apply(
+        _true_cycle["segment"] = _truewa_cycle.apply(
             lambda x: (x.Chromosome, x.Start, x.End), axis=1
         )
 
@@ -335,7 +335,7 @@ def find_overlapping_bp_edges(
     )
 
 
-def create_cycle_graph(cycle):
+def create_cycle_graph(cycle: pd.DataFrame) -> tuple[nx.DiGraph, nx.DiGraph]:
     cycle_graph_fw = nx.DiGraph()
     cycle_graph_rev = nx.DiGraph()
 

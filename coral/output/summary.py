@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import io
 import logging
 import os
 
-from coral import datatypes, global_state
+from coral import datatypes, global_state, text_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.output.cycle_output import logger
 from coral.output.path_output import eulerian_cycle_t, eulerian_path_t
 
 logger = logging.getLogger(__name__)
@@ -171,7 +174,7 @@ def output_amplicon_info(
 
 def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
     with global_state.STATE_PROVIDER.summary_filepath.open("a") as fp:
-        fp.write("-----------------------------------------------\n")
+        fp.write(text_utils.AMPLICON_SEPARATOR + "\n")
         fp.write("Solver Settings: \n")
         fp.write(f"Solver: {solver_options.solver.name}\n")
         threads_used = (
@@ -181,7 +184,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
         )
         fp.write(f"Threads: {threads_used}\n")
         fp.write(f"Time Limit: {solver_options.time_limit_s} s\n")
-        fp.write("-----------------------------------------------\n")
+        fp.write(text_utils.AMPLICON_SEPARATOR + "\n")
         fp.write("Resource Usage Summary:\n")
         for fn_call, profile in sorted(global_state.PROFILED_FN_CALLS.items()):
             fn_tag = (
@@ -192,4 +195,25 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
             fp.write(
                 f"{fn_tag} | Peak RAM: {profile.peak_ram_gb} GB | "
                 f"Runtime: {profile.runtime_s} s\n"
+            )
+
+
+def output_summary_amplicon_stats(
+    was_amplicon_solved: dict[int, bool],
+    bp_graphs: list[BreakpointGraph],
+) -> None:
+    logger.info("Outputting solution info for all amplicons.")
+
+    with global_state.STATE_PROVIDER.summary_filepath.open("w") as fp:
+        fp.write(
+            f"{sum(was_amplicon_solved.values())}/{len(bp_graphs)} amplicons "
+        )
+        fp.write(
+            f"{sum(was_amplicon_solved.values())}/{len(bp_graphs)} amplicons "
+            "solved.\n"
+        )
+        for amplicon_idx, bp_graph in enumerate(bp_graphs):
+            fp.write(text_utils.AMPLICON_SEPARATOR)
+            output_amplicon_info(
+                bp_graph, fp, was_amplicon_solved[amplicon_idx]
             )

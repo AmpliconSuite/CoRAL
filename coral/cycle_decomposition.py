@@ -21,6 +21,7 @@ import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
+import coral.output.summary
 from coral import core_utils, datatypes, models
 from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -633,7 +634,9 @@ def cycle_decomposition_all_graphs(
             should_force_greedy=should_force_greedy,
         )
         was_amplicon_solved[amplicon_idx] = True
-    cycle_output.output_summary_amplicon_stats(was_amplicon_solved, bp_graphs)
+    coral.output.summary.output_summary_amplicon_stats(
+        was_amplicon_solved, bp_graphs
+    )
 
 
 def reconstruct_cycles(
