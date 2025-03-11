@@ -29,6 +29,8 @@ class AmpliconSummary:
         default_factory=dict
     )
     are_cycles_solved: bool = False
+    was_suboptimal_solution: bool = False
+    model_metadata: datatypes.ModelMetadata | None = None
 
 
 @dataclass
@@ -159,6 +161,19 @@ def parse_amplicon_summary(summary_str: str) -> AmpliconSummary:
             continue
         if match := text_utils.CYCLE_DECOMP_STATUS_PATTERN.search(line):
             amplicon_summary.are_cycles_solved = match.group(1) == "SUCCESS"
+            continue
+        if match := text_utils.MODEL_METADATA_PATTERN.search(line):
+            alpha, weights, resolution = match.groups()[2:]
+            amplicon_summary.model_metadata = datatypes.ModelMetadata(
+                model_type=datatypes.ModelType[match.group(1)],
+                k=int(match.group(2)),
+                alpha=float(alpha) if alpha != "None" else None,
+                total_weights=float(weights) if weights != "None" else None,
+                resolution=float(resolution) if resolution != "None" else None,
+            )
+            continue
+        if text_utils.SUBOPTIMAL_WARNING in line:
+            amplicon_summary.was_suboptimal_solution = True
             continue
     return amplicon_summary
 

@@ -27,3 +27,13 @@ AMPLICON_BREAKPOINTS_PATTERN = re.compile(
 
 CYCLE_DECOMP_STATUS_TEMPLATE = "Cycle Decomposition Status: {status}"
 CYCLE_DECOMP_STATUS_PATTERN = re.compile(r"Cycle Decomposition Status: (\S+)")
+
+MODEL_METADATA_TEMPLATE = (
+    "ModelMetadata: {model_type}, k={k}, alpha={alpha}, "
+    "total_weights={total_weights}, resolution={resolution}"
+)
+MODEL_METADATA_PATTERN = re.compile(
+    r"ModelMetadata: (\S+), k=(\d+), alpha=(\d+\.\d+|None), total_weights=(\d+\.\d+|None), resolution=(\d+\.\d+|None)"
+)
+
+SUBOPTIMAL_WARNING = "WARNING: Sub-optimal solution used"

@@ -44,7 +44,8 @@ def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
 
 # Note: typer.Arguments are required, typer.Options are optional
 BamArg = Annotated[
-    pathlib.Path, typer.Option(help="Sorted indexed (long read) bam file.")
+    pathlib.Path | None,
+    typer.Option(help="Sorted indexed (long read) bam file."),
 ]
 CnvSeedArg = Annotated[
     typer.FileText, typer.Option(help="Bed file of CNV seed intervals.")
@@ -299,6 +300,7 @@ def cycle_decomposition_all_mode(
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.ERROR)
+    logging.getLogger("gurobipy").setLevel(logging.ERROR)
 
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_dir = output_dir
@@ -395,8 +397,8 @@ def plot_mode(
         typer.FileText | None,
         typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
     ],
-    bam: BamArg,
     output_prefix: OutputPrefixArg,
+    bam: BamArg = None,
     cycle_file: Annotated[
         typer.FileText | None,
         typer.Option(

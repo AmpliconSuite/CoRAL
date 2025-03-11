@@ -84,6 +84,7 @@ class BreakpointGraph:
     )
     mip_gap: float | None = None
     upper_bound: float | None = None
+    model_metadata: datatypes.ModelMetadata | None = None
 
     # Only filled in after LP solution, when profiling is enabled
     runtime_s: float | None = None

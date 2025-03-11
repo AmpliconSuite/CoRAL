@@ -118,12 +118,24 @@ def parse_solver_output(
     k: int,
     pc_list: List,
     total_weights: float,
+    model_type: datatypes.ModelType,
     remaining_cn: EdgeToCN | None = None,
     resolution: float = 0.0,
     is_pc_unsatisfied: List[bool] | None = None,
+    alpha: float | None = None,
 ) -> CycleSolution:
     termination_condition = results.solver.termination_condition
-    parsed_sol = CycleSolution(results.solver.status, termination_condition)
+    parsed_sol = CycleSolution(
+        results.solver.status,
+        termination_condition,
+        model_metadata=datatypes.ModelMetadata(
+            model_type=model_type,
+            k=k,
+            alpha=alpha,
+            total_weights=total_weights,
+            resolution=resolution,
+        ),
+    )
 
     if termination_condition == pyo.TerminationCondition.infeasible:
         # pyomo.util.infeasible.log_infeasible_constraints(
@@ -251,6 +263,10 @@ class PyomoSolverWrapper:
         self, model: pyo.Model, model_filepath: str, **kwargs: dict[str, Any]
     ) -> PyomoResults:
         try:
+            # Gurobi_Direct plugin doesn't respect the `logfile` option, so we
+            # need to set it manually, and require `tee`.
+            # SCIP / Gurobi Shell just need the `logfile` option.
+            self.solver.options["LogFile"] = f"{model_filepath}.log"
             results = self.solver.solve(
                 model,
                 **kwargs,

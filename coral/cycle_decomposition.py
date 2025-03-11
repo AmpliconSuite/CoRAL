@@ -128,6 +128,7 @@ def minimize_cycles(
         k,
         bp_graph.longest_path_constraints,
         total_weights,
+        model_type=datatypes.ModelType.DEFAULT,
     )
 
 
@@ -240,6 +241,7 @@ def minimize_cycles_post(
         k,
         pc_list,
         total_weights,
+        model_type=datatypes.ModelType.DEFAULT,
     )
 
 
@@ -390,9 +392,11 @@ def maximize_weights_greedy(
             1,
             pc_list,
             total_weights,
-            remaining_cn,
-            resolution,
+            model_type=datatypes.ModelType.GREEDY,
+            remaining_cn=remaining_cn,
+            resolution=resolution,
             is_pc_unsatisfied=is_pc_unsatisfied,
+            alpha=alpha,
         )
 
         if (
@@ -506,7 +510,14 @@ def solve_single_graph(
         k *= 2
         continue
 
-    if lp_solution.termination_condition == pyo.TerminationCondition.infeasible:
+    if (
+        lp_solution.termination_condition == pyo.TerminationCondition.infeasible
+        or (
+            lp_solution.termination_condition
+            == pyo.TerminationCondition.maxTimeLimit
+            and lp_solution.solver_status == pyo.SolverStatus.aborted
+        )
+    ):
         logger.info(
             f"Cycle decomposition is infeasible despite k > {bp_graph.num_edges}"
             " , switch to greedy cycle decomposition."
@@ -594,6 +605,7 @@ def cycle_decomposition_single_graph(
         should_postprocess=should_postprocess,
         should_force_greedy=should_force_greedy,
     )
+    bp_graph.model_metadata = lp_solution.model_metadata
     if (
         lp_solution.termination_condition
         == pyo.TerminationCondition.maxTimeLimit
@@ -608,7 +620,6 @@ def cycle_decomposition_single_graph(
     bp_graph.path_constraints_satisfied = lp_solution.satisfied_pc
     bp_graph.mip_gap = lp_solution.mip_gap
     bp_graph.upper_bound = lp_solution.upper_bound
-
     cycle_output.output_amplicon_walks(
         bp_graph,
         solver_options.output_dir,

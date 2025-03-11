@@ -18,7 +18,7 @@ import intervaltree
 import numpy as np
 import pyomo.environ as pyo
 
-from coral import core_types
+from coral import core_types, text_utils
 from coral.constants import CHR_TAG_TO_IDX
 
 if TYPE_CHECKING:
@@ -483,6 +483,8 @@ class CycleSolution:
     mip_gap: float | None = None
     upper_bound: float | None = None
 
+    model_metadata: ModelMetadata | None = None
+
     @property
     def relative_mip_gap(self) -> float | None:
         if self.mip_gap is None or self.upper_bound is None:
@@ -791,7 +793,16 @@ class ModelType(str, enum.Enum):
 @dataclass
 class ModelMetadata:
     model_type: ModelType
-    k: int
-    alpha: float
-    p_total_weight: float
-    resolution: float
+    k: int | None = None
+    alpha: float | None = None
+    total_weights: float | None = None
+    resolution: float | None = None
+
+    def to_output_str(self) -> str:
+        return text_utils.MODEL_METADATA_TEMPLATE.format(
+            model_type=self.model_type.name,
+            k=self.k,
+            alpha=self.alpha,
+            total_weights=self.total_weights,
+            resolution=self.resolution,
+        )

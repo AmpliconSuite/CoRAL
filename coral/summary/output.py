@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 import io
 import logging
@@ -58,14 +59,16 @@ def output_amplicon_info(
 
     if was_solved:
         output_file.write(
-            text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status="SUCCESS")
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='SUCCESS')}\n"
         )
+        if model_metadata := bp_graph.model_metadata:
+            output_file.write(f"\t{model_metadata.to_output_str()}\n")
         if (
             bp_graph.relative_mip_gap is not None
             and bp_graph.relative_mip_gap > 1  # 1% gap
         ):
             output_file.write(
-                f"\tWARNING: Sub-optimal solution used (Relative MIP Gap: "
+                f"\t{text_utils.SUBOPTIMAL_WARNING} (Relative MIP Gap: "
                 f"{bp_graph.relative_mip_gap:.5f}%)\n"
             )
         if bp_graph.upper_bound is not None:
@@ -73,8 +76,10 @@ def output_amplicon_info(
         output_amplicon_solution(bp_graph, output_file)
     else:
         output_file.write(
-            text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status="FAILURE")
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='FAILURE')}\n"
         )
+        if model_metadata := bp_graph.model_metadata:
+            output_file.write(f"\t{model_metadata.to_output_str()}\n")
 
 
 def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:

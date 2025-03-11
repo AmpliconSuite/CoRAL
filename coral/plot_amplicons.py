@@ -1724,7 +1724,7 @@ class GraphViz:
 
 def plot_amplicons(
     ref: str,
-    bam: pathlib.Path,
+    bam_path: pathlib.Path | None,
     graph_file: typer.FileText | None,
     cycle_file: typer.FileText | None,
     output_prefix: str,
@@ -1745,7 +1745,7 @@ def plot_amplicons(
         if not graph_file:
             print("Please specify the breakpoint graph file to plot.")
             sys.exit(1)
-        if not bam:
+        if not bam_path:
             print("Please specify the bam file to plot.")
             sys.exit(1)
 
@@ -1759,7 +1759,7 @@ def plot_amplicons(
     g = GraphViz()
     g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes)
     if should_plot_graph:
-        g.open_bam(bam)
+        g.open_bam(bam_path)
         g.parse_graph_file(graph_file)  # type: ignore[arg-type]
         if region:
             pchrom = region.split(":")[0]

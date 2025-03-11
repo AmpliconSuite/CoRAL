@@ -112,7 +112,7 @@ Usage:
 * ```--cycle-decomp-alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
 * ```--solver-time-limit <INT>``` - Maximum running time (in seconds) reserved for solving a single quadratic program using the chosen integer program solver (e.g. Gurobi, SCIP). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
 * ```--solver-threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
-* ```--solver <choice>``` - Solver for cycle extraction. Must be one of `[gurobi, scip]`.
+* ```--solver <choice>``` - Solver for cycle extraction. Must be one of `[gurobi_direct, scip]`.
 * ```--global-time-limit <INT>``` - Maximum running time (in seconds) reserved for the entire cycle decomposition process. Default value is 21600 (i.e., 6 hours).
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
 *	```--log-file <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
@@ -294,7 +294,7 @@ Usage:
 | `--alpha <float>`      | 0.01     |  Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.                           |
 | `--solver-time-limit <int>` | 7200    | Time limit for cycle extraction (in seconds) | 
 | `--threads <int>` | -1    | Number of threads for cycle extraction. If not specified, use all available cores. |
-| `--solver <choice>` | gurobi    | Solver for cycle extraction. Must be one of `[gurobi, scip]` |
+| `--solver <choice>` | gurobi_direct   | Solver for cycle extraction. Must be one of `[gurobi_direct, scip]` |
 | `--output-all-path-constraints` | False    | If specified, output all path constraints given by long reads in `*_cycles.txt` file (see "Expected output" below). |
 | `--postprocess-greedy-sol` | False    | If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution). |
 
