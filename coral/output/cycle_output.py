@@ -3,14 +3,12 @@ from __future__ import annotations
 import io
 import logging
 import pathlib
-import random
-from pathlib import Path
 
 from coral import core_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import FinalizedPathConstraint, Walk
-from coral.output.summary import (
+from coral.output.utils import (
     get_single_cycle_output,
     get_single_path_output,
 )

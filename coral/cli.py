@@ -27,7 +27,8 @@ from coral.output import cycle_output
 from coral.scoring import score_simulation
 
 coral_app = typer.Typer(
-    help="Long-read amplicon reconstruction pipeline and associated utilities."
+    help="Long-read amplicon reconstruction pipeline and associated utilities.",
+    pretty_exceptions_show_locals=False,
 )
 logger = logging.getLogger(__name__)
 
@@ -85,10 +86,16 @@ ThreadsArg = Annotated[
         help="Number of threads reserved for integer program solvers."
     ),
 ]
-TimeLimitArg = Annotated[
+SolverTimeLimitArg = Annotated[
     int,
     typer.Option(
         help="Maximum running time (in seconds) reserved for integer program solvers."
+    ),
+]
+GlobalTimeLimitArg = Annotated[
+    int,
+    typer.Option(
+        help="Maximum running time (in seconds) reserved for full sample analysis."
     ),
 ]
 AlphaArg = Annotated[
@@ -128,6 +135,8 @@ def seed(
     ] = 300000,
 ) -> None:
     print(f"Performing seeding mode with options: {ctx.params}")
+    if "/" in output_prefix:
+        os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
     run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap)
 
 
@@ -138,10 +147,10 @@ def reconstruct(
     lr_bam: BamArg,
     cnv_seed: CnvSeedArg,
     cn_seg: CnSegArg,
-    log_file: Annotated[str, typer.Option(help="Name of log file.")] = "",
+    global_time_limit: GlobalTimeLimitArg = 21600,  # 6 hrs in seconds
     cycle_decomp_alpha: AlphaArg = 0.01,
-    cycle_decomp_time_limit: TimeLimitArg = 7200,
-    cycle_decomp_threads: ThreadsArg = -1,
+    solver_time_limit: SolverTimeLimitArg = 7200,  # 2 hrs in seconds
+    solver_threads: ThreadsArg = -1,
     solver: SolverArg = Solver.GUROBI,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
@@ -178,13 +187,14 @@ def reconstruct(
     logging.getLogger("pyomo").setLevel(logging.INFO)
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_dir = output_dir
+    global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     b2bn = infer_breakpoint_graph.reconstruct_graphs(
         lr_bam, cnv_seed, cn_seg, output_dir, output_bp, min_bp_support
     )
     solver_options = datatypes.SolverOptions(
-        num_threads=cycle_decomp_threads,
-        time_limit_s=cycle_decomp_time_limit,
+        num_threads=solver_threads,
+        time_limit_s=solver_time_limit,
         output_dir=output_dir,
         model_prefix="pyomo",
         solver=solver,
@@ -201,7 +211,7 @@ def reconstruct(
 
     b2bn.closebam()
     if profile:
-        output.summary.add_resource_usage_summary(solver_options)
+        summary.output.add_resource_usage_summary(solver_options)
     print("\nCompleted reconstruction.")
 
 
@@ -214,9 +224,10 @@ def cycle_decomposition_mode(
     ],
     output_dir: OutputDirArg,
     alpha: AlphaArg = 0.01,
-    time_limit_s: TimeLimitArg = 7200,
+    solver_time_limit: SolverTimeLimitArg = 7200,
     threads: ThreadsArg = -1,
     solver: SolverArg = Solver.GUROBI,
+    global_time_limit: GlobalTimeLimitArg = 21600,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
@@ -227,7 +238,7 @@ def cycle_decomposition_mode(
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
-        filename=f"{output_dir}/infer_breakpoint_graph.log",
+        filename=f"{output_dir}/cycle_decomposition.log",
         filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -235,6 +246,7 @@ def cycle_decomposition_mode(
     logging.getLogger("pyomo").setLevel(logging.ERROR)
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_dir = output_dir
+    global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
     amplicon_idx = int(bp_graph.name.split("_")[0].split("amplicon")[1])
@@ -242,7 +254,7 @@ def cycle_decomposition_mode(
 
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
-        time_limit_s=time_limit_s,
+        time_limit_s=solver_time_limit,
         output_dir=output_dir,
         model_prefix="pyomo",
         solver=solver,
@@ -267,9 +279,10 @@ def cycle_decomposition_all_mode(
     ],
     output_dir: OutputDirArg,
     alpha: AlphaArg = 0.01,
-    time_limit_s: TimeLimitArg = 7200,
+    solver_time_limit: SolverTimeLimitArg = 7200,
     threads: ThreadsArg = -1,
     solver: SolverArg = Solver.GUROBI,
+    global_time_limit: GlobalTimeLimitArg = 21600,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
@@ -280,29 +293,45 @@ def cycle_decomposition_all_mode(
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
-        filename=f"{output_dir}/infer_breakpoint_graph.log",
+        filename=f"{output_dir}/cycle_decomposition_all.log",
         filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.ERROR)
+
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_dir = output_dir
+    global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
+    if not (graph_paths := list(bp_dir.glob("*_graph.txt"))):
+        raise ValueError(
+            "No valid breakpoint graph files found in provided directory."
+        )
     bp_graphs = []
-    for bp_filepath in bp_dir.glob("*_graph.txt"):
+    for bp_filepath in graph_paths:
         with bp_filepath.open("r") as f:
             parsed_bp_graph = parse_breakpoint_graph(f)
-            amplicon_idx = int(
-                bp_filepath.name.split("_")[0].split("amplicon")[1]
-            )
+            if not parsed_bp_graph.amplicon_intervals:
+                raise ValueError(
+                    "Breakpoint graph file does not contain any amplicon "
+                    "intervals, are you sure it was generated by "
+                    "CoRAL version 2.1.0 or later?"
+                )
+
             # We 1-index on outputting graph files
-            parsed_bp_graph.amplicon_idx = amplicon_idx - 1
+            amplicon_idx = (
+                int(bp_filepath.name.split("_")[0].split("amplicon")[1]) - 1
+            )
+            parsed_bp_graph.amplicon_idx = amplicon_idx
+            for interval in parsed_bp_graph.amplicon_intervals:
+                interval.amplicon_id = amplicon_idx
             bp_graphs.append(parsed_bp_graph)
+    bp_graphs.sort(key=lambda x: x.amplicon_idx)
 
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
-        time_limit_s=time_limit_s,
+        time_limit_s=solver_time_limit,
         output_dir=output_dir,
         model_prefix="pyomo",
         solver=solver,
@@ -316,7 +345,7 @@ def cycle_decomposition_all_mode(
         should_force_greedy=force_greedy,
     )
     if profile:
-        output.summary.add_resource_usage_summary(solver_options)
+        summary.output.add_resource_usage_summary(solver_options)
 
 
 @coral_app.command(
@@ -543,4 +572,4 @@ def plot_resource_usage(
     print(f"Performing plot resource usage mode with options: {ctx.params}")
     pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
 
-    summary.resource_usage.plot_resource_usage(reconstruction_dir, output_dir)
+    summary.parsing.plot_resource_usage(reconstruction_dir, output_dir)

@@ -82,10 +82,18 @@ class BreakpointGraph:
     path_constraints_satisfied: WalkData[list[int]] = field(
         default_factory=lambda: WalkData([], [])
     )
+    mip_gap: float | None = None
+    upper_bound: float | None = None
 
     # Only filled in after LP solution, when profiling is enabled
     runtime_s: float | None = None
     peak_ram_gb: float | None = None
+
+    @property
+    def relative_mip_gap(self) -> float | None:
+        if self.mip_gap is None or self.upper_bound is None:
+            return None
+        return (self.mip_gap / self.upper_bound) * 100.0
 
     @property
     def num_nodes(self) -> int:

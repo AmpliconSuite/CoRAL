@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import pyomo
 import pyomo.contrib.appsi
 import pyomo.core
 import pyomo.environ as pyo
 import pyomo.opt
+import pyomo.opt.base
+import pyomo.opt.results.solver
 import pyomo.solvers
 import pyomo.solvers.plugins
 import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
-from coral import datatypes
+from coral import datatypes, global_state
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
     CycleSolution,
@@ -24,6 +26,7 @@ from coral.datatypes import (
     EdgeType,
     OptimizationWalk,
 )
+from coral.pyomo_wrappers import PyomoResults
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +112,7 @@ def process_walk_edge(
 
 
 def parse_solver_output(
-    solver_status: str,
-    solver_termination_condition: pyo.TerminationCondition,
+    results: PyomoResults,
     model: pyo.Model,
     bp_graph: BreakpointGraph,
     k: int,
@@ -120,14 +122,53 @@ def parse_solver_output(
     resolution: float = 0.0,
     is_pc_unsatisfied: List[bool] | None = None,
 ) -> CycleSolution:
-    parsed_sol = CycleSolution(solver_status, solver_termination_condition)
+    termination_condition = results.solver.termination_condition
+    parsed_sol = CycleSolution(results.solver.status, termination_condition)
 
-    if solver_termination_condition == pyo.TerminationCondition.infeasible:
+    if termination_condition == pyo.TerminationCondition.infeasible:
         # pyomo.util.infeasible.log_infeasible_constraints(
         #     model, log_expression=True, log_variables=True
         # )
-        logger.debug("Unable to parse infeasible solution.")
+        logger.warning(
+            f"{bp_graph.amplicon_idx}: Unable to parse infeasible solution."
+        )
         return parsed_sol
+    # SCIP can return an infeasible pseudo-solution when the time limit is used
+    # to interrupt the solver, so we need to check that the solution is actually
+    # feasible.
+    if (
+        termination_condition == pyo.TerminationCondition.maxTimeLimit
+        and results.solver.status == pyo.SolverStatus.ok
+        and len(model.solutions) != 0
+        and results.solver.gap == float("inf")
+    ):
+        logger.warning(
+            f"{bp_graph.amplicon_idx}: Solver returned infeasible solution."
+        )
+        parsed_sol.solver_status = pyo.SolverStatus.aborted
+        return parsed_sol
+    if (
+        results.solver.status == pyo.SolverStatus.aborted
+        and termination_condition == pyo.TerminationCondition.maxTimeLimit
+    ):
+        if len(model.solutions) == 0:
+            logger.warning(
+                f"{bp_graph.amplicon_idx}: Solver reached time limit without "
+                "a feasible solution."
+            )
+            return parsed_sol
+        parsed_sol.solver_status = pyo.SolverStatus.ok
+        logger.warning(
+            f"{bp_graph.amplicon_idx}: Solver reached time limit with a feasible "
+            "but suboptimal solution."
+        )
+    try:
+        # SCIP stores MIP gap in results, doesn't populate model gap
+        parsed_sol.mip_gap = results.solver.gap
+    except AttributeError:
+        # Gurobi_Direct (gurobipy) stores MIP gap only in model
+        parsed_sol.mip_gap = model.solutions[0].gap
+    parsed_sol.upper_bound = model.Objective()
 
     lseg = len(bp_graph.sequence_edges)
     lc = len(bp_graph.concordant_edges)
@@ -202,23 +243,65 @@ def parse_solver_output(
     return parsed_sol
 
 
+class PyomoSolverWrapper:
+    def __init__(self, solver: pyomo.opt.base.OptSolver) -> None:
+        self.solver: pyomo.opt.base.OptSolver = solver
+
+    def solve(
+        self, model: pyo.Model, model_filepath: str, **kwargs: dict[str, Any]
+    ) -> PyomoResults:
+        try:
+            results = self.solver.solve(
+                model,
+                **kwargs,
+                logfile=f"{model_filepath}.log",
+                tee=True,
+                # keepfiles=True,
+                # load_solutions=True,
+            )
+            # We potentially need to load because the Pyomo flag will delete the
+            # solver results object, which we need to extract MIP Gap
+            # information for certain solvers where the Pyomo log-parsing fails.
+            # model.solutions.load_from(results)
+        except ValueError as e:
+            logger.error(f"Solver {self.solver.name} raised an exception: {e}")
+            failed_solver_info = pyomo.opt.results.solver.SolverInformation()
+            failed_solver_info.status = pyomo.opt.SolverStatus.aborted
+            failed_solver_info.termination_condition = (
+                pyomo.opt.TerminationCondition.maxTimeLimit
+            )
+
+            failed_solver_results = pyomo.opt.SolverResults()
+            failed_solver_results.solver = failed_solver_info
+
+            return failed_solver_results
+        return results
+
+
 def get_solver(
     solver_options: datatypes.SolverOptions,
-) -> pyomo.solvers.plugins.solvers:
+) -> PyomoSolverWrapper:
     solver_type = solver_options.solver
-    solver = pyo.SolverFactory(solver_type.value)
+    raw_solver = pyo.SolverFactory(solver_type.value)
+    wrapped_solver = PyomoSolverWrapper(raw_solver)
+
+    solver_time_limit = min(
+        global_state.STATE_PROVIDER.remaining_time_s,
+        solver_options.time_limit_s,
+    )
+
     if solver_type == datatypes.Solver.GUROBI:
         if solver_options.num_threads > 0:
-            solver.options["threads"] = solver_options.num_threads
-        solver.options["NonConvex"] = 2
-        solver.options["timelimit"] = solver_options.time_limit_s
+            raw_solver.options["threads"] = solver_options.num_threads
+        raw_solver.options["NonConvex"] = 2
+        raw_solver.options["timelimit"] = solver_time_limit
     elif solver_type == datatypes.Solver.SCIP:
-        solver.options["lp/threads"] = solver_options.num_threads
-        solver.options["parallel/maxnthreads"] = solver_options.num_threads
-        solver.options["limits/time"] = solver_options.time_limit_s
-        solver.options["display/freq"] = 1
-        solver.options["display/lpinfo"] = True
-        solver.options["propagating/nlobbt/nlptimelimit"] = (
-            solver_options.time_limit_s
-        )
-    return solver
+        raw_solver.options["limits/time"] = solver_time_limit
+        raw_solver.options["display/freq"] = 1
+        raw_solver.options["display/lpinfo"] = True
+
+        # Threads are only respected when using "Fiber-SCIP" executable
+        # raw_solver.options["lp/threads"] = solver_options.num_threads
+        # solver.options["parallel/maxnthreads"] = solver_options.num_threads
+        # solver.options["propagating/nlobbt/nlptimelimit"] = solver_time_limit
+    return wrapped_solver
