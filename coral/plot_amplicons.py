@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import io
 import logging
 import os
 import pathlib
@@ -1725,8 +1726,8 @@ class GraphViz:
 def plot_amplicons(
     ref: str,
     bam_path: pathlib.Path | None,
-    graph_file: typer.FileText | None,
-    cycle_file: typer.FileText | None,
+    graph_file: io.TextIOWrapper | None,
+    cycle_file: io.TextIOWrapper | None,
     output_prefix: str,
     num_cycles: int | None,
     max_coverage: float,
