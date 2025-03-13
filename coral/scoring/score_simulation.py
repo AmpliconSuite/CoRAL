@@ -322,4 +322,4 @@ def score_simulations(
         lambda x: x.amplicon.split("_")[0], axis=1
     )
 
-    amplicon_statistics.to_csv(f"{output_dir}/amplicon_stats.tsv", sep="\t")
+    amplicon_statistics.to_csv(f"{output_dir}/amplicon_scores.tsv", sep="\t")

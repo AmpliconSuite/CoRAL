@@ -169,18 +169,26 @@ def parse_solver_output(
                 "a feasible solution."
             )
             return parsed_sol
+
         parsed_sol.solver_status = pyo.SolverStatus.ok
         logger.warning(
             f"{bp_graph.amplicon_idx}: Solver reached time limit with a feasible "
             "but suboptimal solution."
         )
+
+    try:
+        parsed_sol.upper_bound = model.Objective()
+    except ValueError:
+        # Gurobi can return an infeasible solution when the time limit is used
+        # to terminate the solver.
+        return parsed_sol
+
     try:
         # SCIP stores MIP gap in results, doesn't populate model gap
         parsed_sol.mip_gap = results.solver.gap
     except AttributeError:
         # Gurobi_Direct (gurobipy) stores MIP gap only in model
         parsed_sol.mip_gap = model.solutions[0].gap
-    parsed_sol.upper_bound = model.Objective()
 
     lseg = len(bp_graph.sequence_edges)
     lc = len(bp_graph.concordant_edges)

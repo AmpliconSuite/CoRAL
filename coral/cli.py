@@ -255,7 +255,7 @@ def cycle_decomposition_mode(
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
-    amplicon_idx = int(bp_graph.name.split("_")[0].split("amplicon")[1])
+    amplicon_idx = int(bp_graph.name.split("_")[-2].split("amplicon")[1])
     parsed_bp_graph.amplicon_idx = amplicon_idx - 1
 
     solver_options = datatypes.SolverOptions(
@@ -530,9 +530,8 @@ def plot_resource_usage(
     for graph_path, cycle_path in reconstruction_paths:
         with graph_path.open("r") as graph_file:
             cycle_file = None if cycle_path is None else cycle_path.open("r")
-            print(graph_path, cycle_path)
             amplicon_idx = int(
-                graph_path.name.split("_")[0].split("amplicon")[1]
+                graph_path.name.split("_")[-2].split("amplicon")[1]
             )
             plot_amplicons.plot_amplicons(
                 ref,

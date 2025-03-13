@@ -117,7 +117,7 @@ def compute_normalized_longest_cycle_subsequence(
 
     for cycle in reconstructed_cycles["cycle_id"].unique():
         _true_cycle = true_cycle.copy()
-        _true_cycle["segment"] = _truewa_cycle.apply(
+        _true_cycle["segment"] = _true_cycle.apply(
             lambda x: (x.Chromosome, x.Start, x.End), axis=1
         )
 

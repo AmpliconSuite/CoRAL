@@ -30,10 +30,13 @@ class GlobalStateProvider:
 
     @property
     def remaining_time_s(self) -> float:
-        return (
-            self.time_limit_s
-            - (time.time() - self.start_time)
-            - CLEAN_EXIT_BUFFER_S
+        return max(
+            (
+                self.time_limit_s
+                - (time.time() - self.start_time)
+                - CLEAN_EXIT_BUFFER_S
+            ),
+            0,
         )
 
 

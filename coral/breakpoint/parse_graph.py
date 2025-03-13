@@ -220,7 +220,7 @@ def get_all_graphs_from_dir(bp_dir: pathlib.Path) -> list[BreakpointGraph]:
 
             # We 1-index on outputting graph files
             amplicon_idx = (
-                int(bp_filepath.name.split("_")[0].split("amplicon")[1]) - 1
+                int(bp_filepath.name.split("_")[-2].split("amplicon")[1]) - 1
             )
             parsed_bp_graph.amplicon_idx = amplicon_idx
             for interval in parsed_bp_graph.amplicon_intervals:
@@ -240,7 +240,6 @@ def get_all_reconstruction_paths_from_dir(
 ) -> list[ReconstructionPaths]:
     reconstruction_paths = []
     for bp_filepath in reconstruction_dir.glob("*_graph.txt"):
-        amplicon_idx = int(bp_filepath.name.split("_")[0].split("amplicon")[1])
         cycle_filename = re.sub(
             r"amplicon(\d+)_graph.txt",
             r"amplicon\1_cycles.txt",
@@ -264,7 +263,7 @@ def get_all_cycle_paths_from_dir(
     amplicon_idx_to_cycle_path: dict[int, pathlib.Path] = {}
     for cycle_path in cycle_paths:
         amplicon_idx = (
-            int(cycle_path.name.split("_")[0].split("amplicon")[1]) - 1
+            int(cycle_path.name.split("_")[-2].split("amplicon")[1]) - 1
         )
         amplicon_idx_to_cycle_path[amplicon_idx] = cycle_path
     return amplicon_idx_to_cycle_path

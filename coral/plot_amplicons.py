@@ -153,6 +153,9 @@ class GraphViz:
                 chr2 = b2.split(":")[0]
                 pos2 = int(b2.split(":")[1][:-1])
                 o2 = b2.split(":")[1][-1]
+                if s[2] == "":
+                    # Some older simulations had a superfluous \t character
+                    s.pop(2)
                 self.discordant_edges.append(
                     [chr1, pos1, o1, chr2, pos2, o2, float(s[2]), int(s[3])],
                 )

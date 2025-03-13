@@ -63,7 +63,6 @@ def get_fn_call_resource_info(
     pattern: re.Pattern[str], line: str
 ) -> tuple[datatypes.FnCall, datatypes.ProfileResult] | None:
     if not (matched_groups := pattern.match(line)):
-        breakpoint()
         return None
     if pattern == RESOURCE_PATTERN_MULTICALL_FN:
         fn_call = datatypes.FnCall(
@@ -103,6 +102,7 @@ def parse_solver_summary(
     ex: '\nSolver Settings: \nSolver: GUROBI\nThreads: 2\nTime Limit: 28800 s\n'
     """
     if not (match := text_utils.SOLVER_PATTERN.search(summary_str)):
+        # print(summary_str)
         raise ValueError(f"Could not parse solver from {summary_str}")
     full_profile_summary.solver_used = datatypes.Solver[match.group(1)]
 
@@ -180,7 +180,10 @@ def parse_amplicon_summary(summary_str: str) -> AmpliconSummary:
 
 def parse_full_summary(path: pathlib.Path) -> FullProfileSummary:
     summary_chunks = path.read_text().split(text_utils.AMPLICON_SEPARATOR)
-
+    # breakpoint()
+    # for chunk in summary_chunks:
+    #     print("--------------------------------")
+    #     print(chunk)
     full_profile_summary = parse_header(summary_chunks.pop(0))
 
     if full_profile_summary.profiling_enabled:
