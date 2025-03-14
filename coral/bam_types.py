@@ -76,6 +76,36 @@ class BAMWrapper(pysam.AlignmentFile):
     def fetch_node(self, node: Node) -> Generator[SAMSegment, None, None]:
         return self.fetch(node.chr, node.pos, node.pos + 1)  # type: ignore
 
+    def count_raw_coverage(
+        self,
+        interval: Interval,
+        quality_threshold: int = 0,
+        read_callback_type: str = "nofilter",
+    ) -> float:
+        # Much faster than pysam.count_coverage, ignore per-base coverage.
+        if read_callback_type == "all":
+            # Filter out unmapped, secondary, supplementary, and PCR/optical
+            # duplicates.
+            read_cb = lambda read: not (
+                read.flag & (0x4 | 0x100 | 0x200 | 0x400)
+            )
+        else:
+            read_cb = lambda _: True
+        reads = [
+            read
+            for read in self.fetch_interval(interval)
+            if read.mapping_quality >= quality_threshold and read_cb(read)
+        ]
+        total_read_coverage = 0
+        for read in reads:
+            for block_start, block_end in read.get_blocks():
+                if block_end < interval.start or block_start > interval.end:
+                    continue
+                total_read_coverage += min(block_end, interval.end) - max(
+                    block_start, interval.start
+                )
+        return total_read_coverage / (interval.end - interval.start)
+
 
 # class TypedBAM(pysam.AlignmentFile, BAMProtocol):
 #     pass

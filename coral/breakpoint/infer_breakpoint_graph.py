@@ -199,18 +199,7 @@ class LongReadBamToBreakpointMetadata:
         nnc = 0
         for i in range(len(cns_intervals_median)):
             median_intv = cns_intervals_median[i]
-            nnc += sum(
-                [
-                    sum(nc)
-                    for nc in self.lr_bamfh.count_coverage(
-                        median_intv.chr,
-                        median_intv.start,
-                        median_intv.end + 1,
-                        quality_threshold=0,
-                        read_callback="nofilter",
-                    )
-                ]
-            )
+            nnc += self.bam.count_raw_coverage(median_intv)
         self.normal_cov = nnc * 1.0 / total_int_len
         logger.info(
             f"LR normal cov ={self.normal_cov}, {nnc=}, {total_int_len=}."
@@ -1297,7 +1286,7 @@ class LongReadBamToBreakpointMetadata:
             sseg = self.amplicon_intervals[ai]
             amplicon_idx = self.ccid2id[sseg.amplicon_id] - 1
             self.lr_graph[amplicon_idx].amplicon_intervals.append(
-                AmpliconInterval(sseg.chr, sseg.start, sseg.end)
+                AmpliconInterval(sseg.chr, sseg.start, sseg.end, amplicon_idx)
             )
             self.lr_graph[amplicon_idx].add_endnode(
                 Node(sseg.chr, sseg.start, Strand.REVERSE)
@@ -1377,17 +1366,8 @@ class LongReadBamToBreakpointMetadata:
                         if read.infer_read_length()
                     ]
                     seq_edge.lr_count = len(rl_list)
-                    seq_edge.lr_nc = sum(
-                        [
-                            sum(nc)
-                            for nc in self.lr_bamfh.count_coverage(
-                                seq_edge.chr,
-                                seq_edge.start,
-                                seq_edge.end + 1,
-                                quality_threshold=0,
-                                read_callback="nofilter",
-                            )
-                        ],
+                    seq_edge.lr_nc = self.bam.count_raw_coverage(
+                        seq_edge.interval
                     )
                     logger.debug(
                         f"LR cov assigned for sequence edge {seq_edge}."

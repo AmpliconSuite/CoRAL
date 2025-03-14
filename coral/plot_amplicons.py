@@ -19,6 +19,7 @@ import typer
 from coral.breakpoint import (
     breakpoint_utilities,  # type: ignore[import-untyped]
 )
+from coral.datatypes import Interval
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -27,7 +28,13 @@ from matplotlib import gridspec, ticker
 from matplotlib.patches import Arc, Rectangle
 from pylab import rcParams  # type: ignore[import-untyped]
 
-from coral import core_types, cycle2bed, supplemental_data
+from coral import (
+    bam_types,
+    core_types,
+    core_utils,
+    cycle2bed,
+    supplemental_data,
+)
 
 rcParams["pdf.fonttype"] = 42
 
@@ -59,6 +66,7 @@ class GraphViz:
     """ """
 
     lr_bamfh: Optional[pysam.AlignmentFile] = None
+    bam: Optional[bam_types.BAMWrapper] = None
     max_cn = 0.0
     sequence_edges_by_chr: dict = field(default_factory=dict)
     intervals_from_graph: dict = field(default_factory=dict)
@@ -72,8 +80,9 @@ class GraphViz:
     )
     plot_bounds: tuple[str, int, int] | None = None
 
-    def open_bam(self, bam_fn):
+    def open_bam(self, bam_fn: str) -> None:
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
+        self.bam = bam_types.BAMWrapper(bam_fn, "rb")
 
     def parse_genes(
         self,
@@ -529,27 +538,17 @@ class GraphViz:
                 if self.plot_bounds:
                     ival_len = self.plot_bounds[2] - self.plot_bounds[1]
 
-                if ival_len >= 1000000:
-                    window_size = 10000
-                elif ival_len >= 100000:
-                    window_size = 1000
+                if ival_len >= 1_000_000:
+                    window_size = 10_000
+                elif ival_len >= 100_000:
+                    window_size = 1_000
 
                 for w in range(int_[0], int_[1], window_size):
-                    cov = (
-                        sum(
-                            [
-                                sum(nc)
-                                for nc in self.lr_bamfh.count_coverage(
-                                    chrom,
-                                    w,
-                                    w + window_size,
-                                    quality_threshold=quality_threshold,
-                                    read_callback="nofilter",
-                                )
-                            ],
-                        )
-                        * 1.0
-                        / window_size
+                    intv = Interval(chrom, w, w + window_size)
+                    cov = self.bam.count_raw_coverage(
+                        intv,
+                        quality_threshold=0,
+                        read_callback_type="nofilter",
                     )
                     max_cov = max(cov, max_cov)
                     x = (
@@ -567,17 +566,8 @@ class GraphViz:
                 w = int_[1] - ((int_[1] - int_[0] + 1) % window_size)
                 if w < int_[1]:
                     cov = (
-                        sum(
-                            [
-                                sum(nc)
-                                for nc in self.lr_bamfh.count_coverage(
-                                    chrom,
-                                    w,
-                                    w + window_size,
-                                    quality_threshold=quality_threshold,
-                                    read_callback="nofilter",
-                                )
-                            ],
+                        self.bam.count_raw_coverage(
+                            Interval(chrom, w, w + window_size)
                         )
                         * 1.0
                         / window_size
@@ -1726,7 +1716,8 @@ class GraphViz:
         plt.savefig(output_fn + ".pdf")
 
 
-def plot_amplicons(
+@core_utils.profile_fn_with_call_counter
+def plot_amplicon(
     ref: str,
     bam_path: pathlib.Path | None,
     graph_file: io.TextIOWrapper | None,

@@ -440,7 +440,7 @@ def plot_mode(
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
 
-    plot_amplicons.plot_amplicons(
+    plot_amplicons.plot_amplicon(
         ref,
         bam,
         graph,
@@ -462,9 +462,9 @@ def plot_mode(
 
 @coral_app.command(
     name="plot_all",
-    help="Generate plots of resource usage.",
+    help="Generate plots for all amplicons in a given directory.",
 )
-def plot_resource_usage(
+def plot_all_mode(
     ctx: typer.Context,
     ref: ReferenceGenomeArg,
     bam: BamArg,
@@ -521,7 +521,7 @@ def plot_resource_usage(
         ),
     ] = False,
 ) -> None:
-    print(f"Performing plot resource usage mode with options: {ctx.params}")
+    print(f"Performing plot_all mode with options: {ctx.params}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     reconstruction_paths = get_all_reconstruction_paths_from_dir(
@@ -533,7 +533,7 @@ def plot_resource_usage(
             amplicon_idx = int(
                 graph_path.name.split("_")[-2].split("amplicon")[1]
             )
-            plot_amplicons.plot_amplicons(
+            plot_amplicons.plot_amplicon(
                 ref,
                 bam,
                 graph_file,
@@ -546,7 +546,9 @@ def plot_resource_usage(
                 gene_fontsize=gene_fontsize,
                 region=region,
                 should_plot_graph=plot_graph,
-                should_plot_cycles=plot_cycles,
+                should_plot_cycles=plot_cycles
+                if cycle_file is not None
+                else False,
                 should_hide_genes=hide_genes,
                 should_restrict_to_bushman_genes=bushman_genes,
                 should_plot_only_cyclic_walks=only_cyclic_paths,
