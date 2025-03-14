@@ -783,8 +783,6 @@ def fetch_breakpoint_reads(
         chimeric_alignments[r] = cigar_parsing.alignment_from_satags(
             chimeric_strings[r], r
         )
-    for r in reads_wo_primary_alignment:
-        del chimeric_alignments[r]
     logger.info(
         f"Computed alignment intervals on all {len(chimeric_strings)} chimeric reads.",
     )
