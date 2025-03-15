@@ -9,7 +9,7 @@ import pandera.typing as pat
 
 
 @dataclass
-class OverallReconstructionStats:
+class TrueAmpliconStats:
     n_amplified_intervals: int = 0
     n_sequence_edges: int = 0
     n_breakpoint_edges: int = 0
@@ -25,6 +25,10 @@ class OverallReconstructionStats:
     top_three_copy_number_ratio: float = 0
     overall_max_lcs: float = 0
     overall_max_normalized_lcs: float = 0
+    has_cycle_match: bool = False
+
+    # Name of the reconstructed amplicon that best matches the true amplicon
+    matched_amplicon: str | None = None
 
 
 @dataclass
@@ -40,12 +44,45 @@ class AmpliconReconstructionStats:
     top_three_copy_number_ratio: float = 0
     overall_max_lcs: float = 0
     overall_max_normalized_lcs: float = 0
+    has_cycle_match: bool = False
 
 
 class BinnedGenome(pa.DataFrameModel):
     chromosome: str
     start: int
     end: int
+
+
+class ReconstructionScoreModel(pa.DataFrameModel):
+    dataset: pat.Series[str]
+    model: pat.Series[str]
+    amplicon: pat.Series[str]
+    coverage: pat.Series[int]
+    n_breakpoints: pat.Series[int]
+
+    # Below should match TrueAmpliconStats
+    n_amplified_intervals: pat.Series[int]
+    n_sequence_edges: pat.Series[int]
+    n_breakpoint_edges: pat.Series[int]
+    n_amplified_intervals_covered: pat.Series[int]
+    n_sequence_edges_covered: pat.Series[int]
+    n_breakpoint_edges_covered: pat.Series[int]
+    n_reconstructed_sequence_edges_total: pat.Series[int]
+    n_reconstructed_breakpoint_edges_total: pat.Series[int]
+    fragment_overlap: pat.Series[float]
+    reconstruction_length_ratio: pat.Series[float]
+    cycle_triplets_correct: pat.Series[float]
+    best_copy_number_ratio: pat.Series[float]
+    top_three_copy_number_ratio: pat.Series[float]
+    overall_max_lcs: pat.Series[float]
+    overall_max_normalized_lcs: pat.Series[float]
+    has_cycle_match: pat.Series[bool]
+
+    # Name of the reconstructed amplicon that best matches the true amplicon
+    matched_amplicon: pat.Series[str]
+
+
+ReconstructionScoreSchema = ReconstructionScoreModel.to_schema()
 
 
 class SimulatedAmpliconSchema(pa.DataFrameModel):

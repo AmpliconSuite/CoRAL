@@ -270,7 +270,6 @@ def bin_genome(
     Warning: Setting a margin size can effect the output of different distances
     """
 
-    ()
     df_bins = pd.DataFrame(
         np.concatenate(
             (

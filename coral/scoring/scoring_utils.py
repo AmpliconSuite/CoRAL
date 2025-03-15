@@ -335,7 +335,7 @@ def find_overlapping_bp_edges(
     )
 
 
-def create_cycle_graph(cycle):
+def create_cycle_graph(cycle: pd.DataFrame) -> tuple[nx.DiGraph, nx.DiGraph]:
     cycle_graph_fw = nx.DiGraph()
     cycle_graph_rev = nx.DiGraph()
 
@@ -619,7 +619,8 @@ def get_seq_edge_df(sequence_edges: list[SequenceEdge]) -> pd.DataFrame:
 def get_cycle_copy_number_ratio(
     cycles_bed_df: pd.DataFrame, sequence_edges: list[SequenceEdge], n: int = 1
 ) -> float:
-    """Computes the ratio of the best cycle weighted copy-number to the total."""
+    """Computes the ratio of the best cycle's length weighted copy-number to
+    the total length weighted copy-number in the true breakpoint graph."""
     # sequence_edges["CopyCount"] = sequence_edges["CopyCount"].astype(float)
     # # sequence_edges['ident'] = sequence_edges.apply(lambda x: (x.Chrom1, x.Start, x.Chrom2, x.End), axis=1)
     # # to_drop = sequence_edges.loc[sequence_edges['CopyCount'] < 5.0, 'ident'].values
@@ -645,7 +646,7 @@ def get_cycle_copy_number_ratio(
         if len(cycle) == 0:
             continue
 
-        if np.any(cycle["iscyclic"] == False):
+        if not np.any(cycle["iscyclic"]):
             continue
 
         cycle_weight = (

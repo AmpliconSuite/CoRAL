@@ -9,8 +9,8 @@ from matplotlib import rcParams, ticker
 from coral.cnv_seed import parse_centromere_arms
 
 rcParams["pdf.fonttype"] = 42
-font = {"family": "Arial", "size": 17}
-plt.rc("font", **font)
+# font = {"family": "Arial", "size": 17}
+# plt.rc("font", **font)
 
 CHR_NAME_TO_IDX = {"X": 23, "Y": 24}
 CHR_IDX_TO_NAME = {23: "X", 24: "Y"}

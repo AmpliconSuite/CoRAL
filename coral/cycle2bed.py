@@ -21,7 +21,7 @@ def convert_cycles_to_bed(
         t = line.strip().split()
         if t[0] == "Segment":
             all_segs[t[1]] = [t[2], int(t[3]), int(t[4])]
-        if t[0][:5] == "Cycle" or t[0][:4] == "Path":
+        if t[0][:5] == "Cycle" or t[0][:5] == "Path=":
             st = t[0].split(";")
             cycle_id = 1
             cycle_weight = 1.0

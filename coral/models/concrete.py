@@ -158,6 +158,9 @@ def generate_model(
         is_post=is_post,
     )
 
+    # # Need custom suffix to extract MIP Gap information
+    # model.rc = pyo.Suffix(direction=pyo.Suffix.IMPORT)
+
     # Relationship between w[i] and z[i]
     # Below constraint is shared by `minimize_cycles` and `minimize_cycles_post`
     model.ConstraintWZ = pyo.Constraint(
@@ -171,7 +174,7 @@ def generate_model(
         )
 
     if not is_greedy:
-        model.ObjectiveMinCycles = get_minimize_objective(
+        model.Objective = get_minimize_objective(
             model,
             bp_graph,
             k,
@@ -180,7 +183,7 @@ def generate_model(
             is_post,
         )
     else:
-        model.ObjectiveGreedy = get_greedy_objective(
+        model.Objective = get_greedy_objective(
             model,
             bp_graph,
             bp_graph.longest_path_constraints,
@@ -249,7 +252,7 @@ def generate_model(
     for i in range(k):
         for di in range(bp_graph.num_disc_edges):
             dedge = bp_graph.discordant_edges[di]
-            if dedge.is_self_loop:  # exclude self loops
+            if dedge.is_self_loop:  # No directionality on self-loops
                 model.ConstraintXY1D.add(
                     model.y1[
                         (bp_graph.num_seq_edges + bp_graph.num_conc_edges + di),
@@ -293,9 +296,11 @@ def generate_model(
             model.ConstraintSubpathEdgesAddtl.add(constraint)
 
     if is_post:
-        initialize_post_processing_solver(model, init_sol) # type: ignore
+        initialize_post_processing_solver(model, init_sol)  # type: ignore
 
-    model.write(f"{model_filepath}.lp", io_options={"symbolic_solver_labels": True})
+    model.write(
+        f"{model_filepath}.lp", io_options={"symbolic_solver_labels": True}
+    )
     model.write(f"{model_filepath}_ampl.nl", format="nl")
     logger.debug(f"Completed model setup, wrote to {model_filepath}.lp.")
 

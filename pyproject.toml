@@ -21,7 +21,7 @@ license = "MIT"
 name = "CoRAL"
 readme = 'README.md'
 repository = "https://github.com/AmpliconSuite/CoRAL"
-version = "2.0.0"
+version = "2.1.0"
 
 packages = [{ include = "coral" }]
 
@@ -54,6 +54,8 @@ torch = { version =">=2.5.1, =2.*", source="pytorch-cpu"} # Required by pomegran
 memray = "^1.15.0"
 pandera = "0.23.0" # Bug with parsers running twice (pre-v0.23.0) causes issues https://github.com/unionai-oss/pandera/issues/1842
 decorator = "^5.2.1"
+gurobipy = "^12.0.1"
+requests = "^2.32.3"
 
 [[tool.poetry.source]]
 name = "pytorch-cpu"
@@ -138,3 +140,9 @@ reportMissingTypeStubs = false
 
 pythonVersion = "3.12"
 pythonPlatform = "Linux"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+'coral' = ["supplemental_data/*"]
