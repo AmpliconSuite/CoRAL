@@ -181,6 +181,7 @@ def parse_solver_output(
     except ValueError:
         # Gurobi can return an infeasible solution when the time limit is used
         # to terminate the solver.
+        parsed_sol.solver_status = pyo.SolverStatus.aborted
         return parsed_sol
 
     try:

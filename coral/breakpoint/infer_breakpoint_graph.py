@@ -196,7 +196,7 @@ class LongReadBamToBreakpointMetadata:
             f"Total length of LR copy number segments: {total_int_len}."
         )
         logger.debug(f"Average LR copy number: {np.average(log2_cn_median)}.")
-        nnc = 0
+        nnc: float = 0
         for i in range(len(cns_intervals_median)):
             median_intv = cns_intervals_median[i]
             nnc += self.bam.count_raw_coverage(median_intv)

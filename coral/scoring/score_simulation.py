@@ -5,6 +5,7 @@ amplicon structures.
 
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import io
 import os
@@ -23,7 +24,7 @@ from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.scoring import scoring_types
 from coral.scoring.scoring_types import (
     AmpliconReconstructionStats,
-    OverallReconstructionStats,
+    TrueAmpliconStats,
 )
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -60,6 +61,7 @@ AMPLICON_COLS = [
     "top_three_copy_number_ratio",
     "maximum_lcs_length",
     "maximum_normalized_lcs_length",
+    "has_cycle_match",
 ]
 
 
@@ -70,7 +72,7 @@ def score_reconstruction(
     amplicon: str,
     tolerance: int = 100,
     decoil: bool = False,
-) -> OverallReconstructionStats:
+) -> TrueAmpliconStats:
     # define statistics
 
     # compute overlapping sequence & discordant edges
@@ -85,7 +87,7 @@ def score_reconstruction(
     # compute overlapping CNV intervals
     overlapping_cnv_seeds = true_intervals.intersect(cnv_seeds_relaxed)
 
-    recon_stats = scoring_types.OverallReconstructionStats(
+    recon_stats = scoring_types.TrueAmpliconStats(
         n_amplified_intervals=len(true_intervals),
         n_amplified_intervals_covered=len(overlapping_cnv_seeds),
         n_sequence_edges=len(true_graph.sequence_edges),
@@ -130,6 +132,9 @@ def score_reconstruction(
         if reconstructed_cycles_filepath.exists():
             reconstructed_cycles_bed = io_utils.read_cycles_file_to_bed(
                 reconstructed_cycles_filepath
+            )
+            per_amplicon_stats[bp_graph_path.name].has_cycle_match = (
+                len(reconstructed_cycles_bed.df) > 0
             )
 
             # compute fragment overlap
@@ -194,7 +199,7 @@ def score_reconstruction(
                 recon_stats.overall_max_lcs = max_lcs
                 recon_stats.overall_max_normalized_lcs = max_normalized_lcs
 
-    for amplicon_stats in per_amplicon_stats.values():
+    for name, amplicon_stats in per_amplicon_stats.items():
         if (
             amplicon_stats.n_overlapping_bp_edges
             > recon_stats.n_breakpoint_edges_covered
@@ -211,7 +216,8 @@ def score_reconstruction(
             recon_stats.n_reconstructed_breakpoint_edges_total = (
                 amplicon_stats.n_reconstructed_breakpoint_edges_total
             )
-
+            recon_stats.has_cycle_match = amplicon_stats.has_cycle_match
+            recon_stats.matched_amplicon = name
     return recon_stats
 
 
@@ -221,8 +227,13 @@ def score_simulations(
     output_dir: pathlib.Path,
     tolerance: int,
     to_skip: list[str],
+    num_threads: int = 1,
 ) -> None:
-    amplicon_statistics = pd.DataFrame(columns=AMPLICON_COLS)
+    amplicon_statistics: pat.DataFrame[
+        scoring_types.ReconstructionScoreModel
+    ] = pd.DataFrame(
+        columns=scoring_types.ReconstructionScoreSchema.columns.keys()
+    )
 
     to_skip: list[str] = []
 
@@ -268,7 +279,8 @@ def score_simulations(
         )
 
         for amplicon in tqdm.tqdm(
-            simulated_amplicons, desc="Iterating through simulated amplicons"
+            simulated_amplicons,
+            desc=f"Iterating through simulated amplicons for {dataset_path.name}",
         ):
             coverage = amplicon_summaries.loc[amplicon, "coverage"]
 
@@ -315,7 +327,7 @@ def score_simulations(
 
     amplicon_statistics.index = range(len(amplicon_statistics))
     amplicon_statistics["breakpoint_accuracy"] = amplicon_statistics.apply(
-        lambda x: x["breakpoint_edges_covered"] / x["n_breakpoint_edges"],
+        lambda x: x["n_breakpoint_edges_covered"] / x["n_breakpoint_edges"],
         axis=1,
     )
     amplicon_statistics["breakpoint_class"] = amplicon_statistics.apply(

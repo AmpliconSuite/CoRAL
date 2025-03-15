@@ -510,18 +510,25 @@ def solve_single_graph(
         k *= 2
         continue
 
-    if (
-        lp_solution.termination_condition == pyo.TerminationCondition.infeasible
-        or (
-            lp_solution.termination_condition
-            == pyo.TerminationCondition.maxTimeLimit
-            and lp_solution.solver_status == pyo.SolverStatus.aborted
-        )
-    ):
+    was_unsolved = False
+    if lp_solution.termination_condition == pyo.TerminationCondition.infeasible:
         logger.info(
             f"Cycle decomposition is infeasible despite k > {bp_graph.num_edges}"
             " , switch to greedy cycle decomposition."
         )
+        was_unsolved = True
+    elif (
+        lp_solution.termination_condition
+        == pyo.TerminationCondition.maxTimeLimit
+        and lp_solution.solver_status == pyo.SolverStatus.aborted
+    ):
+        logger.info(
+            "Cycle decomposition timed out without a valid solution, "
+            "attempting greedy cycle decomposition."
+        )
+        was_unsolved = True
+
+    if was_unsolved:
         lp_solution = greedy_solve(
             bp_graph=bp_graph,
             total_weights=total_weights,
@@ -532,6 +539,15 @@ def solve_single_graph(
             p_total_weight=p_total_weight,
             resolution=resolution,
         )
+        if (
+            lp_solution.termination_condition
+            == pyo.TerminationCondition.maxTimeLimit
+            and lp_solution.solver_status == pyo.SolverStatus.aborted
+        ):
+            logger.warning(
+                "Greedy cycle decomposition timed out without a valid solution."
+            )
+            return lp_solution
 
     logger.info(
         f"Num cycles = {lp_solution.num_cycles}; "

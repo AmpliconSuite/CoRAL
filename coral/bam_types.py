@@ -104,7 +104,7 @@ class BAMWrapper(pysam.AlignmentFile):
                 total_read_coverage += min(block_end, interval.end) - max(
                     block_start, interval.start
                 )
-        return total_read_coverage / (interval.end - interval.start)
+        return total_read_coverage / len(interval)
 
 
 # class TypedBAM(pysam.AlignmentFile, BAMProtocol):
