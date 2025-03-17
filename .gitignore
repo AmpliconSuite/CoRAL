@@ -10,3 +10,4 @@ configs/
 *.pdf
 *.ipynb
 *.code-workspace
+notebooks/

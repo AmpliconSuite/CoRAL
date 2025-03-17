@@ -545,10 +545,13 @@ class GraphViz:
 
                 for w in range(int_[0], int_[1], window_size):
                     intv = Interval(chrom, w, w + window_size)
-                    cov = self.bam.count_raw_coverage(
-                        intv,
-                        quality_threshold=0,
-                        read_callback_type="nofilter",
+                    cov = (
+                        self.bam.count_raw_coverage(
+                            intv,
+                            quality_threshold=0,
+                            read_callback_type="nofilter",
+                        )
+                        / window_size
                     )
                     max_cov = max(cov, max_cov)
                     x = (

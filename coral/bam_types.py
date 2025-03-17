@@ -94,17 +94,19 @@ class BAMWrapper(pysam.AlignmentFile):
         reads = [
             read
             for read in self.fetch_interval(interval)
-            if read.mapping_quality >= quality_threshold and read_cb(read)
+            if read.mapping_quality >= quality_threshold
+            and read_cb(read)
+            and read.seq is not None  # type: ignore # Used in pysam filtering, check if SAM "SEQ" field has been set
         ]
         total_read_coverage = 0
         for read in reads:
             for block_start, block_end in read.get_blocks():
                 if block_end < interval.start or block_start > interval.end:
                     continue
-                total_read_coverage += min(block_end, interval.end) - max(
+                total_read_coverage += min(block_end, interval.end + 1) - max(
                     block_start, interval.start
                 )
-        return total_read_coverage / len(interval)
+        return total_read_coverage
 
 
 # class TypedBAM(pysam.AlignmentFile, BAMProtocol):

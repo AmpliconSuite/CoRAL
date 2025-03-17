@@ -238,6 +238,21 @@ def parse_full_summary(path: pathlib.Path) -> FullProfileSummary:
     return full_profile_summary
 
 
+def get_full_summaries_from_directory(
+    directory: pathlib.Path,
+) -> dict[str, FullProfileSummary]:
+    summary_stats_by_dataset = {}
+    for dataset_path in directory.iterdir():
+        summary_path = dataset_path / "amplicon_summary.txt"
+        if summary_path.exists():
+            try:
+                summary_stats = parse_full_summary(summary_path)
+                summary_stats_by_dataset[dataset_path.name] = summary_stats
+            except Exception as e:
+                print(f"Unable to parse summary at {summary_path}")
+    return summary_stats_by_dataset
+
+
 def get_summary_stats_df(
     directory: pathlib.Path,
 ) -> pat.DataFrame[FullSummaryModel]:
@@ -250,16 +265,7 @@ def get_summary_stats_df(
     Returns:
         DataFrame with generated summary statistics columns
     """
-    summary_stats_by_dataset = {}
-    for dataset_path in directory.iterdir():
-        summary_path = dataset_path / "amplicon_summary.txt"
-        if summary_path.exists():
-            try:
-                summary_stats = parse_full_summary(summary_path)
-                summary_stats_by_dataset[dataset_path.name] = summary_stats
-            except Exception as e:
-                print(f"greedy failed on {summary_path}")
-
+    summary_stats_by_dataset = get_full_summaries_from_directory(directory)
     raw_df = pd.DataFrame(
         [
             dataclasses.asdict(stats)
