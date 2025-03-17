@@ -405,6 +405,13 @@ def maximize_weights_greedy(
         ):
             logger.debug("Greedy cycle decomposition is infeasible, stopping.")
             break
+        if (
+            curr_sol.termination_condition
+            == pyo.TerminationCondition.maxTimeLimit
+            and curr_sol.solver_status == pyo.SolverStatus.aborted
+        ):
+            logger.warning("Greedy cycle decomposition timed out, stopping.")
+            break
         cycle_id += 1
 
         # Check if solver produced a cycle or path
@@ -439,6 +446,13 @@ def maximize_weights_greedy(
                 "iteration terminated."
             )
             break
+    full_solution.model_metadata = datatypes.ModelMetadata(
+        model_type=datatypes.ModelType.GREEDY,
+        k=cycle_id,
+        alpha=alpha,
+        total_weights=total_weights,
+        resolution=resolution,
+    )
     return full_solution
 
 

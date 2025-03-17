@@ -76,9 +76,9 @@ def score_reconstruction(
     # define statistics
 
     # compute overlapping sequence & discordant edges
-    with (ground_truth_dir / f"graphs/{amplicon}_graph.txt").open("r") as f:
+    with (ground_truth_dir / f"{amplicon}_graph.txt").open("r") as f:
         true_graph = parse_graph.parse_breakpoint_graph(f)
-    cycle_filepath = ground_truth_dir / f"cycles/{amplicon}_cycles.txt"
+    cycle_filepath = ground_truth_dir / f"{amplicon}_cycles.txt"
     true_intervals = io_utils.read_cycles_intervals_to_bed(cycle_filepath)
     true_cycles_bed = io_utils.read_cycles_file_to_bed(cycle_filepath)
     cnv_seeds = pyranges.read_bed(str(cnv_seeds_file))
@@ -288,11 +288,7 @@ def score_simulations(
                 _,
                 simulated_bp_edges,
             ) = io_utils.read_breakpoint_graph(
-                simulation_directory
-                / dataset_path
-                / "ref"
-                / "graphs"
-                / f"{amplicon}_graph.txt"
+                ground_truth / "ref" / dataset_path / f"{amplicon}_graph.txt"
             )
             n_breakpoints = len(simulated_bp_edges)
             recon_stats = score_reconstruction(

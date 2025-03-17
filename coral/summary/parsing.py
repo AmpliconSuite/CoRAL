@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 import pathlib
 import re
@@ -7,7 +8,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 import numpy as np
+import pandas as pd
 import pandera as pa
+import pandera.typing as pat
 
 from coral import datatypes, text_utils
 from coral.text_utils import COMMA_NUMBER_REGEX
@@ -57,6 +60,35 @@ class FullProfileSummary:
                 if profile_result.peak_ram_gb is not None
             )
         )
+
+
+class FullSummaryModel(pa.DataFrameModel):
+    # Match Full Profile Summary
+
+    version: pat.Series[str]
+    profiling_enabled: pat.Series[bool]
+    threads_used: pat.Series[int]
+    solver_used: pat.Series[str]
+    solver_time_limit: pat.Series[int]
+    profiles_by_fn: pat.Series[dict[str, datatypes.ProfileResult]]
+    amplicon_summaries: pat.Series[dict[int, AmpliconSummary]]
+
+    n_graphs: pat.Series[int]
+    n_solved: pat.Series[int]
+    runtime_s: pat.Series[float]
+    peak_ram_gb: pat.Series[float]
+
+
+class AmpliconSummaryModel(pa.DataFrameModel):
+    # Match Amplicon Summary
+    total_amplicon_size: pat.Series[int]
+    num_breakpoints: pat.Series[int]
+    profiles_by_fn: pat.Series[dict[str, datatypes.ProfileResult]]
+    are_cycles_solved: pat.Series[bool]
+    was_suboptimal_solution: pat.Series[bool]
+    model_metadata: pat.Series[datatypes.ModelMetadata] = pa.Field(
+        nullable=True
+    )
 
 
 def get_fn_call_resource_info(
@@ -186,6 +218,7 @@ def parse_full_summary(path: pathlib.Path) -> FullProfileSummary:
     #     print(chunk)
     full_profile_summary = parse_header(summary_chunks.pop(0))
 
+    resource_summary = None
     if full_profile_summary.profiling_enabled:
         resource_summary = summary_chunks.pop()
 
@@ -203,3 +236,81 @@ def parse_full_summary(path: pathlib.Path) -> FullProfileSummary:
         parse_resource_summary(resource_summary, full_profile_summary)
 
     return full_profile_summary
+
+
+def get_summary_stats_df(
+    directory: pathlib.Path,
+) -> pat.DataFrame[FullSummaryModel]:
+    """Adds n_graphs, n_solved, runtime and peak RAM columns to a summary
+     stats DataFrame.
+
+    Args:
+        stats_df: DataFrame containing amplicon summary statistics
+
+    Returns:
+        DataFrame with generated summary statistics columns
+    """
+    summary_stats_by_dataset = {}
+    for dataset_path in directory.iterdir():
+        summary_path = dataset_path / "amplicon_summary.txt"
+        if summary_path.exists():
+            try:
+                summary_stats = parse_full_summary(summary_path)
+                summary_stats_by_dataset[dataset_path.name] = summary_stats
+            except Exception as e:
+                print(f"greedy failed on {summary_path}")
+
+    raw_df = pd.DataFrame(
+        [
+            dataclasses.asdict(stats)
+            for stats in summary_stats_by_dataset.values()
+        ],
+        index=summary_stats_by_dataset.keys(),
+    )
+    stats_df = FullSummaryModel.validate(raw_df)
+
+    stats_df["n_graphs"] = stats_df.amplicon_summaries.apply(lambda x: len(x))
+    stats_df["n_solved"] = stats_df.amplicon_summaries.apply(
+        lambda x: sum(i.are_cycles_solved for i in x.values())
+    )
+
+    return stats_df
+
+
+def get_amplicon_summary_df(
+    full_summary_by_name: dict[str, FullProfileSummary],
+) -> pat.DataFrame[AmpliconSummaryModel]:
+    default_per_amplicon = pd.DataFrame(
+        [
+            {**dataclasses.asdict(summary), "dataset": dataset, "amplicon": idx}
+            for dataset, full_stats in full_summary_by_name.items()
+            for idx, summary in full_stats.amplicon_summaries.items()
+        ]
+    )
+    default_per_amplicon.index = default_per_amplicon.apply(
+        lambda x: (x["dataset"], x["amplicon"]), axis=1
+    )
+    default_per_amplicon["runtime_s"] = default_per_amplicon[
+        "profiles_by_fn"
+    ].apply(
+        lambda x: x["solve_single_graph"].runtime_s
+        if "solve_single_graph" in x
+        else None
+    )
+    default_per_amplicon["peak_ram_gb"] = default_per_amplicon[
+        "profiles_by_fn"
+    ].apply(
+        lambda x: x["solve_single_graph"].peak_ram_gb
+        if "solve_single_graph" in x
+        else None
+    )
+    return AmpliconSummaryModel.validate(default_per_amplicon)
+
+
+# Add per-amplicon runtime and RAM usage
+def get_solve_graph_stats(x: pd.DataFrame, stat_name: str) -> float | None:
+    return (
+        x.profiles_by_fn["solve_single_graph"][stat_name]
+        if "solve_single_graph" in x.profiles_by_fn
+        else None
+    )

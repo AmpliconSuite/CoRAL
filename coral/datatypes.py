@@ -790,8 +790,8 @@ class ModelType(str, enum.Enum):
     GREEDY = "greedy"  # Maximize weights for a single cycle, iteratively
 
 
-@dataclass
-class ModelMetadata:
+# Use NamedTuple for easier parsing/validation with Pandas + Pandera
+class ModelMetadata(NamedTuple):
     model_type: ModelType
     k: int | None = None
     alpha: float | None = None

@@ -41,7 +41,7 @@ scanpydoc = { version = ">=0.5", optional = true }
 typing-extensions = ">=3.7.4"
 typing_extensions = { version = "*", python = "<3.9", optional = true }
 click = "^8.1.7"
-mypy = "1.14.1" # v0.15.0 repeatedly crashes extension
+mypy = "1.13.0" # higher versions cause issues with mypy extension
 pomegranate = "^1.1.0" # Py3.12 support
 pydantic = "^2.9.2"
 pyomo = "^6.8.0"
