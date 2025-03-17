@@ -19,11 +19,13 @@ from typing import Optional
 import pandera as pa
 import pandera.typing as pat
 
+import coral.summary.parsing as summary_parsing
+from coral import core_utils
 from coral.breakpoint import parse_graph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.scoring import scoring_types
 from coral.scoring.scoring_types import (
-    AmpliconReconstructionStats,
+    ReconstructedAmpliconStats,
     TrueAmpliconStats,
 )
 
@@ -39,30 +41,6 @@ import tqdm
 import typer
 
 from coral.scoring import io_utils, scoring_utils
-
-AMPLICON_COLS = [
-    "test_id",
-    "algorithm",
-    "amplicon",
-    "coverage",
-    "n_breakpoints_simulated",
-    "n_amplified_intervals",
-    "n_sequence_edges",
-    "n_breakpoint_edges",
-    "amplified_intervals_covered",
-    "sequence_edges_covered",
-    "breakpoint_edges_covered",
-    "total_reconstructed_sequence_edges",
-    "total_reconstructed_breakpoint_edges",
-    "fragment_overlap_unweighted",
-    "reconstruction_length_ratio",
-    "cycle_triplets_correct",
-    "best_copy_number_ratio",
-    "top_three_copy_number_ratio",
-    "maximum_lcs_length",
-    "maximum_normalized_lcs_length",
-    "has_cycle_match",
-]
 
 
 def score_reconstruction(
@@ -94,11 +72,23 @@ def score_reconstruction(
         n_breakpoint_edges=len(true_graph.discordant_edges),
     )
 
-    per_amplicon_stats: dict[str, AmpliconReconstructionStats] = {}
+    per_amplicon_stats: dict[str, ReconstructedAmpliconStats] = {}
+
+    try:
+        curr_summary = summary_parsing.parse_full_summary(
+            reconstruction_dir / "amplicon_summary.txt"
+        )
+    except Exception as e:
+        print(f"Error parsing summary for {reconstruction_dir}: {e}")
+        curr_summary = None
 
     for bp_graph_path in reconstruction_dir.glob("*_graph.txt"):
         with bp_graph_path.open("r") as f:
             reconstructed_graph = parse_graph.parse_breakpoint_graph(f)
+
+        amplicon_id = core_utils.get_amplicon_id_from_filename(
+            bp_graph_path.name
+        )
 
         num_overlapping_seq_edges = (
             scoring_utils.find_overlapping_sequence_edges(
@@ -114,11 +104,24 @@ def score_reconstruction(
             tolerance=tolerance,
         )
 
-        per_amplicon_stats[bp_graph_path.name] = AmpliconReconstructionStats(
+        model_used = None
+        if (
+            curr_summary
+            and (
+                model_metadata := curr_summary.amplicon_summaries[
+                    amplicon_id
+                ].model_metadata
+            )
+            is not None
+        ):
+            model_used = model_metadata.model_type
+
+        per_amplicon_stats[bp_graph_path.name] = ReconstructedAmpliconStats(
             num_overlapping_seq_edges,
             num_overlapping_bp_edges,
             len(reconstructed_graph.sequence_edges),
             len(reconstructed_graph.breakpoint_edges),
+            model_used=model_used,
         )
 
         reconstructed_cycles_file_name = re.sub(
@@ -218,6 +221,7 @@ def score_reconstruction(
             )
             recon_stats.has_cycle_match = amplicon_stats.has_cycle_match
             recon_stats.matched_amplicon = name
+            recon_stats.model_used = amplicon_stats.model_used
     return recon_stats
 
 
@@ -251,10 +255,9 @@ def score_simulations(
             continue
         simulated_amplicons: np.ndarray[str, np.dtype[np.str_]] = np.unique(
             [
-                amplicon.split("_graph")[0]
-                for amplicon in os.listdir(
-                    ground_truth / dataset_path / "ref" / "graphs"
-                )
+                filename.split("_graph")[0]
+                for filename in os.listdir(ground_truth / dataset_path)
+                if filename.endswith("_graph.txt")
             ]
         )
         raw_df = pd.read_csv(
@@ -288,11 +291,11 @@ def score_simulations(
                 _,
                 simulated_bp_edges,
             ) = io_utils.read_breakpoint_graph(
-                ground_truth / "ref" / dataset_path / f"{amplicon}_graph.txt"
+                ground_truth / dataset_path / f"{amplicon}_graph.txt"
             )
             n_breakpoints = len(simulated_bp_edges)
             recon_stats = score_reconstruction(
-                ground_truth_dir=dataset_path / "ref",
+                ground_truth_dir=dataset_path,
                 reconstruction_dir=reconstruction_dir / dataset_path.name,
                 cnv_seeds_file=simulation_directory
                 / dataset_path

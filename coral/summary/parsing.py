@@ -296,10 +296,10 @@ def get_amplicon_summary_df(
     default_per_amplicon.index = default_per_amplicon.apply(
         lambda x: (x["dataset"], x["amplicon"]), axis=1
     )
-    default_per_amplicon["runtime_s"] = default_per_amplicon[
+    default_per_amplicon["runtime_h"] = default_per_amplicon[
         "profiles_by_fn"
     ].apply(
-        lambda x: x["solve_single_graph"].runtime_s
+        lambda x: x["solve_single_graph"].runtime_s / 3600
         if "solve_single_graph" in x
         else None
     )
@@ -309,6 +309,13 @@ def get_amplicon_summary_df(
         lambda x: x["solve_single_graph"].peak_ram_gb
         if "solve_single_graph" in x
         else None
+    )
+    default_per_amplicon["model_used"] = default_per_amplicon[
+        "model_metadata"
+    ].apply(
+        lambda x: x.model_type
+        if x is not None
+        else datatypes.ModelType.GREEDY  # Remove this default once latest batch of summaries produced
     )
     return AmpliconSummaryModel.validate(default_per_amplicon)
 

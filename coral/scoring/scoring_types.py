@@ -7,6 +7,8 @@ import pandas as pd
 import pandera as pa
 import pandera.typing as pat
 
+from coral import datatypes
+
 
 @dataclass
 class TrueAmpliconStats:
@@ -27,12 +29,13 @@ class TrueAmpliconStats:
     overall_max_normalized_lcs: float = 0
     has_cycle_match: bool = False
 
-    # Name of the reconstructed amplicon that best matches the true amplicon
+    # Pulled from the reconstructed amplicon that best matches the true amplicon
     matched_amplicon: str | None = None
+    model_used: datatypes.ModelType | None = None
 
 
 @dataclass
-class AmpliconReconstructionStats:
+class ReconstructedAmpliconStats:
     n_overlapping_seq_edges: int = 0
     n_overlapping_bp_edges: int = 0
     n_reconstructed_sequence_edges_total: int = 0
@@ -45,6 +48,7 @@ class AmpliconReconstructionStats:
     overall_max_lcs: float = 0
     overall_max_normalized_lcs: float = 0
     has_cycle_match: bool = False
+    model_used: datatypes.ModelType | None = None
 
 
 class BinnedGenome(pa.DataFrameModel):
@@ -78,8 +82,9 @@ class ReconstructionScoreModel(pa.DataFrameModel):
     overall_max_normalized_lcs: pat.Series[float]
     has_cycle_match: pat.Series[bool]
 
-    # Name of the reconstructed amplicon that best matches the true amplicon
+    # Pulled from the reconstructed amplicon that best matches the true amplicon
     matched_amplicon: pat.Series[str]
+    model_used: pat.Series[str] = pa.Field(nullable=True)
 
 
 ReconstructionScoreSchema = ReconstructionScoreModel.to_schema()

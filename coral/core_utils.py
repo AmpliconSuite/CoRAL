@@ -154,3 +154,7 @@ def profile_fn(fn: Callable[P, T]) -> Callable[P, T]:
         return fn(*args, **kwargs)
 
     return wrapper
+
+
+def get_amplicon_id_from_filename(filename: str) -> int:
+    return int(filename.split("_")[-2].split("amplicon")[1])
