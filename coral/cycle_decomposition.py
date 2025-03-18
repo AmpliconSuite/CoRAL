@@ -452,6 +452,7 @@ def maximize_weights_greedy(
         alpha=alpha,
         total_weights=total_weights,
         resolution=resolution,
+        num_path_constraints=len(pc_list),
     )
     return full_solution
 
@@ -590,6 +591,7 @@ def cycle_decomposition_single_graph(
     should_postprocess: bool = False,
     should_force_greedy: bool = False,
     output_all_path_constraints: bool = False,
+    ignore_path_constraints: bool = False,
 ) -> None:
     logger.info(
         f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
@@ -598,6 +600,9 @@ def cycle_decomposition_single_graph(
     total_weights = sum(len(sseg) * sseg.cn for sseg in bp_graph.sequence_edges)
 
     logger.info(f"Total CN weights = {total_weights}.")
+
+    if ignore_path_constraints:
+        bp_graph.longest_path_constraints = []
 
     longest_path_constraints = bp_graph.longest_path_constraints
 
@@ -667,6 +672,7 @@ def cycle_decomposition_all_graphs(
     should_postprocess: bool = False,
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
+    ignore_path_constraints: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
     was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
@@ -681,6 +687,7 @@ def cycle_decomposition_all_graphs(
             should_postprocess=should_postprocess,
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=should_force_greedy,
+            ignore_path_constraints=ignore_path_constraints,
         )
 
         # Verify that cycle decomposition produced a valid solution
@@ -702,6 +709,7 @@ def reconstruct_cycles(
     should_postprocess_greedy_sol: bool = False,
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
+    ignore_path_constraints: bool = False,
 ) -> None:
     logging.basicConfig(
         filename=f"{solver_options.output_dir}/cycle_decomp.log",
@@ -718,6 +726,7 @@ def reconstruct_cycles(
         should_postprocess=should_postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=should_force_greedy,
+        ignore_path_constraints=ignore_path_constraints,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(

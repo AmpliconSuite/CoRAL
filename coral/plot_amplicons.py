@@ -873,25 +873,26 @@ class GraphViz:
         except AttributeError:
             pass
 
-    def plotcycle(
+    def plot_cycles(
         self,
-        title,
-        output_fn,
-        num_cycles=-1,
-        cycle_only=False,
-        margin_between_intervals=2,
-        fontsize=18,
-        dpi=300,
-        hide_genes=False,
-        gene_font_size=12,
+        title: str,
+        output_fn: str,
+        num_cycles: int = -1,
+        margin_between_intervals: int = 2,
+        fontsize: int = 18,
+        dpi: int = 300,
+        gene_font_size: int = 12,
+        *,
+        cycle_only: bool = False,
+        hide_genes: bool = False,
     ) -> None:
         """Plot cycles & paths returned from cycle decomposition"""
         width = max(15, 2 * self.num_amplified_intervals)
-        cycles_to_plot = [cycle_id for cycle_id in self.cycles.keys()]
+        cycles_to_plot = list(self.cycles)  # Get cycle ID keys
         if num_cycles > 0:
             cycles_to_plot = [
                 cycle_id
-                for cycle_id in cycles_to_plot
+                for cycle_id in self.cycles
                 if int(cycle_id) <= num_cycles
             ]
         if cycle_only:
@@ -921,7 +922,7 @@ class GraphViz:
 
         # Compute the x coordinates for each amplified interval
         total_len_amp = 0  # Total length of amplified intervals
-        for chrom in self.intervals_from_cycle.keys():
+        for chrom in self.intervals_from_cycle:
             total_len_amp += sum(
                 [
                     int_[1] - int_[0] + 1
@@ -932,7 +933,7 @@ class GraphViz:
         sorted_chrs = breakpoint_utilities.sort_chrom_names(
             self.intervals_from_cycle.keys()
         )
-        amplified_intervals_start = dict()
+        amplified_intervals_start = {}
         x = margin_between_intervals
         for chrom in sorted_chrs:
             amplified_intervals_start[chrom] = [x]
@@ -1799,7 +1800,7 @@ def plot_amplicon(
         if "/" in output_prefix:
             gtitle = output_prefix.split("/")[-1]
         if num_cycles:
-            g.plotcycle(
+            g.plot_cycles(
                 gtitle,
                 output_prefix + "_cycles",
                 num_cycles=num_cycles,
@@ -1808,7 +1809,7 @@ def plot_amplicon(
                 gene_font_size=gene_fontsize,
             )
         else:
-            g.plotcycle(
+            g.plot_cycles(
                 gtitle,
                 output_prefix + "_cycles",
                 cycle_only=cycle_only_,

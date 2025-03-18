@@ -85,6 +85,12 @@ ForceGreedyFlag = Annotated[
         "below heuristic threshold."
     ),
 ]
+IgnorePathConstraintsFlag = Annotated[
+    bool,
+    typer.Option(
+        help="If specified, ignore path constraints in cycle decomposition."
+    ),
+]
 SolverArg = Annotated[Solver, typer.Option(help="LP solver to use.")]
 ThreadsArg = Annotated[
     int,
@@ -177,6 +183,7 @@ def reconstruct(
         ),
     ] = 1.0,
     force_greedy: ForceGreedyFlag = False,
+    ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
@@ -213,6 +220,7 @@ def reconstruct(
             should_postprocess_greedy_sol=postprocess_greedy_sol,
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=force_greedy,
+            ignore_path_constraints=ignore_path_constraints,
         )
 
     b2bn.closebam()
@@ -237,6 +245,7 @@ def cycle_decomposition_mode(
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
     force_greedy: ForceGreedyFlag = False,
+    ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
@@ -272,6 +281,7 @@ def cycle_decomposition_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
+        ignore_path_constraints=ignore_path_constraints,
     )
 
 
@@ -295,6 +305,7 @@ def cycle_decomposition_all_mode(
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
+    ignore_path_constraints: IgnorePathConstraintsFlag = False,
 ) -> None:
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
@@ -327,6 +338,7 @@ def cycle_decomposition_all_mode(
         should_postprocess=postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
+        ignore_path_constraints=ignore_path_constraints,
     )
     if profile:
         summary.output.add_resource_usage_summary(solver_options)

@@ -797,6 +797,7 @@ class ModelMetadata(NamedTuple):
     alpha: float | None = None
     total_weights: float | None = None
     resolution: float | None = None
+    num_path_constraints: int = 0
 
     def to_output_str(self) -> str:
         return text_utils.MODEL_METADATA_TEMPLATE.format(
@@ -805,4 +806,5 @@ class ModelMetadata(NamedTuple):
             alpha=self.alpha,
             total_weights=self.total_weights,
             resolution=self.resolution,
+            num_path_constraints=self.num_path_constraints,
         )

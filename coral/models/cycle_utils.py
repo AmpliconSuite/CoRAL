@@ -134,6 +134,7 @@ def parse_solver_output(
             alpha=alpha,
             total_weights=total_weights,
             resolution=resolution,
+            num_path_constraints=len(pc_list),
         ),
     )
 

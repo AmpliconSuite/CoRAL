@@ -28,12 +28,20 @@ AMPLICON_BREAKPOINTS_PATTERN = re.compile(
 CYCLE_DECOMP_STATUS_TEMPLATE = "Cycle Decomposition Status: {status}"
 CYCLE_DECOMP_STATUS_PATTERN = re.compile(r"Cycle Decomposition Status: (\S+)")
 
-MODEL_METADATA_TEMPLATE = (
+MODEL_METADATA_TEMPLATE_V2_1 = (
     "ModelMetadata: {model_type}, k={k}, alpha={alpha}, "
     "total_weights={total_weights}, resolution={resolution}"
 )
-MODEL_METADATA_PATTERN = re.compile(
+MODEL_METADATA_PATTERN_V2_1 = re.compile(
     r"ModelMetadata: (\S+), k=(\d+), alpha=(\d+\.\d+|None), total_weights=(\d+\.\d+|None), resolution=(\d+\.\d+|None)"
+)
+MODEL_METADATA_TEMPLATE = (
+    "ModelMetadata: {model_type}, k={k}, alpha={alpha}, "
+    "total_weights={total_weights}, resolution={resolution}, "
+    "num_path_constraints={num_path_constraints}"
+)
+MODEL_METADATA_PATTERN = re.compile(
+    r"ModelMetadata: (\S+), k=(\d+), alpha=(\d+\.\d+|None), total_weights=(\d+\.\d+|None), resolution=(\d+\.\d+|None), num_path_constraints=(\d+)"
 )
 
 SUBOPTIMAL_WARNING = "WARNING: Sub-optimal solution used"
