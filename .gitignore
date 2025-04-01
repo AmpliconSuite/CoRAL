@@ -5,9 +5,9 @@ tmp/
 .vscode/
 configs/
 *.graph
-*.txt
 *.log
 *.lp
 *.pdf
 *.ipynb
 *.code-workspace
+notebooks/

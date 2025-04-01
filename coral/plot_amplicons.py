@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import functools
+import importlib.resources
+import io
 import logging
 import os
 import pathlib
@@ -9,14 +12,19 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import DefaultDict, Optional
 
+import colorama
+import intervaltree
 import matplotlib as mpl
 import numpy as np
 import typer
-from intervaltree import IntervalTree
 
+from coral import datatypes
 from coral.breakpoint import (
     breakpoint_utilities,  # type: ignore[import-untyped]
 )
+from coral.breakpoint.parse_graph import parse_breakpoint_graph
+from coral.datatypes import Interval
+from coral.summary.parsing import parse_cycle_file
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -25,7 +33,13 @@ from matplotlib import gridspec, ticker
 from matplotlib.patches import Arc, Rectangle
 from pylab import rcParams  # type: ignore[import-untyped]
 
-from coral import cycle2bed
+from coral import (
+    bam_types,
+    core_types,
+    core_utils,
+    cycle2bed,
+    supplemental_data,
+)
 
 rcParams["pdf.fonttype"] = 42
 
@@ -57,71 +71,80 @@ class GraphViz:
     """ """
 
     lr_bamfh: Optional[pysam.AlignmentFile] = None
-    max_cn = 0.0
-    sequence_edges_by_chr: dict = field(default_factory=dict)
-    intervals_from_graph: dict = field(default_factory=dict)
-    num_amplified_intervals = 0
-    intervals_from_cycle: dict = field(default_factory=dict)
-    discordant_edges: list[list] = field(default_factory=list)
-    cycles: dict[str, list] = field(default_factory=dict)
-    cycle_flags: dict[str, list] = field(default_factory=dict)
-    genes: DefaultDict[str, IntervalTree] = field(
-        default_factory=lambda: defaultdict(IntervalTree)
+    bam: Optional[bam_types.BAMWrapper] = None
+    graph: datatypes.BreakpointGraph | None = None
+
+    graph_amplified_intervals: dict[
+        core_types.ChrTag, list[datatypes.Interval]
+    ] = field(default_factory=lambda: defaultdict(list))
+    num_amplified_intervals: int = 0
+    cycle_amplified_intervals: dict[
+        core_types.ChrTag, list[datatypes.Interval]
+    ] = field(default_factory=lambda: defaultdict(list))
+    discordant_edges: list[datatypes.BreakpointEdge] = field(
+        default_factory=list
+    )
+
+    cycles: dict[int, datatypes.ReconstructedCycle] = field(
+        default_factory=dict
+    )
+    genes: DefaultDict[str, intervaltree.IntervalTree] = field(
+        default_factory=lambda: defaultdict(intervaltree.IntervalTree)
     )
     plot_bounds: tuple[str, int, int] | None = None
 
-    def open_bam(self, bam_fn):
+    def open_bam(self, bam_fn: str) -> None:
         self.lr_bamfh = pysam.AlignmentFile(bam_fn, "rb")
+        self.bam = bam_types.BAMWrapper(bam_fn, "rb")
+
+    @property
+    def sequence_edges_by_chr(self) -> dict[str, list[datatypes.SequenceEdge]]:
+        seq_edges_by_chr: dict[str, list[datatypes.SequenceEdge]] = defaultdict(
+            list
+        )
+        for seq_edge in self.graph.sequence_edges:  # type: ignore[union-attr]
+            seq_edges_by_chr[seq_edge.chr].append(seq_edge)
+        return seq_edges_by_chr
 
     def parse_genes(
-        self, ref, gene_subset_list=None, restrict_to_bushman=False
-    ):
-        __location__ = os.path.realpath(
-            os.path.join(os.getcwd(), os.path.dirname(__file__))
-        )
-        if ref == "GRCh37" or ref == "hg19":
-            refGene_name = "refGene_hg19.txt"
-        elif ref == "GRCm38" or ref == "mm10":
-            refGene_name = "refGene_mm10.txt"
-        else:
-            refGene_name = "refGene_" + ref + ".txt"
-
-        seenNames = set()
+        self,
+        ref_genome: core_types.ReferenceGenome,
+        gene_subset_list=None,
+        restrict_to_bushman=False,
+    ) -> None:
         bushman_set = set()
         if restrict_to_bushman:
-            with open(
-                os.path.join(
-                    __location__,
-                    "annotations",
-                    "Bushman_group_allOnco_May2018.tsv",
-                ),
-            ) as infile:
+            bushman_filepath = (
+                importlib.resources.files(supplemental_data)
+                / "Bushman_group_allOnco_May2018.tsv"
+            )
+            with bushman_filepath.open("r") as infile:
                 _ = next(infile)
                 for line in infile:
-                    fields = line.rstrip().rsplit()
-                    if not fields:
+                    if not (bushman_fields := line.rstrip().rsplit()):
                         continue
-                    bushman_set.add(fields[-1].strip('"'))
+                    bushman_set.add(bushman_fields[-1].strip('"'))
 
-        with open(
-            os.path.join(__location__, "annotations", refGene_name)
-        ) as infile:
+        seen_names = set()
+        ref_gene_filepath = (
+            importlib.resources.files(supplemental_data)
+            / f"refGene_{ref_genome}.txt"
+        )
+        with ref_gene_filepath.open("r") as infile:
             for line in infile:
-                fields = line.rsplit("\t")
-                currChrom = fields[2]
-                if (
-                    ref == "GRCh37" or ref == "GRCm38"
-                ) and not currChrom.startswith("hpv"):
-                    currChrom = currChrom[3:]
+                if not (fields := line.rstrip().rsplit()):
+                    continue
+                curr_chrom: str = fields[2]
+                if ref_genome in {
+                    core_types.ReferenceGenome.hg19,
+                    core_types.ReferenceGenome.hg38,
+                } and not curr_chrom.startswith("hpv"):
+                    curr_chrom = curr_chrom[3:]
 
                 tstart = int(fields[4])
                 tend = int(fields[5])
                 gname = fields[-4]
-                is_other_feature = (
-                    gname.startswith("LOC")
-                    or gname.startswith("LINC")
-                    or gname.startswith("MIR")
-                )
+                is_other_feature = gname.startswith(("LOC", "LINC", "MIR"))
                 if (
                     restrict_to_bushman
                     and gname not in bushman_set
@@ -130,97 +153,37 @@ class GraphViz:
                 ):
                     continue
 
-                if gname not in seenNames and not is_other_feature:
-                    seenNames.add(gname)
-                    currGene = Gene(currChrom, tstart, tend, fields)
-                    self.genes[currChrom][tstart:tend] = currGene
+                if gname not in seen_names and not is_other_feature:
+                    seen_names.add(gname)
+                    curr_gene = Gene(curr_chrom, tstart, tend, fields)
+                    self.genes[curr_chrom][tstart:tend] = curr_gene
 
-    def parse_graph_file(self, graph_file: typer.FileText) -> None:
-        for line in graph_file:
-            s = line.strip().split("\t")
-            if s[0] == "sequence":
-                schr = s[1].split(":")[0]
-                start = int(s[1].split(":")[1][:-1])
-                end = int(s[2].split(":")[1][:-1])
-                try:
-                    # altered to use AA graph (not CoRAL)
-                    self.sequence_edges_by_chr[schr].append(
-                        [schr, start, end, float(s[3]), int(s[6]), int(s[5])],
-                    )
-                except:
-                    self.sequence_edges_by_chr[schr] = [
-                        [schr, start, end, float(s[3]), int(s[6]), int(s[5])],
-                    ]
-                self.max_cn = max(float(s[3]), self.max_cn)
-            elif s[0] == "discordant":
-                b1 = s[1].split("->")[0]
-                b2 = s[1].split("->")[1]
-                chr1 = b1.split(":")[0]
-                pos1 = int(b1.split(":")[1][:-1])
-                o1 = b1.split(":")[1][-1]
-                chr2 = b2.split(":")[0]
-                pos2 = int(b2.split(":")[1][:-1])
-                o2 = b2.split(":")[1][-1]
-                self.discordant_edges.append(
-                    [chr1, pos1, o1, chr2, pos2, o2, float(s[2]), int(s[3])],
-                )
-
-    def parse_cycle_file(
-        self, cycle_file: typer.FileText, output_prefix, num_cycles
-    ):
-        # check if it ends with .bed, if not convert it
-        if cycle_file.name.endswith("_cycles.txt"):
-            # convert it to a bed
-            init_char = "" if output_prefix.endswith("/") else "_"
-            conv_cycle_fn = output_prefix + init_char + "converted_"
-            if num_cycles:
-                conv_cycle_fn += str(num_cycles) + "_"
-            conv_cycle_fn += "cycles.bed"
-            cycle2bed.convert_cycles_to_bed(
-                cycle_file, conv_cycle_fn, num_cycles
-            )
-            cycle_file = open(conv_cycle_fn, "r")
-
-        elif not cycle_file.name.endswith(".bed"):
-            logger.error(cycle_file.name + "\n")
-            logger.error(
-                "Cycles file must be either a valid *_cycles.txt file or a converted .bed file!\n"
-            )
-            sys.exit(1)
-
-        for line in cycle_file:
-            s = line.strip().split("\t")
-            if s[0][0] == "#":
-                continue
-            if s[4] not in self.cycles:
-                self.cycles[s[4]] = [[s[0], int(s[1]), int(s[2]), s[3]]]
-                if s[5] == "True":
-                    self.cycle_flags[s[4]] = [True, float(s[6])]
-                else:
-                    self.cycle_flags[s[4]] = [False, float(s[6])]
-            else:
-                self.cycles[s[4]].append([s[0], int(s[1]), int(s[2]), s[3]])
-
-    def graph_amplified_intervals(self):
-        for chrom in self.sequence_edges_by_chr.keys():
+    def update_graph_amplified_intervals(self) -> None:
+        for chrom in self.sequence_edges_by_chr:
             lstart, lend = -2, -2
-            if chrom not in self.intervals_from_graph:
-                self.intervals_from_graph[chrom] = []
-            for se in self.sequence_edges_by_chr[chrom]:
-                start = se[1]
-                end = se[2]
+            if chrom not in self.graph_amplified_intervals:
+                self.graph_amplified_intervals[chrom] = []
+            for seq_edge in self.sequence_edges_by_chr[chrom]:
+                start = seq_edge.start
+                end = seq_edge.end
                 if start != lend + 1:
                     if lstart >= 0:
-                        self.intervals_from_graph[chrom].append([lstart, lend])
+                        self.graph_amplified_intervals[chrom].append(
+                            datatypes.Interval(chrom, lstart, lend)
+                        )
                         self.num_amplified_intervals += 1
                     lstart = start
                     lend = end
                 else:
                     lend = end
-            self.intervals_from_graph[chrom].append([lstart, lend])
+            self.graph_amplified_intervals[chrom].append(
+                datatypes.Interval(chrom, lstart, lend)
+            )
             self.num_amplified_intervals += 1
 
-    def merge_intervals(self, interval_list, padding=0.0):
+    def merge_intervals(
+        self, interval_list: list[tuple[int, int]], padding: float = 0.0
+    ) -> list[tuple[int, int]]:
         # takes a list of interval tuples (pos1, pos2). Assumes from same chrom
         # return a list of interval tuples that are merged if overlapping or directly adjacent, or within padding distance
         sorted_intervals = sorted(interval_list)
@@ -234,91 +197,104 @@ class GraphViz:
 
         return merged
 
-    def cycle_amplified_intervals(
-        self, cycle_ids=None, cycle_only=False, graph_given=False
-    ):
+    def update_cycle_amplified_intervals(
+        self,
+        cycle_ids: list[int] | None = None,
+        *,
+        cycle_only: bool = False,
+        graph_given: bool = False,
+    ) -> None:
         """Derive amplified intervals from (selected) cycles"""
         self.num_amplified_intervals = 0
-        if cycle_ids == None:
-            cycle_ids = [cycle_id for cycle_id in self.cycle_flags]
+        if cycle_ids is None:
+            cycle_ids = list(self.cycles.keys())
         if cycle_only:
             cycle_ids = [
                 cycle_id
-                for cycle_id in self.cycle_flags
-                if self.cycle_flags[cycle_id][0]
+                for cycle_id in self.cycles
+                if self.cycles[cycle_id].is_cyclic
             ]
-
         if graph_given:  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
-                for segment in self.cycles[cycle_id]:
-                    for int_ in self.intervals_from_graph[segment[0]]:
-                        if breakpoint_utilities.interval_include(
-                            segment, [segment[0], int_[0], int_[1]]
+                for cycle_seg in self.cycles[cycle_id].segments:
+                    for graph_intv in self.graph_amplified_intervals[
+                        cycle_seg.chr
+                    ]:
+                        if not graph_intv.encompasses(cycle_seg):
+                            continue
+
+                        if (
+                            graph_intv
+                            not in self.cycle_amplified_intervals[cycle_seg.chr]
                         ):
-                            if segment[0] not in self.intervals_from_cycle:
-                                self.intervals_from_cycle[segment[0]] = []
-                            if (
-                                int_
-                                not in self.intervals_from_cycle[segment[0]]
-                            ):
-                                self.intervals_from_cycle[segment[0]].append(
-                                    int_
-                                )
-                            break
+                            self.cycle_amplified_intervals[
+                                cycle_seg.chr
+                            ].append(graph_intv)
+                        break
 
         else:  # if the graph file is not given extract from the cycles file
             # collect a list of intervals for each chrom
             cycle_ivald = defaultdict(list)
             for cycle_id in self.cycles:
-                for segment in self.cycles[cycle_id]:
-                    cycle_ivald[segment[0]].append((segment[1], segment[2]))
+                for cycle_seg in self.cycles[cycle_id].segments:
+                    cycle_ivald[cycle_seg.chr].append(
+                        (cycle_seg.start, cycle_seg.end)
+                    )
 
                 # merge
                 for chrom, ival_list in cycle_ivald.items():
                     merged = self.merge_intervals(ival_list, padding=10000)
-                    self.intervals_from_cycle[chrom] = merged
+                    self.cycle_amplified_intervals[chrom] = [
+                        datatypes.Interval(chrom, start, end)
+                        for start, end in merged
+                    ]
 
-        for chr in self.intervals_from_cycle.keys():
-            self.intervals_from_cycle[chr] = sorted(
-                self.intervals_from_cycle[chr]
+        for chr_tag in self.cycle_amplified_intervals:
+            self.cycle_amplified_intervals[chr_tag] = sorted(
+                self.cycle_amplified_intervals[chr_tag]
             )
-            self.num_amplified_intervals += len(self.intervals_from_cycle[chr])
+            self.num_amplified_intervals += len(
+                self.cycle_amplified_intervals[chr_tag]
+            )
 
-    def set_gene_heights(self, rel_genes, padding=0.0):
+    def set_gene_heights(
+        self, rel_genes: list[Gene], padding: float = 0.0
+    ) -> None:
         if not rel_genes:
             return
-
         gname_to_gobj = {x.gname: x for x in rel_genes}
         # merge intervals
         intervals = [(x.gstart, x.gend) for x in rel_genes]
         merged = self.merge_intervals(intervals, padding=padding)
 
-        gene_ival_t = IntervalTree()
+        gene_ival_t = intervaltree.IntervalTree[str]()
         for x in rel_genes:
             gene_ival_t.addi(x.gstart, x.gend, x.gname)
 
         for mi in merged:
-            ghits = gene_ival_t[mi[0] : mi[1]]
+            ghits: list[intervaltree.Interval] = gene_ival_t[mi[0] : mi[1]]
             gene_heights = np.linspace(0.15, 0.75, len(ghits))
             for g, h in zip(ghits, gene_heights):
                 gname_to_gobj[g.data].height = h
 
     def plot_graph(
         self,
-        title,
-        output_fn,
-        margin_between_intervals=2,
-        height=7.5,
-        fontsize=18,
-        dpi=300,
-        max_cov_cutoff=float("inf"),
-        quality_threshold=0,
-        hide_genes=False,
-        gene_font_size=12,
-    ):
-        """Plot discordant edges and coverage on sequence edges in breakpoint graph"""
+        title: str,
+        output_fn: str,
+        margin_between_intervals: float = 2,
+        height: float = 7.5,
+        fontsize: float = 18,
+        dpi: int = 300,
+        max_cov_cutoff: float = float("inf"),
+        quality_threshold: float = 0,
+        gene_font_size: float = 12,
+        *,
+        hide_genes: bool = False,
+    ) -> None:
+        """Plot discordant edges and coverage on sequence edges in breakpoint
+        graph."""
         if not self.plot_bounds:
-            width = max(15, 2 * self.num_amplified_intervals)
+            width: int = max(15, 2 * self.num_amplified_intervals)
         else:
             width = 15
         fig = plt.figure(figsize=(width, height))
@@ -347,11 +323,11 @@ class GraphViz:
 
         # Draw sequence edges
         total_len_amp = 0  # Total length of amplified intervals
-        for chrom in self.intervals_from_graph.keys():
+        for chrom in self.graph_amplified_intervals.keys():
             total_len_amp += sum(
                 [
-                    int_[1] - int_[0] + 1
-                    for int_ in self.intervals_from_graph[chrom]
+                    len(graph_intv)
+                    for graph_intv in self.graph_amplified_intervals[chrom]
                 ],
             )
         # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
@@ -361,38 +337,38 @@ class GraphViz:
                 float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
             )
         sorted_chrs = breakpoint_utilities.sort_chrom_names(
-            self.intervals_from_graph.keys()
+            self.graph_amplified_intervals.keys()
         )
-        amplified_intervals_start = dict()
+        amplified_intervals_start = {}
         ymax = 0
         x = margin_between_intervals
         for chrom in sorted_chrs:
             interval_idx = 0
             amplified_intervals_start[chrom] = [x]
             for seq in self.sequence_edges_by_chr[chrom]:
-                if chrom not in self.intervals_from_graph or (
-                    interval_idx >= len(self.intervals_from_graph[chrom])
-                    or seq[1]
-                    > self.intervals_from_graph[chrom][interval_idx][1]
+                if chrom not in self.graph_amplified_intervals or (
+                    interval_idx >= len(self.graph_amplified_intervals[chrom])
+                    or seq.start
+                    > self.graph_amplified_intervals[chrom][interval_idx].end
                 ):
                     # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
                     amplified_intervals_start[chrom].append(x)
                     interval_idx += 1
                 x1 = x
-                x += (seq[2] - seq[1]) * 100.0 / total_len_amp
+                x += (seq.end - seq.start) * 100.0 / total_len_amp
                 x2 = x
                 if self.plot_bounds:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
 
                     if not (
-                        seq[2] >= self.plot_bounds[1]
-                        and seq[1] <= self.plot_bounds[2]
+                        seq.end >= self.plot_bounds[1]
+                        and seq.start <= self.plot_bounds[2]
                     ):
                         continue  # Skip if interval doesn't overlap with plot bounds
 
-                y = seq[3]
+                y = seq.cn
                 ymax = max(y, ymax)
 
                 ax2.hlines(y, x1, x2, color="black", lw=6, zorder=2)
@@ -434,42 +410,44 @@ class GraphViz:
             "--": "teal",
             "interchromosomal": "blue",
         }
+        assert self.graph
         avg_bp_rc = (
-            sum([bp[7] for bp in self.discordant_edges])
+            sum([bp.lr_count for bp in self.graph.discordant_edges])
             * 1.0
-            / max(len(self.discordant_edges), 1)
+            / max(len(self.graph.discordant_edges), 1)
         )
-        for bp in self.discordant_edges:
-            chr1 = bp[0]
-            pos1 = bp[1]
-            chr2 = bp[3]
-            pos2 = bp[4]
+        for bp in self.graph.discordant_edges:
+            chr1 = bp.node1.chr
+            pos1 = bp.node1.pos
+            chr2 = bp.node2.chr
+            pos2 = bp.node2.pos
             int1 = 0
             int2 = 0
-            ort = bp[2] + bp[5]
+            ort = f"{bp.node1.strand}{bp.node2.strand}"
             if (
-                chr1 in self.intervals_from_graph
-                and chr2 in self.intervals_from_graph
+                chr1 in self.graph_amplified_intervals
+                and chr2 in self.graph_amplified_intervals
             ):
-                while pos1 > self.intervals_from_graph[chr1][int1][1]:
+                while pos1 > self.graph_amplified_intervals[chr1][int1].end:
                     int1 += 1
                 bp_x1 = (
                     amplified_intervals_start[chr1][int1]
-                    + (pos1 - self.intervals_from_graph[chr1][int1][0])
+                    + (pos1 - self.graph_amplified_intervals[chr1][int1].start)
                     * 100.0
                     / total_len_amp
                 )
-                while pos2 > self.intervals_from_graph[chr2][int2][1]:
+                while pos2 > self.graph_amplified_intervals[chr2][int2].end:
                     int2 += 1
                 bp_x2 = (
                     amplified_intervals_start[chr2][int2]
-                    + (pos2 - self.intervals_from_graph[chr2][int2][0])
+                    + (pos2 - self.graph_amplified_intervals[chr2][int2].start)
                     * 100.0
                     / total_len_amp
                 )
                 # check if either bp overlaps before plotting
                 if self.plot_bounds:
-                    # Check if both breakpoints belong to the same chromosome as in plot bounds
+                    # Check if both breakpoints belong to the same chromosome
+                    # as in plot bounds
                     hit1 = (
                         chr1 == self.plot_bounds[0]
                         and self.plot_bounds[1] <= pos1 <= self.plot_bounds[2]
@@ -488,7 +466,7 @@ class GraphViz:
                     theta1=0,
                     theta2=180,
                     color=colorcode[ort],
-                    lw=min(3 * (bp[7] / avg_bp_rc), 3),
+                    lw=min(3 * (bp.lr_count / avg_bp_rc), 3),
                     zorder=3,
                 )
                 ax2.add_patch(arc)
@@ -504,49 +482,42 @@ class GraphViz:
         # Draw coverage within amplified intervals
         max_cov = 0
         for chrom in sorted_chrs:
-            for inti in range(len(self.intervals_from_graph[chrom])):
-                int_ = self.intervals_from_graph[chrom][inti]
+            for inti in range(len(self.graph_amplified_intervals[chrom])):
+                graph_intv = self.graph_amplified_intervals[chrom][inti]
                 if self.plot_bounds:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
 
                     if not (
-                        int_[1] >= self.plot_bounds[1]
-                        and int_[0] <= self.plot_bounds[2]
+                        graph_intv.end >= self.plot_bounds[1]
+                        and graph_intv.start <= self.plot_bounds[2]
                     ):
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 window_size = 150
-                ival_len = int_[1] - int_[0]
+                ival_len = graph_intv.end - graph_intv.start
                 if self.plot_bounds:
                     ival_len = self.plot_bounds[2] - self.plot_bounds[1]
 
-                if ival_len >= 1000000:
-                    window_size = 10000
-                elif ival_len >= 100000:
-                    window_size = 1000
+                if ival_len >= 1_000_000:
+                    window_size = 10_000
+                elif ival_len >= 100_000:
+                    window_size = 1_000
 
-                for w in range(int_[0], int_[1], window_size):
+                for w in range(graph_intv.start, graph_intv.end, window_size):
+                    intv = Interval(chrom, w, w + window_size)
                     cov = (
-                        sum(
-                            [
-                                sum(nc)
-                                for nc in self.lr_bamfh.count_coverage(
-                                    chrom,
-                                    w,
-                                    w + window_size,
-                                    quality_threshold=quality_threshold,
-                                    read_callback="nofilter",
-                                )
-                            ],
+                        self.bam.count_raw_coverage(  # type: ignore
+                            intv,
+                            quality_threshold=0,
+                            read_callback_type="nofilter",
                         )
-                        * 1.0
                         / window_size
                     )
                     max_cov = max(cov, max_cov)
                     x = (
                         amplified_intervals_start[chrom][inti]
-                        + (w - int_[0]) * 100.0 / total_len_amp
+                        + (w - graph_intv.start) * 100.0 / total_len_amp
                     )
                     rect = Rectangle(
                         (x, 0),
@@ -556,20 +527,13 @@ class GraphViz:
                         zorder=1,
                     )
                     ax.add_patch(rect)
-                w = int_[1] - ((int_[1] - int_[0] + 1) % window_size)
-                if w < int_[1]:
+                w = graph_intv.end - (
+                    (graph_intv.end - graph_intv.start + 1) % window_size
+                )
+                if w < graph_intv.end:
                     cov = (
-                        sum(
-                            [
-                                sum(nc)
-                                for nc in self.lr_bamfh.count_coverage(
-                                    chrom,
-                                    w,
-                                    w + window_size,
-                                    quality_threshold=quality_threshold,
-                                    read_callback="nofilter",
-                                )
-                            ],
+                        self.bam.count_raw_coverage(
+                            Interval(chrom, w, w + window_size)
                         )
                         * 1.0
                         / window_size
@@ -577,7 +541,7 @@ class GraphViz:
                     max_cov = max(cov, max_cov)
                     x = (
                         amplified_intervals_start[chrom][inti]
-                        + (w - int_[0]) * 100.0 / total_len_amp
+                        + (w - graph_intv.start) * 100.0 / total_len_amp
                     )
                     rect = Rectangle(
                         (x, 0),
@@ -594,40 +558,46 @@ class GraphViz:
         # draw genes below plot
         if not hide_genes:
             for chrom in sorted_chrs:
-                for inti in range(len(self.intervals_from_graph[chrom])):
-                    int_ = self.intervals_from_graph[chrom][inti]
+                for inti in range(len(self.graph_amplified_intervals[chrom])):
+                    graph_intv = self.graph_amplified_intervals[chrom][inti]
                     if self.plot_bounds:
                         if chrom != self.plot_bounds[0]:
                             continue  # Skip if chromosome doesn't match plot bounds
 
                         if not (
-                            int_[1] >= self.plot_bounds[1]
-                            and int_[0] <= self.plot_bounds[2]
+                            graph_intv.end >= self.plot_bounds[1]
+                            and graph_intv.start <= self.plot_bounds[2]
                         ):
                             continue  # Skip if interval doesn't overlap with plot bounds
 
                     rel_genes = [
-                        x.data for x in self.genes[chrom][int_[0] : int_[1]]
+                        x.data
+                        for x in self.genes[chrom][
+                            graph_intv.start : graph_intv.end
+                        ]
                     ]
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
 
                     for gene_obj in rel_genes:  # plot line for the gene
                         height = gene_obj.height
-                        print(gene_obj)
-                        cut_gs = max(int_[0], gene_obj.gstart)
-                        cut_ge = min(int_[1], gene_obj.gend)
+                        cut_gs = max(graph_intv.start, gene_obj.gstart)
+                        cut_ge = min(graph_intv.end, gene_obj.gend)
                         # if self.plot_bounds:
                         #     cut_gs = max(self.plot_bounds[1], cut_gs)
                         #     cut_ge = min(self.plot_bounds[2], cut_ge)
 
                         gene_start = (
                             amplified_intervals_start[chrom][inti]
-                            + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                            + (cut_gs - graph_intv.start)
+                            * 100.0
+                            / total_len_amp
                         )
                         gene_end = (
                             amplified_intervals_start[chrom][inti]
-                            + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                            + (cut_ge - graph_intv.start)
+                            * 100.0
+                            / total_len_amp
                         )
                         ax3.hlines(
                             height,
@@ -647,13 +617,20 @@ class GraphViz:
                             cut_ge = min(self.plot_bounds[2], cut_ge)
                             gene_start = (
                                 amplified_intervals_start[chrom][inti]
-                                + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                                + (cut_gs - graph_intv.start)
+                                * 100.0
+                                / total_len_amp
                             )
                             gene_end = (
                                 amplified_intervals_start[chrom][inti]
-                                + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                                + (cut_ge - graph_intv.start)
+                                * 100.0
+                                / total_len_amp
                             )
 
+                        print((gene_start + gene_end) / 2, height + 0.05)
+                        print(height, gene_start, gene_end)
+                        breakpoint()
                         ax3.text(
                             (gene_start + gene_end) / 2,
                             height + 0.05,
@@ -686,24 +663,28 @@ class GraphViz:
                             exon_end,
                         ) in gene_obj.eposns:  # plot exon bars
                             if (
-                                not exon_end > int_[0]
-                                or not exon_start < int_[1]
+                                not exon_end > graph_intv.start
+                                or not exon_start < graph_intv.end
                             ):
                                 continue
 
-                            cut_es = max(int_[0], exon_start)
-                            cut_ee = min(int_[1], exon_end)
+                            cut_es = max(graph_intv.start, exon_start)
+                            cut_ee = min(graph_intv.end, exon_end)
                             # if self.plot_bounds:
                             #     cut_es = max(self.plot_bounds[1], cut_es)
                             #     cut_ee = min(self.plot_bounds[2], cut_ee)
                             #
                             exon_start_pos = (
                                 amplified_intervals_start[chrom][inti]
-                                + (cut_es - int_[0]) * 100.0 / total_len_amp
+                                + (cut_es - graph_intv.start)
+                                * 100.0
+                                / total_len_amp
                             )
                             exon_end_pos = (
                                 amplified_intervals_start[chrom][inti]
-                                + (cut_ee - int_[0]) * 100.0 / total_len_amp
+                                + (cut_ee - graph_intv.start)
+                                * 100.0
+                                / total_len_amp
                             )
 
                             exon_min_width = (
@@ -743,7 +724,7 @@ class GraphViz:
                 + (self.num_amplified_intervals + 1) * margin_between_intervals,
             )
             for chrom in sorted_chrs:
-                nint_chr = len(self.intervals_from_graph[chrom])
+                nint_chr = len(self.graph_amplified_intervals[chrom])
                 for inti in range(len(amplified_intervals_start[chrom])):
                     if inti > 0:
                         xtickpos.append(
@@ -801,13 +782,13 @@ class GraphViz:
                 100 + self.num_amplified_intervals * margin_between_intervals
             )
             for chrom in sorted_chrs:
-                nint_chr = len(self.intervals_from_graph[chrom])
+                nint_chr = len(self.graph_amplified_intervals[chrom])
                 for inti in range(nint_chr):
-                    int_ = self.intervals_from_graph[chrom][inti]
-                    xticklabels.append(str(int_[0]) + "   ")
+                    graph_intv = self.graph_amplified_intervals[chrom][inti]
+                    xticklabels.append(f"{graph_intv.start:,}   ")
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                         xticklabels.append(chrom)
-                    xticklabels.append(str(int_[1]) + "   ")
+                    xticklabels.append(f"{graph_intv.end:,}   ")
                     if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2:
                         xticklabels.append(chrom)
             ax3.set_xticks(xtickpos)
@@ -822,17 +803,17 @@ class GraphViz:
         else:  # self.plot_bounds are given
             # look up the segment
             pchrom, pstart, pend = self.plot_bounds
-            nint_chr = len(self.intervals_from_graph[pchrom])
+            nint_chr = len(self.graph_amplified_intervals[pchrom])
             relint = None
             rint_ = None
             for inti in range(nint_chr):
                 istart, iend = (
-                    self.intervals_from_graph[pchrom][inti][0],
-                    self.intervals_from_graph[pchrom][inti][1],
+                    self.graph_amplified_intervals[pchrom][inti].start,
+                    self.graph_amplified_intervals[pchrom][inti].end,
                 )
                 if istart <= pstart <= iend:
                     relint = inti
-                    rint_ = self.intervals_from_graph[pchrom][inti]
+                    rint_ = self.graph_amplified_intervals[pchrom][inti]
                     break
 
             if relint is None:
@@ -843,11 +824,11 @@ class GraphViz:
             else:
                 plot_start = (
                     amplified_intervals_start[pchrom][relint]
-                    + (pstart - rint_[0]) * 100.0 / total_len_amp
+                    + (pstart - rint_.start) * 100.0 / total_len_amp
                 )
                 plot_end = (
                     amplified_intervals_start[pchrom][relint]
-                    + (pend - rint_[0]) * 100.0 / total_len_amp
+                    + (pend - rint_.start) * 100.0 / total_len_amp
                 )
                 xtickpos.append(plot_start)
                 xtickpos.append(plot_end)
@@ -872,37 +853,41 @@ class GraphViz:
         except AttributeError:
             pass
 
-    def plotcycle(
+    def plot_cycles(
         self,
-        title,
-        output_fn,
-        num_cycles=-1,
-        cycle_only=False,
-        margin_between_intervals=2,
-        fontsize=18,
-        dpi=300,
-        hide_genes=False,
-        gene_font_size=12,
+        title: str,
+        output_fn: str,
+        num_cycles: int | None = None,
+        margin_between_intervals: int = 2,
+        fontsize: int = 18,
+        dpi: int = 300,
+        gene_font_size: int = 12,
+        *,
+        cycle_only: bool = False,
+        hide_genes: bool = False,
     ) -> None:
         """Plot cycles & paths returned from cycle decomposition"""
         width = max(15, 2 * self.num_amplified_intervals)
-        cycles_to_plot = [cycle_id for cycle_id in self.cycles.keys()]
-        if num_cycles > 0:
+        cycles_to_plot = list(self.cycles)  # Get cycle ID keys
+        if num_cycles is not None:
             cycles_to_plot = [
                 cycle_id
-                for cycle_id in cycles_to_plot
+                for cycle_id in self.cycles
                 if int(cycle_id) <= num_cycles
             ]
         if cycle_only:
             cycles_to_plot = [
                 cycle_id
                 for cycle_id in cycles_to_plot
-                if self.cycle_flags[cycle_id][0]
+                if self.cycles[cycle_id].is_cyclic
             ]
         cycles_to_plot = sorted(cycles_to_plot)
         height = sum(
-            [2 * len(self.cycles[cycle_id]) - 1 for cycle_id in cycles_to_plot]
-        ) + 6 * (len(cycles_to_plot) - 1)
+            [
+                3 * len(self.cycles[cycle_id].segments) - 1
+                for cycle_id in cycles_to_plot
+            ]
+        ) + 9 * (len(cycles_to_plot) - 1)
         fig = plt.figure(figsize=(width, max(4, height * 0.25)))
         if not hide_genes:
             vrat = 50 / height
@@ -920,26 +905,31 @@ class GraphViz:
 
         # Compute the x coordinates for each amplified interval
         total_len_amp = 0  # Total length of amplified intervals
-        for chrom in self.intervals_from_cycle.keys():
+        for chrom in self.cycle_amplified_intervals:
             total_len_amp += sum(
                 [
-                    int_[1] - int_[0] + 1
-                    for int_ in self.intervals_from_cycle[chrom]
+                    int_.end - int_.start + 1
+                    for int_ in self.cycle_amplified_intervals[chrom]
                 ],
             )
         # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         sorted_chrs = breakpoint_utilities.sort_chrom_names(
-            self.intervals_from_cycle.keys()
+            self.cycle_amplified_intervals.keys()
         )
-        amplified_intervals_start = dict()
+        amplified_intervals_start = {}
         x = margin_between_intervals
         for chrom in sorted_chrs:
             amplified_intervals_start[chrom] = [x]
-            for interval_idx in range(len(self.intervals_from_cycle[chrom])):
-                int_ = self.intervals_from_cycle[chrom][interval_idx]
-                x += (int_[1] - int_[0]) * 100.0 / total_len_amp
+            for interval_idx in range(
+                len(self.cycle_amplified_intervals[chrom])
+            ):
+                intv = self.cycle_amplified_intervals[chrom][interval_idx]
+                x += (intv.end - intv.start) * 100.0 / total_len_amp
                 x += margin_between_intervals
-                if interval_idx < len(self.intervals_from_cycle[chrom]) - 1:
+                if (
+                    interval_idx
+                    < len(self.cycle_amplified_intervals[chrom]) - 1
+                ):
                     amplified_intervals_start[chrom].append(x)
 
         # Draw amplified interval separators
@@ -974,25 +964,29 @@ class GraphViz:
             ystart_cycle_id = y_cur
             cycle_min_x = float("inf")
             cycle_max_x = 0.0
-            for i in range(len(self.cycles[cycle_id])):
+            for i, segment in enumerate(self.cycles[cycle_id].segments):
                 # Segment i
-                seg = self.cycles[cycle_id][i]
                 interval_idx = 0
                 while (
-                    seg[1] > self.intervals_from_cycle[seg[0]][interval_idx][1]
+                    segment.start
+                    > self.cycle_amplified_intervals[segment.chr][
+                        interval_idx
+                    ].end
                 ):
                     interval_idx += 1
                 x1 = (
-                    amplified_intervals_start[seg[0]][interval_idx]
+                    amplified_intervals_start[segment.chr][interval_idx]
                     + (
-                        seg[1]
-                        - self.intervals_from_cycle[seg[0]][interval_idx][0]
+                        segment.start
+                        - self.cycle_amplified_intervals[segment.chr][
+                            interval_idx
+                        ].start
                     )
                     * 100.0
                     / total_len_amp
                 )
                 cycle_min_x = min(x1, cycle_min_x)
-                xlen = (seg[2] - seg[1]) * 100.0 / total_len_amp
+                xlen = (segment.end - segment.start) * 100.0 / total_len_amp
                 cycle_max_x = max(x1 + xlen, cycle_max_x)
                 rect = Rectangle(
                     (x1, y_cur),
@@ -1005,23 +999,27 @@ class GraphViz:
                 ax.add_patch(rect)
 
                 # Connections between segment i and i + 1
-                if i < len(self.cycles[cycle_id]) - 1:
-                    nseg = self.cycles[cycle_id][i + 1]
+                if i < len(self.cycles[cycle_id].segments) - 1:
+                    nseg = self.cycles[cycle_id].segments[i + 1]
                     interval_idx_n = 0
                     while (
-                        nseg[1]
-                        > self.intervals_from_cycle[nseg[0]][interval_idx_n][1]
+                        nseg.start
+                        > self.cycle_amplified_intervals[nseg.chr][
+                            interval_idx_n
+                        ].end
                     ):
                         interval_idx_n += 1
-                    if seg[3] == "+" and nseg[3] == "-":
+                    if segment.strand == "+" and nseg.strand == "-":
                         x2 = x1 + xlen
-                        x2n = amplified_intervals_start[nseg[0]][interval_idx_n]
+                        x2n: float = amplified_intervals_start[nseg.chr][
+                            interval_idx_n
+                        ]
                         x2n += (
                             (
-                                nseg[2]
-                                - self.intervals_from_cycle[nseg[0]][
+                                nseg.end
+                                - self.cycle_amplified_intervals[nseg.chr][
                                     interval_idx_n
-                                ][0]
+                                ].start
                             )
                             * 100.0
                             / total_len_amp
@@ -1047,15 +1045,17 @@ class GraphViz:
                             colors="b",
                             lw=2,
                         )
-                        y_cur -= 2
-                    elif seg[3] == "-" and nseg[3] == "+":
-                        x1n = amplified_intervals_start[nseg[0]][interval_idx_n]
+                        y_cur -= 3
+                    elif segment.strand == "-" and nseg.strand == "+":
+                        x1n: float = amplified_intervals_start[nseg.chr][
+                            interval_idx_n
+                        ]
                         x1n += (
                             (
-                                nseg[1]
-                                - self.intervals_from_cycle[nseg[0]][
+                                nseg.start
+                                - self.cycle_amplified_intervals[nseg.chr][
                                     interval_idx_n
-                                ][0]
+                                ].start
                             )
                             * 100.0
                             / total_len_amp
@@ -1081,16 +1081,18 @@ class GraphViz:
                             colors="b",
                             lw=2,
                         )
-                        y_cur -= 2
-                    elif seg[3] == "+" and nseg[3] == "+":
+                        y_cur -= 3
+                    elif segment.strand == "+" and nseg.strand == "+":
                         x2 = x1 + xlen
-                        x1n = amplified_intervals_start[nseg[0]][interval_idx_n]
+                        x1n: float = amplified_intervals_start[nseg.chr][
+                            interval_idx_n
+                        ]
                         x1n += (
                             (
-                                nseg[1]
-                                - self.intervals_from_cycle[nseg[0]][
+                                nseg.start
+                                - self.cycle_amplified_intervals[nseg.chr][
                                     interval_idx_n
-                                ][0]
+                                ].start
                             )
                             * 100.0
                             / total_len_amp
@@ -1139,15 +1141,17 @@ class GraphViz:
                                 colors="b",
                                 lw=2,
                             )
-                            y_cur -= 2
+                            y_cur -= 3
                     else:  # seg[3] == '-' and nseg[3] == '-'
-                        x2n = amplified_intervals_start[nseg[0]][interval_idx_n]
+                        x2n: float = amplified_intervals_start[nseg.chr][
+                            interval_idx_n
+                        ]
                         x2n += (
                             (
-                                nseg[2]
-                                - self.intervals_from_cycle[nseg[0]][
+                                nseg.end
+                                - self.cycle_amplified_intervals[nseg.chr][
                                     interval_idx_n
-                                ][0]
+                                ].start
                             )
                             * 100.0
                             / total_len_amp
@@ -1196,22 +1200,25 @@ class GraphViz:
                                 colors="b",
                                 lw=2,
                             )
-                            y_cur -= 2
+                            y_cur -= 3
 
             # First and last segments
-            if not self.cycle_flags[cycle_id][0]:  # Paths
-                seg = self.cycles[cycle_id][0]
+            if not self.cycles[cycle_id].is_cyclic:  # Paths
+                seg = self.cycles[cycle_id].segments[0]
                 interval_idx = 0
                 while (
-                    seg[1] > self.intervals_from_cycle[seg[0]][interval_idx][1]
+                    seg.start
+                    > self.cycle_amplified_intervals[seg.chr][interval_idx].end
                 ):
                     interval_idx += 1
-                if seg[3] == "+":
-                    x1 = (
-                        amplified_intervals_start[seg[0]][interval_idx]
+                if seg.strand == "+":
+                    x1: float = (
+                        amplified_intervals_start[seg.chr][interval_idx]
                         + (
-                            seg[1]
-                            - self.intervals_from_cycle[seg[0]][interval_idx][0]
+                            seg.start
+                            - self.cycle_amplified_intervals[seg.chr][
+                                interval_idx
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1224,11 +1231,13 @@ class GraphViz:
                         lw=2,
                     )
                 else:
-                    x2 = (
-                        amplified_intervals_start[seg[0]][interval_idx]
+                    x2: float = (
+                        amplified_intervals_start[seg.chr][interval_idx]
                         + (
-                            seg[2]
-                            - self.intervals_from_cycle[seg[0]][interval_idx][0]
+                            seg.end
+                            - self.cycle_amplified_intervals[seg.chr][
+                                interval_idx
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1240,18 +1249,21 @@ class GraphViz:
                         colors="b",
                         lw=2,
                     )
-                seg = self.cycles[cycle_id][-1]
+                seg = self.cycles[cycle_id].segments[-1]
                 interval_idx = 0
                 while (
-                    seg[1] > self.intervals_from_cycle[seg[0]][interval_idx][1]
+                    seg.start
+                    > self.cycle_amplified_intervals[seg.chr][interval_idx].end
                 ):
                     interval_idx += 1
-                if seg[3] == "+":
-                    x2 = amplified_intervals_start[seg[0]][interval_idx]
+                if seg.strand == "+":
+                    x2: float = amplified_intervals_start[seg.chr][interval_idx]
                     x2 += (
                         (
-                            seg[2]
-                            - self.intervals_from_cycle[seg[0]][interval_idx][0]
+                            seg.end
+                            - self.cycle_amplified_intervals[seg.chr][
+                                interval_idx
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1264,11 +1276,13 @@ class GraphViz:
                         lw=2,
                     )
                 else:
-                    x1 = amplified_intervals_start[seg[0]][interval_idx]
+                    x1: float = amplified_intervals_start[seg.chr][interval_idx]
                     x1 += (
                         (
-                            seg[1]
-                            - self.intervals_from_cycle[seg[0]][interval_idx][0]
+                            seg.start
+                            - self.cycle_amplified_intervals[seg.chr][
+                                interval_idx
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1285,44 +1299,52 @@ class GraphViz:
                 xmin_ = cycle_min_x - extension
                 xmax_ = cycle_max_x + extension
 
-                if len(self.cycles[cycle_id]) > 1:
+                if len(self.cycles[cycle_id].segments) > 1:
                     xmin_ -= extension
                     xmax_ += extension
 
                 # xmax_ = 99.5 + (self.num_amplified_intervals + 1) * margin_between_intervals
-                seg1 = self.cycles[cycle_id][0]
+                seg1 = self.cycles[cycle_id].segments[0]
                 interval_idx1 = 0
                 while (
-                    seg1[1]
-                    > self.intervals_from_cycle[seg1[0]][interval_idx1][1]
+                    seg1.start
+                    > self.cycle_amplified_intervals[seg1.chr][
+                        interval_idx1
+                    ].end
                 ):
                     interval_idx1 += 1
-                seg2 = self.cycles[cycle_id][-1]
+                seg2 = self.cycles[cycle_id].segments[-1]
                 interval_idx2 = 0
                 while (
-                    seg2[1]
-                    > self.intervals_from_cycle[seg2[0]][interval_idx2][1]
+                    seg2.start
+                    > self.cycle_amplified_intervals[seg2.chr][
+                        interval_idx2
+                    ].end
                 ):
                     interval_idx2 += 1
-                if seg1[3] == "-" and seg2[3] == "+":
-                    x2 = amplified_intervals_start[seg1[0]][interval_idx1]
+                if seg1.strand == "-" and seg2.strand == "+":
+                    x2: float = amplified_intervals_start[seg1.chr][
+                        interval_idx1
+                    ]
                     x2 += (
                         (
-                            seg1[2]
-                            - self.intervals_from_cycle[seg1[0]][interval_idx1][
-                                0
-                            ]
+                            seg1.end
+                            - self.cycle_amplified_intervals[seg1.chr][
+                                interval_idx1
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
                     )
-                    x2n = amplified_intervals_start[seg2[0]][interval_idx2]
+                    x2n: float = amplified_intervals_start[seg2.chr][
+                        interval_idx2
+                    ]
                     x2n += (
                         (
-                            seg2[2]
-                            - self.intervals_from_cycle[seg2[0]][interval_idx2][
-                                0
-                            ]
+                            seg2.end
+                            - self.cycle_amplified_intervals[seg2.chr][
+                                interval_idx2
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1344,25 +1366,29 @@ class GraphViz:
                     ax.hlines(
                         y=y_cur + 0.5, xmin=x2n, xmax=xmax_, colors="b", lw=2
                     )
-                elif seg1[3] == "+" and seg2[3] == "-":
-                    x1 = amplified_intervals_start[seg1[0]][interval_idx1]
+                elif seg1.strand == "+" and seg2.strand == "-":
+                    x1: float = amplified_intervals_start[seg1.chr][
+                        interval_idx1
+                    ]
                     x1 += (
                         (
-                            seg1[1]
-                            - self.intervals_from_cycle[seg1[0]][interval_idx1][
-                                0
-                            ]
+                            seg1.start
+                            - self.cycle_amplified_intervals[seg1.chr][
+                                interval_idx1
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
                     )
-                    x1n = amplified_intervals_start[seg2[0]][interval_idx2]
+                    x1n: float = amplified_intervals_start[seg2.chr][
+                        interval_idx2
+                    ]
                     x1n += (
                         (
-                            seg2[1]
-                            - self.intervals_from_cycle[seg2[0]][interval_idx2][
-                                0
-                            ]
+                            seg2.start
+                            - self.cycle_amplified_intervals[seg2.chr][
+                                interval_idx2
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1384,25 +1410,29 @@ class GraphViz:
                     ax.hlines(
                         y=y_cur + 0.5, xmin=xmin_, xmax=x1n, colors="b", lw=2
                     )
-                elif seg1[3] == "-" and seg2[3] == "-":
-                    x2 = amplified_intervals_start[seg1[0]][interval_idx1]
+                elif seg1.strand == "-" and seg2.strand == "-":
+                    x2: float = amplified_intervals_start[seg1.chr][
+                        interval_idx1
+                    ]
                     x2 += (
                         (
-                            seg1[2]
-                            - self.intervals_from_cycle[seg1[0]][interval_idx1][
-                                0
-                            ]
+                            seg1.end
+                            - self.cycle_amplified_intervals[seg1.chr][
+                                interval_idx1
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
                     )
-                    x1n = amplified_intervals_start[seg2[0]][interval_idx2]
+                    x1n: float = amplified_intervals_start[seg2.chr][
+                        interval_idx2
+                    ]
                     x1n += (
                         (
-                            seg2[1]
-                            - self.intervals_from_cycle[seg2[0]][interval_idx2][
-                                0
-                            ]
+                            seg2.end
+                            - self.cycle_amplified_intervals[seg2.chr][
+                                interval_idx2
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1443,24 +1473,28 @@ class GraphViz:
                         lw=2,
                     )
                 else:
-                    x1 = amplified_intervals_start[seg1[0]][interval_idx1]
+                    x1: float = amplified_intervals_start[seg1.chr][
+                        interval_idx1
+                    ]
                     x1 += (
                         (
-                            seg1[1]
-                            - self.intervals_from_cycle[seg1[0]][interval_idx1][
-                                0
-                            ]
+                            seg1.start
+                            - self.cycle_amplified_intervals[seg1.chr][
+                                interval_idx1
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
                     )
-                    x2n = amplified_intervals_start[seg2[0]][interval_idx2]
+                    x2n: float = amplified_intervals_start[seg2.chr][
+                        interval_idx2
+                    ]
                     x2n += (
                         (
-                            seg2[2]
-                            - self.intervals_from_cycle[seg2[0]][interval_idx2][
-                                0
-                            ]
+                            seg2.end
+                            - self.cycle_amplified_intervals[seg2.chr][
+                                interval_idx2
+                            ].start
                         )
                         * 100.0
                         / total_len_amp
@@ -1503,35 +1537,35 @@ class GraphViz:
 
             # Separators between cycles; ticks
             ax.hlines(
-                y=y_cur - 2,
+                y=y_cur - 3,
                 xmin=-1,
                 xmax=101
                 + (self.num_amplified_intervals + 1) * margin_between_intervals,
                 colors="k",
             )
             cycleticks.append((y_cur + ystart_cycle_id) * 0.5)
-            if self.cycle_flags[cycle_id][0]:
+            if self.cycles[cycle_id].is_cyclic:
                 cycleticklabels.append(
-                    "cycle "
-                    + cycle_id
-                    + ":\nCN = "
-                    + str(round(self.cycle_flags[cycle_id][1], 2)),
+                    f"cycle {cycle_id}:\n"
+                    f"CN = {self.cycles[cycle_id].overall_cn:.2f}\n"
+                    f"CN-weighted size = {self.cycles[cycle_id].total_cn_weighted_length:,.2f}"
                 )
             else:
                 cycleticklabels.append(
-                    "path "
-                    + cycle_id
-                    + ":\nCN = "
-                    + str(round(self.cycle_flags[cycle_id][1], 2)),
+                    f"path {cycle_id}:\n"
+                    f"CN = {self.cycles[cycle_id].overall_cn:.2f}\n"
+                    f"CN-weighted size = {self.cycles[cycle_id].total_cn_weighted_length:,.2f}"
                 )
-            y_cur -= 4
+            y_cur -= 6
 
         if not hide_genes:
             for chrom in sorted_chrs:
-                for inti in range(len(self.intervals_from_cycle[chrom])):
-                    int_ = self.intervals_from_cycle[chrom][inti]
+                for int_idx in range(
+                    len(self.cycle_amplified_intervals[chrom])
+                ):
+                    intv = self.cycle_amplified_intervals[chrom][int_idx]
                     rel_genes = [
-                        x.data for x in self.genes[chrom][int_[0] : int_[1]]
+                        x.data for x in self.genes[chrom][intv.start : intv.end]
                     ]
                     gene_padding = total_len_amp * 0.02
                     self.set_gene_heights(rel_genes, gene_padding)
@@ -1539,15 +1573,15 @@ class GraphViz:
                     for gene_obj in rel_genes:  # plot gene lines
                         height = gene_obj.height
                         # print(gene_obj)
-                        cut_gs = max(int_[0], gene_obj.gstart)
-                        cut_ge = min(int_[1], gene_obj.gend)
+                        cut_gs = max(intv.start, gene_obj.gstart)
+                        cut_ge = min(intv.end, gene_obj.gend)
                         gene_start = (
-                            amplified_intervals_start[chrom][inti]
-                            + (cut_gs - int_[0]) * 100.0 / total_len_amp
+                            amplified_intervals_start[chrom][int_idx]
+                            + (cut_gs - intv.start) * 100.0 / total_len_amp
                         )
                         gene_end = (
-                            amplified_intervals_start[chrom][inti]
-                            + (cut_ge - int_[0]) * 100.0 / total_len_amp
+                            amplified_intervals_start[chrom][int_idx]
+                            + (cut_ge - intv.start) * 100.0 / total_len_amp
                         )
                         ax3.hlines(
                             height,
@@ -1556,7 +1590,9 @@ class GraphViz:
                             color="cornflowerblue",
                             lw=4.5,
                         )  # Draw horizontal bars for genes
-
+                        print((gene_start + gene_end) / 2, height + 0.05)
+                        print(height, gene_start, gene_end)
+                        breakpoint()
                         ax3.text(
                             (gene_start + gene_end) / 2,
                             height + 0.05,
@@ -1589,20 +1625,20 @@ class GraphViz:
                             exon_end,
                         ) in gene_obj.eposns:  # plot exon bars
                             if (
-                                not exon_end > int_[0]
-                                or not exon_start < int_[1]
+                                not exon_end > intv.start
+                                or not exon_start < intv.end
                             ):
                                 continue
 
-                            cut_es = max(int_[0], exon_start)
-                            cut_ee = min(int_[1], exon_end)
+                            cut_es = max(intv.start, exon_start)
+                            cut_ee = min(intv.end, exon_end)
                             exon_start_pos = (
-                                amplified_intervals_start[chrom][inti]
-                                + (cut_es - int_[0]) * 100.0 / total_len_amp
+                                amplified_intervals_start[chrom][int_idx]
+                                + (cut_es - intv.start) * 100.0 / total_len_amp
                             )
                             exon_end_pos = (
-                                amplified_intervals_start[chrom][inti]
-                                + (cut_ee - int_[0]) * 100.0 / total_len_amp
+                                amplified_intervals_start[chrom][int_idx]
+                                + (cut_ee - intv.start) * 100.0 / total_len_amp
                             )
 
                             exon_min_width = (
@@ -1628,26 +1664,26 @@ class GraphViz:
             101 + (self.num_amplified_intervals + 1) * margin_between_intervals,
         )
         ax.set_ylim(y_cur + 2, 0)
-        xtickpos = []
+        xtickpos: list[float | int] = []
         for chrom in sorted_chrs:
-            nint_chr = len(self.intervals_from_cycle[chrom])
-            for inti in range(len(amplified_intervals_start[chrom])):
-                if inti > 0:
+            nint_chr = len(self.cycle_amplified_intervals[chrom])
+            for int_idx in range(len(amplified_intervals_start[chrom])):
+                if int_idx > 0:
                     xtickpos.append(
-                        amplified_intervals_start[chrom][inti]
+                        amplified_intervals_start[chrom][int_idx]
                         - margin_between_intervals,
                     )
-                    if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2 + 1:
+                    if nint_chr % 2 == 0 and int_idx == (nint_chr - 2) // 2 + 1:
                         xtickpos.append(
-                            amplified_intervals_start[chrom][inti]
+                            amplified_intervals_start[chrom][int_idx]
                             - margin_between_intervals * 0.5,
                         )
-                    xtickpos.append(amplified_intervals_start[chrom][inti])
-                    if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
+                    xtickpos.append(amplified_intervals_start[chrom][int_idx])
+                    if nint_chr % 2 == 1 and int_idx == (nint_chr - 1) // 2:
                         xtickpos.append(
                             (
-                                amplified_intervals_start[chrom][inti]
-                                + amplified_intervals_start[chrom][inti + 1]
+                                amplified_intervals_start[chrom][int_idx]
+                                + amplified_intervals_start[chrom][int_idx + 1]
                                 - margin_between_intervals
                             )
                             * 0.5,
@@ -1659,7 +1695,7 @@ class GraphViz:
                             - margin_between_intervals,
                         )
                     xtickpos.append(amplified_intervals_start[chrom][0])
-                    if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
+                    if nint_chr % 2 == 1 and int_idx == (nint_chr - 1) // 2:
                         chri = sorted_chrs.index(chrom)
                         if chri == len(sorted_chrs) - 1:
                             amplified_intervals_end = (
@@ -1676,7 +1712,7 @@ class GraphViz:
                             )
                         xtickpos.append(
                             (
-                                amplified_intervals_start[chrom][inti]
+                                amplified_intervals_start[chrom][int_idx]
                                 + amplified_intervals_end
                             )
                             * 0.5,
@@ -1686,14 +1722,14 @@ class GraphViz:
         )
         xticklabels = []
         for chrom in sorted_chrs:
-            nint_chr = len(self.intervals_from_cycle[chrom])
-            for inti in range(nint_chr):
-                int_ = self.intervals_from_cycle[chrom][inti]
-                xticklabels.append(str(int_[0]) + "   ")
-                if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
+            nint_chr = len(self.cycle_amplified_intervals[chrom])
+            for int_idx in range(nint_chr):
+                intv = self.cycle_amplified_intervals[chrom][int_idx]
+                xticklabels.append(f"{intv.start:,}   ")
+                if nint_chr % 2 == 1 and int_idx == (nint_chr - 1) // 2:
                     xticklabels.append(chrom)
-                xticklabels.append(str(int_[1]) + "   ")
-                if nint_chr % 2 == 0 and inti == (nint_chr - 2) // 2:
+                xticklabels.append(f"{intv.end:,}   ")
+                if nint_chr % 2 == 0 and int_idx == (nint_chr - 2) // 2:
                     xticklabels.append(chrom)
         ax3.set_xticks(xtickpos)
         ax3.set_xticklabels(xticklabels, size=fontsize)
@@ -1710,6 +1746,7 @@ class GraphViz:
         ax.spines["right"].set_visible(False)
         ax.spines["left"].set_visible(False)
         ax.spines["bottom"].set_visible(False)
+
         plt.tight_layout()
         ax3.yaxis.set_major_formatter(ticker.NullFormatter())
         ax3.set_ylim(0, 1)
@@ -1718,49 +1755,53 @@ class GraphViz:
         plt.savefig(output_fn + ".pdf")
 
 
-def plot_amplicons(
+@core_utils.profile_fn_with_call_counter
+def plot_amplicon(
     ref: str,
-    bam: pathlib.Path,
-    graph_file: typer.FileText | None,
-    cycle_file: typer.FileText | None,
+    bam_path: pathlib.Path | None,
+    graph_file: io.TextIOWrapper | None,
+    cycle_file: io.TextIOWrapper | None,
     output_prefix: str,
-    plot_graph: bool,
-    plot_cycles: bool,
-    only_cyclic_paths: bool,
     num_cycles: int | None,
     max_coverage: float,
     min_mapq: float,
     gene_subset_list: list[str],
-    hide_genes: bool,
-    gene_fontsize: float,
-    bushman_genes: bool,
+    gene_fontsize: int,
     region: str | None,
-):
-    if plot_graph:
+    *,
+    should_plot_graph: bool,
+    should_plot_cycles: bool,
+    should_hide_genes: bool,
+    should_restrict_to_bushman_genes: bool,
+    should_plot_only_cyclic_walks: bool,
+) -> None:
+    if should_plot_graph:
         if not graph_file:
             print("Please specify the breakpoint graph file to plot.")
             sys.exit(1)
-        if not bam:
+        if not bam_path:
             print("Please specify the bam file to plot.")
             sys.exit(1)
 
-    if plot_cycles and not cycle_file:
+    if should_plot_cycles and not cycle_file:
         print("Please specify the cycle file, in *.bed format, to plot.")
         sys.exit(1)
 
     if ref == "GRCh38":
-        ref = "hg38"
+        ref = core_types.ReferenceGenome.hg38
+
+    bp_graph = parse_breakpoint_graph(graph_file)  # type: ignore[arg-type]
 
     g = GraphViz()
-    g.parse_genes(ref, set(gene_subset_list), bushman_genes)
-    if plot_graph:
-        g.open_bam(bam)
-        g.parse_graph_file(graph_file)  # type: ignore[arg-type]
+    g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes)
+    if should_plot_graph:
+        g.open_bam(bam_path)
+        g.graph = bp_graph
         if region:
             pchrom = region.split(":")[0]
             pb1, pb2 = region.split(":")[1].rsplit("-")
             g.plot_bounds = (pchrom, int(pb1), int(pb2))
-        g.graph_amplified_intervals()
+        g.update_graph_amplified_intervals()
         gtitle = output_prefix
         if "/" in output_prefix:
             gtitle = output_prefix.split("/")[-1]
@@ -1769,25 +1810,27 @@ def plot_amplicons(
             output_prefix + "_graph",
             max_cov_cutoff=max_coverage,
             quality_threshold=min_mapq,
-            hide_genes=hide_genes,
+            hide_genes=should_hide_genes,
             gene_font_size=gene_fontsize,
         )
 
-    if plot_cycles:
-        g.parse_cycle_file(cycle_file, output_prefix, num_cycles)  # type: ignore[arg-type]
+    if should_plot_cycles:
+        recon_cycles = parse_cycle_file(cycle_file, output_prefix, num_cycles)
+        for cycle_id, cycle in recon_cycles.items():
+            g.cycles[cycle_id] = cycle
         cycle_ids_ = None
         cycle_only_ = False
         if num_cycles:
-            cycle_ids_ = [str(i + 1) for i in range(num_cycles)]
-        if plot_cycles and not plot_graph:
+            cycle_ids_ = [i + 1 for i in range(num_cycles)]
+        if should_plot_cycles and not should_plot_graph:
             cycle_only_ = True
 
         graph_given_ = graph_file is not None
         if graph_given_:
-            g.parse_graph_file(graph_file)  # type: ignore[arg-type]
-            g.graph_amplified_intervals()
+            g.graph = bp_graph
+            g.update_graph_amplified_intervals()
 
-        g.cycle_amplified_intervals(
+        g.update_cycle_amplified_intervals(
             cycle_ids=cycle_ids_,
             cycle_only=cycle_only_,
             graph_given=graph_given_,
@@ -1795,22 +1838,17 @@ def plot_amplicons(
         gtitle = output_prefix
         if "/" in output_prefix:
             gtitle = output_prefix.split("/")[-1]
-        if num_cycles:
-            g.plotcycle(
-                gtitle,
-                output_prefix + "_cycles",
-                num_cycles=num_cycles,
-                cycle_only=cycle_only_,
-                hide_genes=hide_genes,
-                gene_font_size=gene_fontsize,
-            )
-        else:
-            g.plotcycle(
-                gtitle,
-                output_prefix + "_cycles",
-                cycle_only=cycle_only_,
-                hide_genes=hide_genes,
-                gene_font_size=gene_fontsize,
-            )
+        g.plot_cycles(
+            gtitle,
+            output_prefix + "_cycles",
+            num_cycles=num_cycles,
+            cycle_only=cycle_only_,
+            hide_genes=should_hide_genes,
+            gene_font_size=gene_fontsize,
+        )
     g.close_bam()
-    print("Visualization completed.")
+    print(
+        f"Visualization completed for {colorama.Fore.LIGHTCYAN_EX}"
+        f"{graph_file.name} ({cycle_file.name if cycle_file else 'no cycles'}"  # type: ignore[union-attr]
+        f"{colorama.Style.RESET_ALL})"
+    )

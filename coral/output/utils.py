@@ -1,8 +1,7 @@
-import io
-import logging
-import os
+from __future__ import annotations
 
-from coral import datatypes, global_state
+import logging
+
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.output.path_output import eulerian_cycle_t, eulerian_path_t
 
@@ -73,6 +72,7 @@ def get_single_path_output(
 ) -> str:
     """Generate the output string for a given path produced by optimization."""
     if not bp_graph.walks.paths[path_idx]:
+        logger.error(f"Path {path_idx} has no edges.")
         return ""
 
     path_weights = bp_graph.walk_weights.paths
@@ -118,78 +118,3 @@ def get_single_path_output(
         output_str += "\n"
 
     return output_str
-
-
-def output_amplicon_solution(
-    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper
-) -> None:
-    walk_indices = sorted(
-        [(0, i) for i in range(len(bp_graph.walk_weights.cycles))]
-        + [(1, i) for i in range(len(bp_graph.walk_weights.paths))],
-        key=lambda item: bp_graph.walk_weights[item[0]][item[1]],
-        reverse=True,
-    )
-    heaviest_walk = walk_indices[0]
-    if heaviest_walk[0] == 1:
-        output_file.write("Heaviest graph walk solved was a path.\n")
-        path_output = get_single_path_output(
-            bp_graph, heaviest_walk[1], 1, output_path_constraints=False
-        )
-        output_file.write(path_output)
-    else:
-        output_file.write("Heaviest graph walk solved was a cycle.\n")
-        cycle_output = get_single_cycle_output(
-            bp_graph, heaviest_walk[1], 1, output_path_constraints=False
-        )
-        output_file.write(cycle_output)
-
-
-def output_amplicon_info(
-    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool
-) -> None:
-    output_file.write(f"AmpliconID = {bp_graph.amplicon_idx+1}\n")
-    output_file.write(f"#Intervals = {len(bp_graph.amplicon_intervals)}\n")
-    output_file.write("AmpliconIntervals:\n")
-    for interval in bp_graph.amplicon_intervals:
-        output_file.write(f"\t{interval}\n")
-    output_file.write(
-        f"Total Amplicon Size: {bp_graph.total_interval_size:,d}\n"
-    )
-
-    output_file.write(f"# Chromosomes: {bp_graph.num_chromosomes}\n")
-    output_file.write(f"# Sequence Edges: {bp_graph.num_seq_edges}\n")
-    output_file.write(f"# Concordant Edges: {bp_graph.num_conc_edges}\n")
-    output_file.write(f"# Discordant Edges: {bp_graph.num_disc_edges}\n")
-    output_file.write(f"# Non-Source Edges: {bp_graph.num_nonsrc_edges}\n")
-    output_file.write(f"# Source Edges: {bp_graph.num_src_edges}\n")
-
-    if was_solved:
-        output_amplicon_solution(bp_graph, output_file)
-    else:
-        output_file.write("Amplicon was unsolved.\n")
-
-
-def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
-    with global_state.STATE_PROVIDER.summary_filepath.open("a") as fp:
-        fp.write("-----------------------------------------------\n")
-        fp.write("Solver Settings: \n")
-        fp.write(f"Solver: {solver_options.solver.name}\n")
-        threads_used = (
-            solver_options.num_threads
-            if solver_options.num_threads != -1
-            else os.cpu_count()
-        )
-        fp.write(f"Threads: {threads_used}\n")
-        fp.write(f"Time Limit: {solver_options.time_limit_s} s\n")
-        fp.write("-----------------------------------------------\n")
-        fp.write("Resource Usage Summary:\n")
-        for fn_call, profile in sorted(global_state.PROFILED_FN_CALLS.items()):
-            fn_tag = (
-                f"{fn_call.fn_name}/{fn_call.call_ctr}"
-                if fn_call.call_ctr is not None
-                else fn_call.fn_name
-            )
-            fp.write(
-                f"{fn_tag} | Peak RAM: {profile.peak_ram_gb} GB | "
-                f"Runtime: {profile.runtime_s} s\n"
-            )

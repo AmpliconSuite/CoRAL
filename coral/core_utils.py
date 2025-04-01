@@ -3,16 +3,13 @@ from __future__ import annotations
 import functools
 import logging
 import pathlib
+import re
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Callable,
-    ParamSpec,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Callable, NamedTuple, ParamSpec, TypeVar
 
+import colorama
 import memray
 
 from coral import datatypes, global_state
@@ -111,11 +108,18 @@ def profile_fn_with_call_counter(fn: Callable[P, T]) -> Callable[P, T]:
                 with memray.Tracker(profile_path):
                     result = fn(*args, **kwargs)
                 mem_stats = memray._memray.compute_statistics(profile_path)
+                runtime_s = time.perf_counter() - start
                 global_state.PROFILED_FN_CALLS[fn_call] = (
                     datatypes.ProfileResult(
                         peak_ram_gb=mem_stats.peak_memory_allocated / 1e9,
-                        runtime_s=time.perf_counter() - start,
+                        runtime_s=runtime_s,
                     )
+                )
+                print(
+                    f"{colorama.Style.DIM}{colorama.Fore.LIGHTMAGENTA_EX}"
+                    f"Profile result for {fn_call}: "
+                    f"{global_state.PROFILED_FN_CALLS[fn_call]}"
+                    f"{colorama.Style.RESET_ALL}"
                 )
                 return result
         except AttributeError:  # Avoid crashing if private API changes
@@ -154,3 +158,53 @@ def profile_fn(fn: Callable[P, T]) -> Callable[P, T]:
         return fn(*args, **kwargs)
 
     return wrapper
+
+
+def get_amplicon_id_from_filename(filename: str) -> int:
+    return int(filename.split("_")[-2].split("amplicon")[1])
+
+
+class ReconstructionPaths(NamedTuple):
+    graph_path: pathlib.Path
+    cycle_path: pathlib.Path | None = None
+
+
+def get_reconstruction_paths_from_shared_dir(
+    reconstruction_dir: pathlib.Path,
+) -> list[ReconstructionPaths]:
+    reconstruction_paths = []
+    for bp_filepath in reconstruction_dir.glob("*_graph.txt"):
+        cycle_filename = re.sub(
+            r"amplicon(\d+)_graph.txt",
+            r"amplicon\1_cycles.txt",
+            bp_filepath.name,
+        )
+        cycle_filepath = reconstruction_dir / cycle_filename
+        reconstruction_paths.append(
+            ReconstructionPaths(
+                graph_path=bp_filepath,
+                cycle_path=cycle_filepath if cycle_filepath.exists() else None,
+            )
+        )
+    return sorted(reconstruction_paths, key=lambda x: x.graph_path.name)
+
+
+def get_reconstruction_paths_from_separate_dirs(
+    cycle_dir: pathlib.Path,
+    graph_dir: pathlib.Path,
+) -> list[ReconstructionPaths]:
+    reconstruction_paths = []
+    for bp_filepath in graph_dir.glob("*_graph.txt"):
+        cycle_filename = re.sub(
+            r"amplicon(\d+)_graph.txt",
+            r"amplicon\1_cycles.txt",
+            bp_filepath.name,
+        )
+        cycle_filepath = cycle_dir / cycle_filename
+        reconstruction_paths.append(
+            ReconstructionPaths(
+                graph_path=bp_filepath,
+                cycle_path=cycle_filepath if cycle_filepath.exists() else None,
+            )
+        )
+    return sorted(reconstruction_paths, key=lambda x: x.graph_path.name)

@@ -48,7 +48,7 @@ def read_cycles_file_to_bed(
     cycle_filepath: pathlib.Path, num_cycles: int | None = None
 ) -> pyranges.PyRanges:
     all_segs: dict[str, list[str | int]] = {}
-    cycles: dict[int, list[bool, float, list[list[str | int]]]] = {}
+    cycles: dict[int, list[bool | float | list[list[str | int]]]] = {}
     with cycle_filepath.open("r") as f:
         for line in f:
             t = line.strip().split()
@@ -270,7 +270,6 @@ def bin_genome(
     Warning: Setting a margin size can effect the output of different distances
     """
 
-    ()
     df_bins = pd.DataFrame(
         np.concatenate(
             (

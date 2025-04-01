@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import pathlib
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 import memray
 import numpy as np
@@ -21,6 +21,8 @@ import pyomo.solvers.plugins.solvers
 import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
+import coral.output.utils
+import coral.summary
 from coral import core_utils, datatypes, models
 from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -38,10 +40,10 @@ def minimize_cycles(
     k: int,
     total_weights: float,
     node_order: Dict[datatypes.Node, int],
-    p_total_weight=0.9,
-    p_bp_cn=0.9,
-    solver_options: Optional[datatypes.SolverOptions] = None,
-):
+    p_total_weight: float = 0.9,
+    p_bp_cn: float = 0.9,
+    solver_options: datatypes.SolverOptions | None = None,
+) -> datatypes.CycleSolution:
     """Cycle decomposition by minimizing the number of cycles/paths.
 
     Standard model for cycle detection used when generated BreakpointGraph
@@ -87,11 +89,13 @@ def minimize_cycles(
     )
     if not solver_options:
         solver_options = datatypes.SolverOptions()
-    solver_options.time_limit_s = max(
-        solver_options.time_limit_s, bp_graph.num_disc_edges * 300
-    )  # each breakpoint edge is assigned >= 5 minutes)
+    # solver_options.time_limit_s = max(
+    #     solver_options.time_limit_s, bp_graph.num_disc_edges * 300
+    # )  # each breakpoint edge is assigned >= 5 minutes)
 
-    model_name = f"amplicon_{bp_graph.amplicon_idx}_cycle_decomposition_{k=}"
+    model_name = (
+        f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition__k_{k}"
+    )
     prefixed_name = f"{solver_options.model_prefix}_{model_name}"
     model_filepath = f"{solver_options.output_dir}/models/{prefixed_name}"
 
@@ -111,22 +115,20 @@ def minimize_cycles(
     logger.debug(f"Completed model setup, wrote to {model_filepath}.lp.")
 
     solver = cycle_utils.get_solver(solver_options)
-    results: pyomo.opt.SolverResults = solver.solve(
-        model, logfile=f"{model_filepath}.log"
-    )
+    results = solver.solve(model, model_filepath)
 
     logger.debug(
         f"Completed optimization with status {results.solver.status}, condition {results.solver.termination_condition}."
     )
 
     return cycle_utils.parse_solver_output(
-        results.solver.status,
-        results.solver.termination_condition,
+        results,
         model,
         bp_graph,
         k,
         bp_graph.longest_path_constraints,
         total_weights,
+        model_type=datatypes.ModelType.DEFAULT,
     )
 
 
@@ -186,9 +188,9 @@ def minimize_cycles_post(
     )
     if not solver_options:
         solver_options = datatypes.SolverOptions()
-    solver_options.time_limit_s = max(
-        solver_options.time_limit_s, bp_graph.num_disc_edges * 300
-    )  # each breakpoint edge is assigned >= 5 minutes)
+    # solver_options.time_limit_s = max(
+    #     solver_options.time_limit_s, bp_graph.num_disc_edges * 300
+    # )  # each breakpoint edge is assigned >= 5 minutes)
 
     k = len(init_sol.walks[0]) + len(init_sol.walks[1])
     logger.debug(f"Reset k (num cycles) to {k}.")
@@ -209,7 +211,7 @@ def minimize_cycles_post(
         logger.debug("Proceed without subpath constraints.")
 
     model_name = (
-        f"amplicon_{amplicon_id}_cycle_decomposition_postprocessing_{k=}"
+        f"amplicon_{amplicon_id+1}_cycle_decomposition_postprocessing__k_{k}"
     )
     model_filepath = f"{solver_options.output_dir}/models/{solver_options.model_prefix}_{model_name}"
 
@@ -229,17 +231,17 @@ def minimize_cycles_post(
     initialize_post_processing_solver(model, init_sol)
 
     solver = cycle_utils.get_solver(solver_options)
-    results: pyomo.opt.SolverResults = solver.solve(
-        model, logfile=f"{model_filepath}.log"
+    results: cycle_utils.PyomoResults = solver.solve(
+        model, model_filepath=model_filepath
     )
     return cycle_utils.parse_solver_output(
-        results.solver.status,
-        results.solver.termination_condition,
+        results,
         model,
         bp_graph,
         k,
         pc_list,
         total_weights,
+        model_type=datatypes.ModelType.DEFAULT,
     )
 
 
@@ -281,7 +283,12 @@ def greedy_solve(
             solver_options,
         )
 
-    logger.info("Completed greedy cycle decomposition.")
+    if lp_solution.num_walks == 0:
+        logger.warning(
+            "Greedy cycle decomposition produced no cycles or paths."
+        )
+    else:
+        logger.info("Completed greedy cycle decomposition.")
     return lp_solution
 
 
@@ -325,9 +332,9 @@ def maximize_weights_greedy(
 
     if not solver_options:
         solver_options = datatypes.SolverOptions()
-    solver_options.time_limit_s = max(
-        solver_options.time_limit_s, bp_graph.num_disc_edges * 300
-    )  # each breakpoint edge is assigned >= 5 minutes)
+    # solver_options.time_limit_s = max(
+    #     solver_options.time_limit_s, bp_graph.num_disc_edges * 300
+    # )  # each breakpoint edge is assigned >= 5 minutes)
 
     remaining_weights = total_weights
 
@@ -362,8 +369,8 @@ def maximize_weights_greedy(
         logger.debug(f"Multiplication factor for subpath constraints = {pp}.")
 
         model_name = (
-            f"amplicon_{bp_graph.amplicon_idx}_cycle_decomposition"
-            f"_greedy_{cycle_id + 1}_{alpha=}"
+            f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition"
+            f"_greedy__cycle{cycle_id + 1}_alpha_{alpha}"
         )
         prefixed_name = f"{solver_options.model_prefix}_{model_name}"
         model_filepath = f"{solver_options.output_dir}/models/{prefixed_name}"
@@ -382,20 +389,19 @@ def maximize_weights_greedy(
         )
 
         solver = cycle_utils.get_solver(solver_options)
-        results: pyomo.opt.SolverResults = solver.solve(
-            model, logfile=f"{model_filepath}.log"
-        )
+        results = solver.solve(model, model_filepath=model_filepath)
         curr_sol = cycle_utils.parse_solver_output(
-            results.solver.status,
-            results.solver.termination_condition,
+            results,
             model,
             bp_graph,
             1,
             pc_list,
             total_weights,
-            remaining_cn,
-            resolution,
+            model_type=datatypes.ModelType.GREEDY,
+            remaining_cn=remaining_cn,
+            resolution=resolution,
             is_pc_unsatisfied=is_pc_unsatisfied,
+            alpha=alpha,
         )
 
         if (
@@ -404,6 +410,14 @@ def maximize_weights_greedy(
         ):
             logger.debug("Greedy cycle decomposition is infeasible, stopping.")
             break
+        if (
+            curr_sol.termination_condition
+            == pyo.TerminationCondition.maxTimeLimit
+            and curr_sol.solver_status == pyo.SolverStatus.aborted
+        ):
+            logger.warning("Greedy cycle decomposition timed out, stopping.")
+            break
+        full_solution.solver_status = curr_sol.solver_status
         cycle_id += 1
 
         # Check if solver produced a cycle or path
@@ -438,6 +452,14 @@ def maximize_weights_greedy(
                 "iteration terminated."
             )
             break
+    full_solution.model_metadata = datatypes.ModelMetadata(
+        model_type=datatypes.ModelType.GREEDY,
+        k=cycle_id,
+        alpha=alpha,
+        total_weights=total_weights,
+        resolution=resolution,
+        num_path_constraints=len(pc_list),
+    )
     return full_solution
 
 
@@ -469,6 +491,7 @@ def solve_single_graph(
     should_force_greedy: bool = False,
     should_postprocess: bool = False,
 ) -> datatypes.CycleSolution:
+    used_greedy = False
     while k <= bp_graph.num_edges:
         # When problem is too large, we begin with the greedy optimization
         if should_force_greedy or does_graph_require_greedy_solve(bp_graph, k):
@@ -485,6 +508,7 @@ def solve_single_graph(
                 p_subpaths=0.9,
                 should_postprocess=should_postprocess,
             )
+            used_greedy = True
             break
 
         lp_solution = minimize_cycles(
@@ -503,16 +527,30 @@ def solve_single_graph(
             logger.info(f"Completed cycle decomposition with k = {k}.")
             break
 
-        logger.info("Cycle decomposition is infeasible.")
-        logger.info(f"Doubling k from {k} to {k * 2}.")
+        logger.info(
+            f"Cycle decomposition is infeasible, doubling k from {k} to {k * 2}."
+        )
         k *= 2
         continue
 
+    was_unsolved = False
     if lp_solution.termination_condition == pyo.TerminationCondition.infeasible:
         logger.info(
-            "Cycle decomposition is infeasible, switch to greedy cycle "
-            "decomposition."
+            f"Cycle decomposition is infeasible despite k > {bp_graph.num_edges}"
         )
+        was_unsolved = True
+    elif (
+        lp_solution.termination_condition
+        == pyo.TerminationCondition.maxTimeLimit
+        and lp_solution.solver_status == pyo.SolverStatus.aborted
+    ):
+        logger.info(
+            "Cycle decomposition timed out without a valid solution, "
+            "attempting greedy cycle decomposition."
+        )
+        was_unsolved = True
+
+    if was_unsolved and not used_greedy:
         lp_solution = greedy_solve(
             bp_graph=bp_graph,
             total_weights=total_weights,
@@ -523,6 +561,15 @@ def solve_single_graph(
             p_total_weight=p_total_weight,
             resolution=resolution,
         )
+        if (
+            lp_solution.termination_condition
+            == pyo.TerminationCondition.maxTimeLimit
+            and lp_solution.solver_status == pyo.SolverStatus.aborted
+        ):
+            logger.warning(
+                "Greedy cycle decomposition timed out without a valid solution."
+            )
+            return lp_solution
 
     logger.info(
         f"Num cycles = {lp_solution.num_cycles}; "
@@ -551,6 +598,7 @@ def cycle_decomposition_single_graph(
     should_postprocess: bool = False,
     should_force_greedy: bool = False,
     output_all_path_constraints: bool = False,
+    ignore_path_constraints: bool = False,
 ) -> None:
     logger.info(
         f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
@@ -559,6 +607,9 @@ def cycle_decomposition_single_graph(
     total_weights = sum(len(sseg) * sseg.cn for sseg in bp_graph.sequence_edges)
 
     logger.info(f"Total CN weights = {total_weights}.")
+
+    if ignore_path_constraints:
+        bp_graph.longest_path_constraints = []
 
     longest_path_constraints = bp_graph.longest_path_constraints
 
@@ -596,10 +647,21 @@ def cycle_decomposition_single_graph(
         should_postprocess=should_postprocess,
         should_force_greedy=should_force_greedy,
     )
+    bp_graph.model_metadata = lp_solution.model_metadata
+    if (
+        lp_solution.termination_condition
+        == pyo.TerminationCondition.maxTimeLimit
+        and lp_solution.solver_status == pyo.SolverStatus.aborted
+    ):
+        logger.warning(
+            "Cycle decomposition timed out without a valid solution."
+        )
+        return
     bp_graph.walks = lp_solution.walks
     bp_graph.walk_weights = lp_solution.walk_weights
     bp_graph.path_constraints_satisfied = lp_solution.satisfied_pc
-
+    bp_graph.mip_gap = lp_solution.mip_gap
+    bp_graph.upper_bound = lp_solution.upper_bound
     cycle_output.output_amplicon_walks(
         bp_graph,
         solver_options.output_dir,
@@ -617,11 +679,12 @@ def cycle_decomposition_all_graphs(
     should_postprocess: bool = False,
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
+    ignore_path_constraints: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
     was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
-    for amplicon_idx, bp_graph in enumerate(bp_graphs):
-        bp_graph.amplicon_idx = amplicon_idx
+    for bp_graph in bp_graphs:
+        amplicon_idx = bp_graph.amplicon_idx
         cycle_decomposition_single_graph(
             bp_graph,
             solver_options,
@@ -631,9 +694,18 @@ def cycle_decomposition_all_graphs(
             should_postprocess=should_postprocess,
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=should_force_greedy,
+            ignore_path_constraints=ignore_path_constraints,
         )
-        was_amplicon_solved[amplicon_idx] = True
-    cycle_output.output_summary_amplicon_stats(was_amplicon_solved, bp_graphs)
+
+        # Verify that cycle decomposition produced a valid solution
+        if bp_graph.walks.paths or bp_graph.walks.cycles:
+            was_amplicon_solved[amplicon_idx] = True
+        else:
+            was_amplicon_solved[amplicon_idx] = False
+
+        coral.summary.output.output_summary_amplicon_stats(
+            was_amplicon_solved, bp_graphs
+        )
 
 
 def reconstruct_cycles(
@@ -644,6 +716,7 @@ def reconstruct_cycles(
     should_postprocess_greedy_sol: bool = False,
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
+    ignore_path_constraints: bool = False,
 ) -> None:
     logging.basicConfig(
         filename=f"{solver_options.output_dir}/cycle_decomp.log",
@@ -660,6 +733,7 @@ def reconstruct_cycles(
         should_postprocess=should_postprocess_greedy_sol,
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=should_force_greedy,
+        ignore_path_constraints=ignore_path_constraints,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(
