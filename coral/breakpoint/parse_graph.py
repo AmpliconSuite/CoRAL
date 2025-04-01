@@ -189,9 +189,7 @@ def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
             bp_graph.add_endnode(Node(intv.chr, intv.start, Strand.REVERSE))
             bp_graph.add_endnode(Node(intv.chr, intv.end, Strand.FORWARD))
 
-    # Match line 397 in breakpoint_graph.py
-    # TODO: Understand why this is needed
-    bp_graph.max_cn -= 1.0
+    bp_graph.max_cn += 1.0
 
     if not bp_graph.amplicon_intervals:
         logger.warning(
