@@ -283,7 +283,12 @@ def greedy_solve(
             solver_options,
         )
 
-    logger.info("Completed greedy cycle decomposition.")
+    if lp_solution.num_walks == 0:
+        logger.warning(
+            "Greedy cycle decomposition produced no cycles or paths."
+        )
+    else:
+        logger.info("Completed greedy cycle decomposition.")
     return lp_solution
 
 
@@ -412,6 +417,7 @@ def maximize_weights_greedy(
         ):
             logger.warning("Greedy cycle decomposition timed out, stopping.")
             break
+        full_solution.solver_status = curr_sol.solver_status
         cycle_id += 1
 
         # Check if solver produced a cycle or path
@@ -485,6 +491,7 @@ def solve_single_graph(
     should_force_greedy: bool = False,
     should_postprocess: bool = False,
 ) -> datatypes.CycleSolution:
+    used_greedy = False
     while k <= bp_graph.num_edges:
         # When problem is too large, we begin with the greedy optimization
         if should_force_greedy or does_graph_require_greedy_solve(bp_graph, k):
@@ -501,6 +508,7 @@ def solve_single_graph(
                 p_subpaths=0.9,
                 should_postprocess=should_postprocess,
             )
+            used_greedy = True
             break
 
         lp_solution = minimize_cycles(
@@ -529,7 +537,6 @@ def solve_single_graph(
     if lp_solution.termination_condition == pyo.TerminationCondition.infeasible:
         logger.info(
             f"Cycle decomposition is infeasible despite k > {bp_graph.num_edges}"
-            " , switch to greedy cycle decomposition."
         )
         was_unsolved = True
     elif (
@@ -543,7 +550,7 @@ def solve_single_graph(
         )
         was_unsolved = True
 
-    if was_unsolved:
+    if was_unsolved and not used_greedy:
         lp_solution = greedy_solve(
             bp_graph=bp_graph,
             total_weights=total_weights,

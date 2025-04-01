@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import io
 import pathlib
 import re
 from collections import defaultdict
@@ -12,7 +13,7 @@ import pandas as pd
 import pandera as pa
 import pandera.typing as pat
 
-from coral import datatypes, text_utils
+from coral import cycle2bed, datatypes, text_utils
 from coral.text_utils import COMMA_NUMBER_REGEX
 
 THREAD_PATTERN = re.compile(r"Threads: (\d+)")
@@ -218,6 +219,14 @@ def parse_amplicon_summary(summary_str: str) -> AmpliconSummary:
             )
             continue
         if text_utils.SUBOPTIMAL_WARNING in line:
+            if match := text_utils.MIP_GAP_PATTERN.search(line):
+                prev_metadata_dict = (
+                    amplicon_summary.model_metadata._asdict()  # type: ignore[union-attr]
+                )
+                prev_metadata_dict["mip_gap"] = float(match.group(1))
+                amplicon_summary.model_metadata = datatypes.ModelMetadata(
+                    **prev_metadata_dict
+                )
             amplicon_summary.was_suboptimal_solution = True
             continue
     return amplicon_summary
@@ -225,10 +234,6 @@ def parse_amplicon_summary(summary_str: str) -> AmpliconSummary:
 
 def parse_full_summary(path: pathlib.Path) -> FullProfileSummary:
     summary_chunks = path.read_text().split(text_utils.AMPLICON_SEPARATOR)
-    # breakpoint()
-    # for chunk in summary_chunks:
-    #     print("--------------------------------")
-    #     print(chunk)
     full_profile_summary = parse_header(summary_chunks.pop(0))
 
     resource_summary = None
@@ -340,3 +345,64 @@ def get_solve_graph_stats(x: pd.DataFrame, stat_name: str) -> float | None:
         if "solve_single_graph" in x.profiles_by_fn
         else None
     )
+
+
+def parse_cycle_file(
+    cycle_file: io.TextIOWrapper,
+    output_prefix: str,
+    num_cycles: int | None,
+) -> dict[int, datatypes.ReconstructedCycle]:
+    """
+    Parse a '*_cycles.{txt,bed}' file  into a dict of
+    cycle ID to list of cycle segments:
+
+    Example .bed file:
+        #chr	start	end	orientation	cycle_id	iscyclic	weight
+        chr6	39545281	41545280	+	1	True	6.338641016903567
+    """
+
+    cycle_path = pathlib.Path(cycle_file.name).resolve()
+    # check if it ends with .bed, if not convert it
+    bed_path = None
+    if cycle_path.suffix == ".txt":
+        # convert it to a bed
+        num_str = str(num_cycles) if num_cycles else "all"
+        prefix = (
+            output_prefix
+            if output_prefix.endswith("/")
+            else f"{output_prefix}_"
+        )
+        bed_filename = f"{prefix}converted_{num_str}_cycles.bed"
+        cycle2bed.convert_cycles_to_bed(
+            cycle_file, bed_filename, num_cycles=num_cycles
+        )
+        bed_path = pathlib.Path(bed_filename)
+    elif cycle_path.suffix == ".bed":
+        bed_path = cycle_path
+    else:
+        raise ValueError(
+            f"Unsupported cycle file extension: {cycle_path.suffix}"
+        )
+
+    cycles: dict[int, datatypes.ReconstructedCycle] = {}
+    with bed_path.open("r") as bed_file:
+        for line in bed_file:
+            chunks = line.strip().split("\t")
+            if chunks[0][0] == "#":
+                continue
+            cycle_id = int(chunks[4])
+            intv = datatypes.CycleInterval(
+                chunks[0],
+                int(chunks[1]),
+                int(chunks[2]),
+                datatypes.Strand(chunks[3]),
+                cn=float(chunks[6]),
+            )
+            if cycle_id not in cycles:
+                cycles[cycle_id] = datatypes.ReconstructedCycle(
+                    cycle_id=cycle_id,
+                    is_cyclic=chunks[5] == "True",
+                )
+            cycles[cycle_id].segments.append(intv)
+
+    return cycles

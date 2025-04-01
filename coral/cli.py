@@ -5,6 +5,7 @@ import os
 import pathlib
 from typing import Annotated
 
+import colorama
 import typer
 
 from coral import (
@@ -21,19 +22,23 @@ from coral import (
 )
 from coral.breakpoint import infer_breakpoint_graph
 from coral.breakpoint.parse_graph import (
-    get_all_cycle_paths_from_dir,
     get_all_graphs_from_dir,
-    get_all_reconstruction_paths_from_dir,
     parse_breakpoint_graph,
 )
 from coral.cnv_seed import run_seeding
+from coral.core_utils import (
+    get_reconstruction_paths_from_separate_dirs,
+    get_reconstruction_paths_from_shared_dir,
+)
 from coral.datatypes import Solver
 from coral.output import cycle_output
 from coral.scoring import score_simulation
 
+colorama.init()
 coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities.",
-    pretty_exceptions_show_locals=False,
+    pretty_exceptions_show_locals=False,  # Prints all local variables in the
+    # error traceback, which is typically kind of insane with WGS data
 )
 logger = logging.getLogger(__name__)
 
@@ -146,7 +151,11 @@ def seed(
         ),
     ] = 300000,
 ) -> None:
-    print(f"Performing seeding mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing seeding mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
     run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap)
@@ -188,7 +197,11 @@ def reconstruct(
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
 ) -> None:
-    print(f"Performing reconstruction with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing reconstruction with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
 
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -368,7 +381,11 @@ def hsr_mode(
         typer.Option(help="Crude breakpoint matching cutoff for clustering."),
     ] = 2000,
 ) -> None:
-    print(f"Performing HSR mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing HSR mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     hsr.locate_hsrs(
         lr_bam,
         cycles,
@@ -448,7 +465,11 @@ def plot_mode(
         ),
     ] = False,
 ) -> None:
-    print(f"Performing plot mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing plot mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
 
@@ -480,10 +501,19 @@ def plot_all_mode(
     ctx: typer.Context,
     ref: ReferenceGenomeArg,
     bam: BamArg,
-    reconstruction_dir: Annotated[
-        pathlib.Path, typer.Option(help="Reconstruction directory.")
-    ],
     output_dir: OutputDirArg,
+    reconstruction_dir: Annotated[
+        pathlib.Path | None,
+        typer.Option(help="Reconstruction directory."),
+    ] = None,
+    cycle_dir: Annotated[
+        pathlib.Path | None,
+        typer.Option(help="Cycle directory."),
+    ] = None,
+    graph_dir: Annotated[
+        pathlib.Path | None,
+        typer.Option(help="Graph directory."),
+    ] = None,
     plot_graph: Annotated[
         bool, typer.Option(help="Visualize breakpoint graph.")
     ] = True,
@@ -532,13 +562,45 @@ def plot_all_mode(
             help="Reduce gene set to the Bushman cancer-related gene set."
         ),
     ] = False,
+    profile: Annotated[
+        bool, typer.Option(help="Profile resource usage.")
+    ] = False,
 ) -> None:
-    print(f"Performing plot_all mode with options: {ctx.params}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    reconstruction_paths = get_all_reconstruction_paths_from_dir(
-        reconstruction_dir
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing plot_all mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
     )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    global_state.STATE_PROVIDER.should_profile = profile
+
+    # TODO: make this into a typer validation function, re-use in score mode
+    shared_dir_set = reconstruction_dir is not None
+    separate_dirs_set = cycle_dir is not None and graph_dir is not None
+    if shared_dir_set == separate_dirs_set:
+        raise typer.BadParameter(
+            "Must specify either a shared reconstruction directory or "
+            "separate cycle and graph directories."
+        )
+
+    if shared_dir_set:
+        reconstruction_paths = get_reconstruction_paths_from_shared_dir(
+            reconstruction_dir  # type: ignore[arg-type]
+        )
+        if not reconstruction_paths:
+            raise typer.BadParameter(
+                f"No reconstruction files found in the given directory: {reconstruction_dir}"
+            )
+    else:
+        reconstruction_paths = get_reconstruction_paths_from_separate_dirs(
+            cycle_dir,  # type: ignore[arg-type]
+            graph_dir,  # type: ignore[arg-type]
+        )
+        if not reconstruction_paths:
+            raise typer.BadParameter(
+                f"No reconstruction files found in the given directories: {cycle_dir} and {graph_dir}"
+            )
+
     for graph_path, cycle_path in reconstruction_paths:
         with graph_path.open("r") as graph_file:
             cycle_file = None if cycle_path is None else cycle_path.open("r")
@@ -591,7 +653,11 @@ def cycle2bed_mode(
         ),
     ] = False,
 ) -> None:
-    print(f"Performing cycle to bed mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing cycle to bed mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     cycle2bed.convert_cycles_to_bed(
         cycle_file, output_file, rotate_to_min, num_cycles
     )
@@ -610,7 +676,11 @@ def plot_cn_mode(
     output_dir: OutputDirArg,
     name: Annotated[str, typer.Option(help="Name of sample.")],
 ) -> None:
-    print(f"Performing plot mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing plot mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     plot_cn.plot_cnr(cnr, output_dir, name)
 
 
@@ -622,10 +692,14 @@ def score_mode(
     ground_truth: Annotated[
         pathlib.Path, typer.Option(help="Ground-truth directory.")
     ],
+    output_dir: OutputDirArg,
     reconstruction_dir: Annotated[
         pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
-    output_dir: OutputDirArg,
+    cycle_dir: Annotated[
+        pathlib.Path | None,
+        typer.Option(help="Cycle directory."),
+    ] = None,
     tolerance: Annotated[
         int, typer.Option(help="Breakpoint matching tolerance.")
     ] = 100,
@@ -633,7 +707,11 @@ def score_mode(
         list[str] | None, typer.Option(help="List of datasets to skip.")
     ] = None,
 ) -> None:
-    print(f"Performing score mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing score mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -644,10 +722,11 @@ def score_mode(
     )
     score_simulation.score_simulations(
         ground_truth,
-        reconstruction_dir,
-        output_dir,
-        tolerance,
-        to_skip if to_skip else [],
+        reconstruction_dir=reconstruction_dir,
+        cycle_dir=cycle_dir,  # type: ignore[arg-type]
+        output_dir=output_dir,
+        tolerance=tolerance,
+        to_skip=to_skip if to_skip else [],
     )
 
 
@@ -662,7 +741,11 @@ def plot_resource_usage(
     ],
     output_dir: OutputDirArg,
 ) -> None:
-    print(f"Performing plot resource usage mode with options: {ctx.params}")
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing plot resource usage mode with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
     pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
 
     summary.parsing.plot_resource_usage(reconstruction_dir, output_dir)

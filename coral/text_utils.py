@@ -45,3 +45,4 @@ MODEL_METADATA_PATTERN = re.compile(
 )
 
 SUBOPTIMAL_WARNING = "WARNING: Sub-optimal solution used"
+MIP_GAP_PATTERN = re.compile(r"Relative MIP Gap: (\d+\.\d+)")

@@ -1,0 +1,39 @@
+2/2 amplicons solved.
+------------------------------------------------------------
+AmpliconID = 1
+#Intervals = 1
+AmpliconIntervals:
+	Amplicon-1>chr6:39,444,248-41,645,280
+Total Amplicon Size: 2,201,033
+# Chromosomes: 1
+# Sequence Edges: 4
+# Concordant Edges: 3
+# Discordant Edges: 2
+# Non-Source Edges: 9
+# Source Edges: 0
+Heaviest graph walk solved was a cycle.
+Cycle=1;Copy_count=6.338641016903567;Segments=2+,3-
+------------------------------------------------------------
+AmpliconID = 2
+#Intervals = 1
+AmpliconIntervals:
+	Amplicon-1>chr16:34,239,329-34,491,145
+Total Amplicon Size: 251,817
+# Chromosomes: 1
+# Sequence Edges: 1
+# Concordant Edges: 0
+# Discordant Edges: 0
+# Non-Source Edges: 1
+# Source Edges: 0
+Heaviest graph walk solved was a path.
+Path=1;Copy_count=1.6517775786636604;Segments=0+,1+,0-
+-----------------------------------------------
+Solver Settings: 
+Solver: GUROBI
+Threads: 20
+Time Limit: 7200 s
+-----------------------------------------------
+Resource Usage Summary:
+reconstruct_graphs | Peak RAM: 0.392945463 GB | Runtime: 41.90976184234023 s
+solve_single_graph/1 | Peak RAM: 0.000159686 GB | Runtime: 0.1741034798324108 s
+solve_single_graph/2 | Peak RAM: 0.000104409 GB | Runtime: 0.08721162751317024 s

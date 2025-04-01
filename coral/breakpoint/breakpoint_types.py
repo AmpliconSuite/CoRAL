@@ -9,7 +9,7 @@ from typing import Dict, List
 
 import numpy as np
 
-from coral.datatypes import CNSInterval, CNSIntervalTree
+from coral.datatypes import CNInterval, CNSIntervalTree
 
 
 @dataclass
@@ -21,10 +21,10 @@ class CNSSegData:
     ]  # IntervalTree mapping chromosome segments to their (per-chromosome) index in input file
     # Raw list of all chromosome intervals given, of the form
     # (chromosome, start_idx, end_idx)
-    intervals: List[CNSInterval]
+    intervals: List[CNInterval]
     # List of chromosome intervals with their respective CNs,
     # grouped by chromosome number
-    intervals_by_chr: Dict[str, List[CNSInterval]]
+    intervals_by_chr: Dict[str, List[CNInterval]]
     log2_cn: List[float]  # Log2 of CN for each chromosome segment
 
     @classmethod
@@ -32,7 +32,7 @@ class CNSSegData:
         """Parse CN interval data from a .cns or .bed file."""
         tree, log2_cns = {}, []
         intervals = []
-        intervals_by_chr: Dict[str, List[CNSInterval]] = defaultdict(list)
+        intervals_by_chr: Dict[str, List[CNInterval]] = defaultdict(list)
         is_cns = file.name.endswith(".cns")
 
         idx = 0
@@ -50,7 +50,7 @@ class CNSSegData:
             )
             raw_cn = 2 * (2**log2_cn) if is_cns else float(fields[3])
             log2_cns.append(log2_cn)
-            cns_interval = CNSInterval(chr_tag, start, end - 1, raw_cn)
+            cns_interval = CNInterval(chr_tag, start, end - 1, raw_cn)
 
             intervals.append(cns_interval)
             intervals_by_chr[chr_tag].append(cns_interval)

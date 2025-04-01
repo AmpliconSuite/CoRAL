@@ -72,6 +72,7 @@ def get_single_path_output(
 ) -> str:
     """Generate the output string for a given path produced by optimization."""
     if not bp_graph.walks.paths[path_idx]:
+        logger.error(f"Path {path_idx} has no edges.")
         return ""
 
     path_weights = bp_graph.walk_weights.paths

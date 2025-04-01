@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import io
 from typing import Any
 
 import typer
@@ -9,11 +10,11 @@ from coral.constants import CHR_TAG_TO_IDX, INVERT_STRAND_DIRECTION
 
 
 def convert_cycles_to_bed(
-    cycle_file: typer.FileText,
+    cycle_file: io.TextIOWrapper,
     output_fn: str,
     rotate_to_min: bool = False,
     num_cycles: int | None = None,
-):
+) -> None:
     """Convert an AA-formatted .txt file into equivalent .bed representation."""
     all_segs: dict[str, list[str | int]] = dict()
     cycles: dict[int, list[Any]] = dict()
@@ -28,7 +29,7 @@ def convert_cycles_to_bed(
             cycle_segs = ["0+", "0-"]
             for s in st:
                 s_name, s_value = s.split("=")
-                if s_name == "Cycle" or s_name == "Path":
+                if s_name in {"Cycle", "Path"}:
                     cycle_id = s_value  # type: ignore[assignment]
                 if s_name == "Copy_count":
                     cycle_weight = float(s_value)

@@ -56,6 +56,7 @@ pandera = "0.23.0" # Bug with parsers running twice (pre-v0.23.0) causes issues 
 decorator = "^5.2.1"
 gurobipy = "^12.0.1"
 requests = "^2.32.3"
+colorama = "^0.4.6"
 
 [[tool.poetry.source]]
 name = "pytorch-cpu"
@@ -111,6 +112,7 @@ lint.ignore = [
   "FIX002",  # Line contains TODO
   "TRY400",  # logger.error vs. logger.exception (don't want to log traceback)
   "TCH001",  # typing-only-first-party-import
+  "S101"
 ]
 lint.extend-select = ["I"]
 line-length = 80
@@ -123,13 +125,12 @@ disable_error_code = "import-untyped"
 exclude = [
   "hsr.py", 
   "scripts/report_nanopore_qc.py",
-  "plot_amplicons.py", 
   "plot_cn.py"
 ]
 # plugins = "numpy.typing.mypy_plugin"
 strict = false
 
-[tool.pyright]
+[tool.basedpyright]
 exclude = [
     "**/__pycache__",
     "**/report_nanopore_qc.py"
@@ -138,6 +139,7 @@ defineConstant = { DEBUG = true }
 
 reportMissingImports = "error"
 reportMissingTypeStubs = false
+typeCheckingMode = "off"
 
 pythonVersion = "3.12"
 pythonPlatform = "Linux"

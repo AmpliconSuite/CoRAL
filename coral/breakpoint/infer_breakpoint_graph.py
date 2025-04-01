@@ -40,7 +40,7 @@ from coral.datatypes import (
     Breakpoint,
     BreakpointStats,
     ChimericAlignment,
-    CNSInterval,
+    CNInterval,
     CNSIntervalTree,
     FinalizedPathConstraint,
     Interval,
@@ -116,10 +116,10 @@ class LongReadBamToBreakpointMetadata:
         default_factory=lambda: defaultdict(set)
     )
 
-    cns_intervals: list[CNSInterval] = field(
+    cns_intervals: list[CNInterval] = field(
         default_factory=list
     )  # CN segments
-    cns_intervals_by_chr: dict[str, list[CNSInterval]] = field(
+    cns_intervals_by_chr: dict[str, list[CNInterval]] = field(
         default_factory=dict
     )
     # log2 CN for each CN segment
@@ -165,7 +165,7 @@ class LongReadBamToBreakpointMetadata:
 
         logger.info(f"Total num LR CN segments:{len(self.log2_cn)}.")
         log2_cn_order = np.argsort(self.log2_cn)
-        cns_intervals_median: list[CNSInterval] = []
+        cns_intervals_median: list[CNInterval] = []
         log2_cn_median = []
         im = int(len(log2_cn_order) / 2.4)
         ip = im + 1

@@ -2797,4 +2797,4 @@ docs = ["scanpydoc", "typing-extensions", "typing_extensions"]
 [metadata]
 lock-version = "2.0"
 python-versions = "=3.12.*"
-content-hash = "7924c2a9f9a6a75b1805de550fa44c67907a1cac7b6d49168792b3f217d58d74"
+content-hash = "2eb147c6ed1f54e8fdbb36fbf08cf6f6ecd6ca11c2b9d12f13b56e2d702f9ee7"

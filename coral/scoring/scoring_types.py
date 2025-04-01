@@ -32,6 +32,7 @@ class TrueAmpliconStats:
     # Pulled from the reconstructed amplicon that best matches the true amplicon
     matched_amplicon: str | None = None
     model_used: datatypes.ModelType | None = None
+    mip_gap: float | None = None
 
 
 @dataclass
@@ -49,6 +50,7 @@ class ReconstructedAmpliconStats:
     overall_max_normalized_lcs: float = 0
     has_cycle_match: bool = False
     model_used: datatypes.ModelType | None = None
+    mip_gap: float | None = None
 
 
 class BinnedGenome(pa.DataFrameModel):
@@ -85,6 +87,7 @@ class ReconstructionScoreModel(pa.DataFrameModel):
     # Pulled from the reconstructed amplicon that best matches the true amplicon
     matched_amplicon: pat.Series[str]
     model_used: pat.Series[str] = pa.Field(nullable=True)
+    mip_gap: pat.Series[float] = pa.Field(nullable=True)
 
 
 ReconstructionScoreSchema = ReconstructionScoreModel.to_schema()

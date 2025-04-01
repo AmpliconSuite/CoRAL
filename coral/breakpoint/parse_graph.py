@@ -195,8 +195,9 @@ def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
 
     if not bp_graph.amplicon_intervals:
         logger.warning(
-            "No amplicon intervals found in breakpoint graph. Are you "
-            "using a *_graph.txt file generated with CoRAL v2.1.0+?"
+            "No amplicon intervals found in breakpoint graph file "
+            f"{graph_file.name}. Are you using a *_graph.txt file "
+            "generated with CoRAL v2.1.0+?"
         )
 
     return bp_graph
@@ -228,31 +229,6 @@ def get_all_graphs_from_dir(bp_dir: pathlib.Path) -> list[BreakpointGraph]:
             bp_graphs.append(parsed_bp_graph)
     bp_graphs.sort(key=lambda x: x.amplicon_idx)
     return bp_graphs
-
-
-class ReconstructionPaths(NamedTuple):
-    graph_path: pathlib.Path
-    cycle_path: pathlib.Path | None = None
-
-
-def get_all_reconstruction_paths_from_dir(
-    reconstruction_dir: pathlib.Path,
-) -> list[ReconstructionPaths]:
-    reconstruction_paths = []
-    for bp_filepath in reconstruction_dir.glob("*_graph.txt"):
-        cycle_filename = re.sub(
-            r"amplicon(\d+)_graph.txt",
-            r"amplicon\1_cycles.txt",
-            bp_filepath.name,
-        )
-        cycle_filepath = reconstruction_dir / cycle_filename
-        reconstruction_paths.append(
-            ReconstructionPaths(
-                graph_path=bp_filepath,
-                cycle_path=cycle_filepath if cycle_filepath.exists() else None,
-            )
-        )
-    return reconstruction_paths
 
 
 def get_all_cycle_paths_from_dir(

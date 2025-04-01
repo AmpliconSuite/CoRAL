@@ -9,7 +9,7 @@ import typer
 
 from coral import supplemental_data
 from coral.constants import CHR_SIZES, CNSIZE_MAX
-from coral.datatypes import ChrArmInfo, CNSInterval, Interval, SingleArmInfo
+from coral.datatypes import ChrArmInfo, CNInterval, Interval, SingleArmInfo
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +84,8 @@ def run_seeding(
     """
 
     chr_arms = parse_centromere_arms()
-    cnv_seeds: list[list[CNSInterval]] = []
-    cur_seed: list[CNSInterval] = []
+    cnv_seeds: list[list[CNInterval]] = []
+    cur_seed: list[CNInterval] = []
     for line in cn_seg_file:
         s = line.strip().split()
         if s[0] != "chromosome":
@@ -100,7 +100,7 @@ def run_seeding(
                 logger.error(cn_seg_file.name + "\n")
                 raise SystemExit("Invalid cn_seg file format!\n")
             # Require absolute CN >= max(gain, cn_cutoff_chrarm)
-            cn_intv = CNSInterval(chr_tag, start, end, cn)
+            cn_intv = CNInterval(chr_tag, start, end, cn)
             if cn >= gain and (end <= arm_intv.start or start >= arm_intv.end):  # type: ignore[possibly-undefined]
                 if (
                     len(cur_seed) > 0

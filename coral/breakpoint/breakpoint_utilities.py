@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from typing import (
     TYPE_CHECKING,
     Generator,
+    Iterable,
     List,
     Optional,
     Sequence,
@@ -29,7 +30,7 @@ from coral.datatypes import (
     BreakpointStats,
     ChimericAlignment,
     ChrPairOrientation,
-    CNSInterval,
+    CNInterval,
     Interval,
     Node,
     Strand,
@@ -548,9 +549,9 @@ def bp_match(
     )
 
 
-def sort_chrom_names(chromlist: List[str]) -> List[str]:
+def sort_chrom_names(chromlist: Iterable[str]) -> list[str]:
     # TODO: use CHR_TAG_TO_IDX instead of this method?
-    def sort_key(x: str):
+    def sort_key(x: str) -> int:
         chr_val = x[3] if x.startswith("chr") else x
         return int(chr_val) if chr_val.isnumeric() else ord(chr_val)
 
@@ -793,7 +794,7 @@ def fetch_breakpoint_reads(
 
 def get_cns_idx_intv_to_reads(
     d1_segs: dict[str, dict[int, set[str]]],
-    cns_intervals_by_chr: dict[str, list[CNSInterval]],
+    cns_intervals_by_chr: dict[str, list[CNInterval]],
 ):
     pass
 

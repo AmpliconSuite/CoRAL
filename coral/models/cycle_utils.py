@@ -38,7 +38,7 @@ def process_walk_edge(
     edge_count: int,
     bp_graph: BreakpointGraph,
     is_cycle: bool,
-    remaining_cn: Optional[EdgeToCN] = None,
+    remaining_cn: EdgeToCN | None = None,
     resolution: float = 0.0,
 ) -> None:
     """Update `cycle` parameter with the appropriate entry for a given edge
@@ -206,7 +206,7 @@ def parse_solver_output(
 
         logger.debug(f"Walk {i} exists; CN = {model.w[i].value}.")
         if resolution and (walk_weight := model.w[i].value) < resolution:
-            parsed_sol.walk_weights[0].append(walk_weight)
+            parsed_sol.walk_weights.cycles.append(walk_weight)
             logger.debug(
                 "\tCN < resolution, iteration terminated successfully."
             )
@@ -216,7 +216,7 @@ def parse_solver_output(
             if model.c[node_idx, i].value >= 0.9:
                 found_cycle = True
                 break
-        cycle: dict = {}
+        walk_edge: OptimizationWalk = {}
         path_constraints_s = []
         for pi in range(len(pc_list)):
             if model.r[pi, i].value >= 0.9:
@@ -229,7 +229,7 @@ def parse_solver_output(
                 edge_count = round(edge_count)
                 # Update cycle in-place via helper
                 process_walk_edge(
-                    cycle,
+                    walk_edge,
                     model,
                     edge_idx,
                     edge_count,
@@ -239,15 +239,18 @@ def parse_solver_output(
                     resolution=resolution,
                 )
         if (walk_weight := model.w[i].value) > 0.0:
-            if not found_cycle:
-                parsed_sol.walks[1].append(cycle)
-                parsed_sol.walk_weights[1].append(walk_weight)
-                parsed_sol.satisfied_pc[1].append(path_constraints_s)
+            if not walk_edge:
+                logger.error(f"Walk {i} has no edges.")
+                continue
+            if found_cycle:
+                parsed_sol.walks.cycles.append(walk_edge)
+                parsed_sol.walk_weights.cycles.append(walk_weight)
+                parsed_sol.satisfied_pc.cycles.append(path_constraints_s)
                 parsed_sol.satisfied_pc_set |= set(path_constraints_s)
             else:
-                parsed_sol.walks[0].append(cycle)
-                parsed_sol.walk_weights[0].append(walk_weight)
-                parsed_sol.satisfied_pc[0].append(path_constraints_s)
+                parsed_sol.walks.paths.append(walk_edge)
+                parsed_sol.walk_weights.paths.append(walk_weight)
+                parsed_sol.satisfied_pc.paths.append(path_constraints_s)
                 parsed_sol.satisfied_pc_set |= set(path_constraints_s)
         for seqi in range(lseg):
             parsed_sol.total_weights_included += (
