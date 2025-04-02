@@ -464,6 +464,8 @@ def maximize_weights_greedy(
 
 
 def does_graph_require_greedy_solve(bp_graph: BreakpointGraph, k: int) -> bool:
+    # We avoid using the cycle-minimization ILP model for large graphs based on
+    # this heuristic.
     return (
         bp_graph.num_edges > 100
         or (
@@ -490,6 +492,7 @@ def solve_single_graph(
     *,
     should_force_greedy: bool = False,
     should_postprocess: bool = False,
+    should_force_min_cycles: bool = False,
 ) -> datatypes.CycleSolution:
     used_greedy = False
     while k <= bp_graph.num_edges:
@@ -599,6 +602,7 @@ def cycle_decomposition_single_graph(
     should_force_greedy: bool = False,
     output_all_path_constraints: bool = False,
     ignore_path_constraints: bool = False,
+    should_force_min_cycles: bool = False,
 ) -> None:
     logger.info(
         f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
@@ -646,6 +650,7 @@ def cycle_decomposition_single_graph(
         resolution=resolution,
         should_postprocess=should_postprocess,
         should_force_greedy=should_force_greedy,
+        should_force_min_cycles=should_force_min_cycles,
     )
     bp_graph.model_metadata = lp_solution.model_metadata
     if (
@@ -680,6 +685,7 @@ def cycle_decomposition_all_graphs(
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
     ignore_path_constraints: bool = False,
+    should_force_min_cycles: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
     was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
@@ -695,6 +701,7 @@ def cycle_decomposition_all_graphs(
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=should_force_greedy,
             ignore_path_constraints=ignore_path_constraints,
+            should_force_min_cycles=should_force_min_cycles,
         )
 
         # Verify that cycle decomposition produced a valid solution
@@ -717,6 +724,7 @@ def reconstruct_cycles(
     output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
     ignore_path_constraints: bool = False,
+    should_force_min_cycles: bool = False,
 ) -> None:
     logging.basicConfig(
         filename=f"{solver_options.output_dir}/cycle_decomp.log",
@@ -734,6 +742,7 @@ def reconstruct_cycles(
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=should_force_greedy,
         ignore_path_constraints=ignore_path_constraints,
+        should_force_min_cycles=should_force_min_cycles,
     )
     logger.info("Completed cycle decomposition for all amplicons.")
     logger.info(
