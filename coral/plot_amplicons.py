@@ -22,6 +22,7 @@ from coral import datatypes
 from coral.breakpoint import (
     breakpoint_utilities,  # type: ignore[import-untyped]
 )
+from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.datatypes import Interval
 from coral.summary.parsing import parse_cycle_file
@@ -917,7 +918,7 @@ class GraphViz:
             self.cycle_amplified_intervals.keys()
         )
         amplified_intervals_start = {}
-        x = margin_between_intervals
+        x: float = margin_between_intervals
         for chrom in sorted_chrs:
             amplified_intervals_start[chrom] = [x]
             for interval_idx in range(
@@ -1852,3 +1853,13 @@ def plot_amplicon(
         f"{graph_file.name} ({cycle_file.name if cycle_file else 'no cycles'}"  # type: ignore[union-attr]
         f"{colorama.Style.RESET_ALL})"
     )
+
+
+def draw_cycle(
+    g: BreakpointGraph,
+    cycle: list[int],
+    cycle_id: int,
+    cycle_only: bool,
+    graph_given: bool,
+) -> None:
+    pass
