@@ -207,7 +207,7 @@ def reconstruct(
             help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."
         ),
     ] = 1.0,
-    force_greedy: ForceGreedyFlag = False,
+    force_greedy: ForceGreedyFlag = True,
     force_min_cycles: ForceMinCyclesFlag = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
@@ -278,7 +278,7 @@ def cycle_decomposition_mode(
     global_time_limit: GlobalTimeLimitArg = 21600,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
-    force_greedy: ForceGreedyFlag = False,
+    force_greedy: ForceGreedyFlag = True,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
@@ -339,7 +339,7 @@ def cycle_decomposition_all_mode(
     global_time_limit: GlobalTimeLimitArg = 21600,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
-    force_greedy: ForceGreedyFlag = False,
+    force_greedy: ForceGreedyFlag = True,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
