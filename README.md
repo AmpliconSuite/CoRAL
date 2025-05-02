@@ -14,31 +14,22 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
 CoRAL requires python>=3.12; we recommend using venv/conda for managing Python/pip installations.
 
 1. Clone source
-
     ```
     git clone https://github.com/AmpliconSuite/CoRAL
     cd CoRAL
     ```
-
 2. Install packages using `poetry`. 
-    
       ```bash
       pip install poetry
       poetry install
      ```
-
-
 3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
    - Place the `gurobi.lic` file you download into `$HOME/`. This path is usually `/home/username/gurobi.lic`.
-
-
-
 4. Finish installing CNVkit dependencies (recommended)
    ```bash
    Rscript -e 'if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")'
    Rscript -e 'BiocManager::install("DNAcopy")'
    ```
-
 [//]: # (* pysam&#40;>=0.1.7&#41; https://pysam.readthedocs.io/en/stable/ for reading mapped sequences in ```*.BAM``` format)
 
 [//]: # (* cvxopt https://cvxopt.org/ for estimating CN in breakpoint graph.)
@@ -55,7 +46,7 @@ Before running CoRAL, you will need genome-wide copy number (CN) calls generated
    `chrom  start   end   CN`
 
 
-- If you don't have these then you can run CNVkit (installed as a dependency) to generate them, by doing
+- If you don't have these then you can run CNVkit (installed as a dependency) to generate them, by running
 
    `./scripts/call_cnvs.sh <input.bam> ./reference/hg38full_ref_5k.cnn <output_dir>`
 
@@ -67,16 +58,13 @@ CoRAL and its various run-modes can by used in the following manner
 
 `coral [mode] [mode arguments]`
 
-The modes are as follows:
-1. `seed`: Identify and filter copy number gain regions where amplifications exist
-2. `reconstruct`: Perform breakpoint graph construct and cycle decomposition on the amplified seeds.
-3. `plot`: Create plots of decomposed cycles and/or breakpoint graph sashimi plot.
-4. `hsr`: Identify candidate locations of chromosomal homogenously staining region (HSR) integration points for ecDNA.
-5. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to a .bed format. The AA format is also used by CoRAL.
-6. `cycle`: Run the cycle extraction algorithm on a previously generated 
-breakpoint graph. NOTE: This requires the breakpoint graph to be generated with
-CoRAL v2.1.0 or later, as we require `path constraints` and `amplicon intervals`
-to be included in the provided `*_graph.txt` file.
+The run modes are as follows:
+1. `seed`: Identify seed amplified intervals (copy number gain regions) with input genome-wide CN calls.
+2. `reconstruct`: **The main running mode of CoRAL**. Perform a complete reconstuction of breakpoint graph and cycle extraction from seed amplified intervals.
+3. `cycle`: Run cycle extraction on a previously generated breakpoint graph. NOTE: This requires the breakpoint graph to be generated with CoRAL v2.1.0 or later, as we require `path constraints` and `amplicon intervals` to be included in the provided `*_graph.txt` file.
+4. `plot`: Create plots of cycles/paths from cycle extraction and/or breakpoint graph sashimi plot.
+5. `hsr`: Identify candidate locations of chromosomal homogenously staining region (HSR) integration points for ecDNA.
+6. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to extended `.bed` format. The AA format is also supported by CoRAL.
 
 
 ## 1. ```seed```
@@ -176,11 +164,34 @@ Note that if ```--output-all-path-constraints``` is specified, then all path con
 * Other outputs include the ```output_dir_amplicon*_model.lp``` file(s) and ```output_dir_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrained) program in a human readable format, and the standard output produced by Gurobi.
 
 
-## 3. ```plot```
+## 3. ```cycle```
+Usage: 
+```coral cycle <Required arguments> <Optional arguments>```
+
+**3.1 Required arguments:**
+
+| Argument           | Descripion                                        |
+|--------------------|---------------------------------------------------|
+| `--graph <file>`   | AA-formatted `_graph.txt` file                   |
+| `--output-dir <file>`  | Directory for output files                   |
+
+**3.2 Optional arguments:**
+
+| Argument                     | Default | Description                                                        |
+|------------------------------|---------|--------------------------------------------------------------------|
+| `--alpha <float>`      | 0.01     |  Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.                           |
+| `--solver-time-limit <int>` | 7200    | Time limit for cycle extraction (in seconds) | 
+| `--threads <int>` | -1    | Number of threads for cycle extraction. If not specified, use all available cores. |
+| `--solver <choice>` | gurobi_direct   | Solver for cycle extraction. Must be one of `[gurobi_direct, scip]` |
+| `--output-all-path-constraints` | False    | If specified, output all path constraints given by long reads in `*_cycles.txt` file (see "Expected output" below). |
+| `--postprocess-greedy-sol` | False    | If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution). |
+
+
+## 4. ```plot```
 Usage: 
 ```coral plot <Required arguments> <Optional arguments>```
 
-**3.1 Required arguments:**
+**4.1 Required arguments:**
 If `--plot-graph` is given, `--graph` is required. If `--plot-cycles` is given `--cycles` is required.
 
 | Argument                | Description                                                            |
@@ -192,7 +203,7 @@ If `--plot-graph` is given, `--graph` is required. If `--plot-cycles` is given `
 | `--output-dir <str>` | Directory for output files                                          |
 
 
-**3.2 Optional arguments:**
+**4.2 Optional arguments:**
 
 | Argument                                   | Default                          | Description                                                                                                                               |
 |--------------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
@@ -209,11 +220,11 @@ If `--plot-graph` is given, `--graph` is required. If `--plot-cycles` is given `
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
 
 
-## 4. ```hsr```
+## 5. ```hsr```
 Usage: 
 ```coral hsr <Required arguments> <Optional arguments>```
 
-**4.1 Required arguments:**
+**5.1 Required arguments:**
 
 | Argument           | Descripion                                        |
 |--------------------|---------------------------------------------------|
@@ -222,7 +233,7 @@ Usage:
 | `--cn-segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
 | `--normal-cov <float>` | Estimated coverage of diploid genome regions      |
 
-**4.2 Optional arguments:**
+**5.2 Optional arguments:**
 
 | Argument                     | Default | Description                                                        |
 |------------------------------|---------|--------------------------------------------------------------------|
@@ -230,17 +241,17 @@ Usage:
 | --bp_match_cutoff_clustering | 2000    | Crude breakpoint matching cutoff distance (bp) for clustering | 
 
 
-## 5. ```cycle2bed```
+## 6. ```cycle2bed```
 CoRAL provides an option to convert its cycles output in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
 
 Usage: 
 ```coral cycle2bed <Required arguments> <Optional arguments>```
 
-**5.1 Required arguments:**
+**6.1 Required arguments:**
 * ```--cycle-file <FILE>``` - Input cycles file in AmpliconArchitect format.
 * ```--output-file <FILE>```  - Output cycles file in ```*.bed``` format.
 
-**5.2 Optional arguments:** 
+**6.2 Optional arguments:** 
 * ```--num-cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
 
 Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
@@ -251,30 +262,6 @@ chr7	55155021	55609190	+	1	True	82.346163
 chr7	55610095	56049369	+	1	True	82.346163
 chr7	54763282	56049369	+	2	False	2.843655
 ```
-
-
-## 6. ```cycle```
-Usage: 
-```coral cycle <Required arguments> <Optional arguments>```
-
-**4.1 Required arguments:**
-
-| Argument           | Descripion                                        |
-|--------------------|---------------------------------------------------|
-| `--graph <file>`   | AA-formatted `_graph.txt` file                   |
-| `--output-dir <file>`  | Directory for output files                   |
-
-**4.2 Optional arguments:**
-
-| Argument                     | Default | Description                                                        |
-|------------------------------|---------|--------------------------------------------------------------------|
-| `--alpha <float>`      | 0.01     |  Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.                           |
-| `--solver-time-limit <int>` | 7200    | Time limit for cycle extraction (in seconds) | 
-| `--threads <int>` | -1    | Number of threads for cycle extraction. If not specified, use all available cores. |
-| `--solver <choice>` | gurobi_direct   | Solver for cycle extraction. Must be one of `[gurobi_direct, scip]` |
-| `--output-all-path-constraints` | False    | If specified, output all path constraints given by long reads in `*_cycles.txt` file (see "Expected output" below). |
-| `--postprocess-greedy-sol` | False    | If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution). |
-
 
 ## FAQs
 - `call_cnvs.sh` didn't produce segmented CN calls in a .cns file?
