@@ -52,6 +52,15 @@ def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     )
 
 
+def validate_cycle_flags(ctx: typer.Context) -> None:
+    force_min_cycles = ctx.params.get("force_min_cycles")
+    force_greedy = ctx.params.get("force_greedy")
+    if force_min_cycles and force_greedy:
+        raise typer.BadParameter(
+            "Cannot force both cycle minimization and greedy cycle extraction."
+        )
+
+
 # Note: typer.Arguments are required, typer.Options are optional
 BamArg = Annotated[
     pathlib.Path | None,
@@ -88,6 +97,13 @@ ForceGreedyFlag = Annotated[
     typer.Option(
         help="If specified, force greedy cycle extraction even if the graph is "
         "below heuristic threshold."
+    ),
+]
+ForceMinCyclesFlag = Annotated[
+    bool,
+    typer.Option(
+        help="If specified, force cycle minimization even if the graph is "
+        "above heuristic threshold."
     ),
 ]
 IgnorePathConstraintsFlag = Annotated[
@@ -191,7 +207,8 @@ def reconstruct(
             help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."
         ),
     ] = 1.0,
-    force_greedy: ForceGreedyFlag = False,
+    force_greedy: ForceGreedyFlag = True,
+    force_min_cycles: ForceMinCyclesFlag = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
@@ -204,6 +221,8 @@ def reconstruct(
     )
 
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
+    validate_cycle_flags(ctx)
+
     logging.basicConfig(
         filename=f"{output_dir}/infer_breakpoint_graph.log",
         filemode="w+",
@@ -234,6 +253,7 @@ def reconstruct(
             output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=force_greedy,
             ignore_path_constraints=ignore_path_constraints,
+            should_force_min_cycles=force_min_cycles,
         )
 
     b2bn.closebam()
@@ -246,6 +266,7 @@ def reconstruct(
     name="cycle", help="Pass existing breakpoint file directly to LP solver."
 )
 def cycle_decomposition_mode(
+    ctx: typer.Context,
     bp_graph: Annotated[
         typer.FileText, typer.Option(help="Existing BP graph file.")
     ],
@@ -257,12 +278,14 @@ def cycle_decomposition_mode(
     global_time_limit: GlobalTimeLimitArg = 21600,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
-    force_greedy: ForceGreedyFlag = False,
+    force_greedy: ForceGreedyFlag = True,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
+    force_min_cycles: ForceMinCyclesFlag = False,
 ) -> None:
+    validate_cycle_flags(ctx)
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -295,6 +318,7 @@ def cycle_decomposition_mode(
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
         ignore_path_constraints=ignore_path_constraints,
+        should_force_min_cycles=force_min_cycles,
     )
 
 
@@ -303,6 +327,7 @@ def cycle_decomposition_mode(
     help="Pass all breakpoint files in directory to LP solver.",
 )
 def cycle_decomposition_all_mode(
+    ctx: typer.Context,
     bp_dir: Annotated[
         pathlib.Path, typer.Option(help="Directory containing BP graph files.")
     ],
@@ -314,12 +339,14 @@ def cycle_decomposition_all_mode(
     global_time_limit: GlobalTimeLimitArg = 21600,
     output_all_path_constraints: OutputPCFlag = False,
     postprocess_greedy_sol: PostProcessFlag = False,
-    force_greedy: ForceGreedyFlag = False,
+    force_greedy: ForceGreedyFlag = True,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
+    force_min_cycles: ForceMinCyclesFlag = False,
 ) -> None:
+    validate_cycle_flags(ctx)
     pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -352,6 +379,7 @@ def cycle_decomposition_all_mode(
         output_all_path_constraints=output_all_path_constraints,
         should_force_greedy=force_greedy,
         ignore_path_constraints=ignore_path_constraints,
+        should_force_min_cycles=force_min_cycles,
     )
     if profile:
         summary.output.add_resource_usage_summary(solver_options)
