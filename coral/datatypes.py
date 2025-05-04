@@ -285,7 +285,7 @@ class AmpliconInterval(Interval):
     amplicon_id: int = -1  # TODO: update to None for more obvious behavior
 
     def __str__(self) -> str:
-        return f"Amplicon{self.amplicon_id}>{super().__str__()}"
+        return f"Amplicon {self.amplicon_id + 1}>{super().__str__()}"
 
     @classmethod
     def from_str(cls, s: str) -> AmpliconInterval:
