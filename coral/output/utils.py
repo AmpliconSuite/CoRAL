@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.output.path_output import eulerian_cycle_t, eulerian_path_t
+from coral.output.traversal import eulerian_cycle_t, eulerian_path_t
 
 logger = logging.getLogger(__name__)
 
 
-def get_single_cycle_output(
+def get_single_cycle_str(
     bp_graph: BreakpointGraph,
     cycle_idx: int,
     weight_sorted_cycle_idx: int,
@@ -63,7 +63,7 @@ def get_single_cycle_output(
     return output_str
 
 
-def get_single_path_output(
+def get_single_path_str(
     bp_graph: BreakpointGraph,
     path_idx: int,
     weight_sorted_path_idx: int,

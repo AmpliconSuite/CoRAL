@@ -8,7 +8,7 @@ import os
 
 from coral import datatypes, global_state, text_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.output.utils import get_single_cycle_output, get_single_path_output
+from coral.output.utils import get_single_cycle_str, get_single_path_str
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +25,13 @@ def output_amplicon_solution(
     heaviest_walk = walk_indices[0]
     if heaviest_walk[0] == 1:
         output_file.write("\tHeaviest graph walk solved was a path.\n")
-        path_output = get_single_path_output(
+        path_output = get_single_path_str(
             bp_graph, heaviest_walk[1], 1, output_path_constraints=False
         )
         output_file.write(f"\t{path_output}")
     else:
         output_file.write("\tHeaviest graph walk solved was a cycle.\n")
-        cycle_output = get_single_cycle_output(
+        cycle_output = get_single_cycle_str(
             bp_graph, heaviest_walk[1], 1, output_path_constraints=False
         )
         output_file.write(f"\t{cycle_output}")

@@ -285,7 +285,7 @@ class AmpliconInterval(Interval):
     amplicon_id: int = -1  # TODO: update to None for more obvious behavior
 
     def __str__(self) -> str:
-        return f"Amplicon {self.amplicon_id + 1}>{super().__str__()}"
+        return f"Amplicon {self.amplicon_id + 1} > {super().__str__()}"
 
     @classmethod
     def from_str(cls, s: str) -> AmpliconInterval:
@@ -541,10 +541,22 @@ class Solver(str, enum.Enum):
 @dataclass
 class SolverOptions:
     output_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
+    output_prefix: str = ""
     num_threads: int = field(default_factory=os.cpu_count)  # type: ignore[assignment]
     time_limit_s: int = 7200
     model_prefix: str = "pyomo"
     solver: Solver = Solver.GUROBI
+
+
+class OutputPCOptions(str, enum.Enum):
+    ALL = "all"
+    LONGEST = "longest"
+    NONE = "none"
+
+
+class CycleDecompOptions(str, enum.Enum):
+    MIN_CYCLES = "min_cycles"
+    MAX_WEIGHT = "max_weight"
 
 
 class CNSIntervalTree(intervaltree.IntervalTree):

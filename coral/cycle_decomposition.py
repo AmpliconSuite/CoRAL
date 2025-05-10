@@ -27,6 +27,7 @@ from coral import core_utils, datatypes, models
 from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.core_utils import profile_fn_with_call_counter
+from coral.datatypes import OutputPCOptions
 from coral.models import cycle_utils
 from coral.models.concrete import initialize_post_processing_solver
 from coral.models.path_constraints import longest_path_dict
@@ -94,9 +95,11 @@ def minimize_cycles(
     # )  # each breakpoint edge is assigned >= 5 minutes)
 
     model_name = (
-        f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition__k_{k}"
+        f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition_k_{k}"
     )
-    prefixed_name = f"{solver_options.model_prefix}_{model_name}"
+    prefixed_name = f"{solver_options.output_prefix}_{solver_options.model_prefix}_{model_name}"
+    if solver_options.output_prefix == "":
+        prefixed_name = f"{solver_options.model_prefix}_{model_name}"
     model_filepath = f"{solver_options.output_dir}/models/{prefixed_name}"
 
     model = models.concrete.generate_model(
@@ -211,9 +214,11 @@ def minimize_cycles_post(
         logger.debug("Proceed without subpath constraints.")
 
     model_name = (
-        f"amplicon_{amplicon_id+1}_cycle_decomposition_postprocessing__k_{k}"
+        f"amplicon_{amplicon_id+1}_cycle_decomposition_postprocessing_k_{k}"
     )
     model_filepath = f"{solver_options.output_dir}/models/{solver_options.model_prefix}_{model_name}"
+    if solver_options.model_prefix == "":
+        model_filepath = f"{solver_options.output_dir}/models/{model_name}"
 
     model = models.concrete.generate_model(
         bp_graph,
@@ -370,9 +375,11 @@ def maximize_weights_greedy(
 
         model_name = (
             f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition"
-            f"_greedy__cycle{cycle_id + 1}_alpha_{alpha}"
+            f"_greedy_cycle{cycle_id + 1}_alpha_{alpha}"
         )
-        prefixed_name = f"{solver_options.model_prefix}_{model_name}"
+        prefixed_name = f"{solver_options.output_prefix}_{solver_options.model_prefix}_{model_name}"
+        if solver_options.model_prefix == "":
+            prefixed_name = f"{solver_options.model_prefix}_{model_name}"
         model_filepath = f"{solver_options.output_dir}/models/{prefixed_name}"
 
         model = models.concrete.generate_model(
@@ -492,7 +499,6 @@ def solve_single_graph(
     *,
     should_force_greedy: bool = False,
     should_postprocess: bool = False,
-    should_force_min_cycles: bool = False,
 ) -> datatypes.CycleSolution:
     used_greedy = False
     while k <= bp_graph.num_edges:
@@ -600,9 +606,8 @@ def cycle_decomposition_single_graph(
     *,
     should_postprocess: bool = False,
     should_force_greedy: bool = False,
-    output_all_path_constraints: bool = False,
+    pc_output_option: OutputPCOptions = OutputPCOptions.LONGEST,
     ignore_path_constraints: bool = False,
-    should_force_min_cycles: bool = False,
 ) -> None:
     logger.info(
         f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
@@ -648,9 +653,8 @@ def cycle_decomposition_single_graph(
         alpha=alpha,
         p_total_weight=p_total_weight,
         resolution=resolution,
-        should_postprocess=should_postprocess,
         should_force_greedy=should_force_greedy,
-        should_force_min_cycles=should_force_min_cycles,
+        should_postprocess=should_postprocess,
     )
     bp_graph.model_metadata = lp_solution.model_metadata
     if (
@@ -669,8 +673,8 @@ def cycle_decomposition_single_graph(
     bp_graph.upper_bound = lp_solution.upper_bound
     cycle_output.output_amplicon_walks(
         bp_graph,
-        solver_options.output_dir,
-        output_all_path_constraints=output_all_path_constraints,
+        str(solver_options.output_dir) + "/" + solver_options.output_prefix,
+        pc_output_option=pc_output_option,
     )
 
 
@@ -682,10 +686,9 @@ def cycle_decomposition_all_graphs(
     resolution: float = 0.1,
     *,
     should_postprocess: bool = False,
-    output_all_path_constraints: bool = False,
     should_force_greedy: bool = False,
+    pc_output_option: OutputPCOptions = OutputPCOptions.LONGEST,
     ignore_path_constraints: bool = False,
-    should_force_min_cycles: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
     was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
@@ -698,10 +701,9 @@ def cycle_decomposition_all_graphs(
             p_total_weight,
             resolution,
             should_postprocess=should_postprocess,
-            output_all_path_constraints=output_all_path_constraints,
             should_force_greedy=should_force_greedy,
+            pc_output_option=pc_output_option,
             ignore_path_constraints=ignore_path_constraints,
-            should_force_min_cycles=should_force_min_cycles,
         )
 
         # Verify that cycle decomposition produced a valid solution
@@ -718,37 +720,59 @@ def cycle_decomposition_all_graphs(
 def reconstruct_cycles(
     bp_graphs: list[BreakpointGraph],
     solver_options: datatypes.SolverOptions,
+    cycle_decomp_mode: datatypes.CycleDecompOptions,
     cycle_decomp_alpha: float = 0.01,
     *,
     should_postprocess_greedy_sol: bool = False,
-    output_all_path_constraints: bool = False,
-    should_force_greedy: bool = False,
+    pc_output_option: OutputPCOptions = OutputPCOptions.LONGEST,
     ignore_path_constraints: bool = False,
-    should_force_min_cycles: bool = False,
 ) -> None:
-    logging.basicConfig(
-        filename=f"{solver_options.output_dir}/cycle_decomp.log",
-        filemode="w",
-        level=logging.INFO,
-        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
-    )
-    logger.info("Computed all subpath constraints.")
-
-    cycle_decomposition_all_graphs(
-        bp_graphs,
-        solver_options=solver_options,
-        alpha=cycle_decomp_alpha,
-        should_postprocess=should_postprocess_greedy_sol,
-        output_all_path_constraints=output_all_path_constraints,
-        should_force_greedy=should_force_greedy,
-        ignore_path_constraints=ignore_path_constraints,
-        should_force_min_cycles=should_force_min_cycles,
-    )
+    if solver_options.output_prefix == "":
+        logging.basicConfig(
+            filename=f"{solver_options.output_dir}/cycle_decomp.log",
+            filemode="w",
+            level=logging.INFO,
+            format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
+        )
+    else:
+        logging.basicConfig(
+            filename=f"{solver_options.output_dir}/{solver_options.output_prefix}_cycle_decomp.log",
+            filemode="w",
+            level=logging.INFO,
+            format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
+        )
+    
+    if cycle_decomp_mode == datatypes.CycleDecompOptions.MAX_WEIGHT:
+        cycle_decomposition_all_graphs(
+            bp_graphs,
+            solver_options=solver_options,
+            alpha=cycle_decomp_alpha,
+            should_postprocess=should_postprocess_greedy_sol,
+            should_force_greedy=True,
+            pc_output_option=pc_output_option,
+            ignore_path_constraints=ignore_path_constraints,
+        )
+    else:
+        cycle_decomposition_all_graphs(
+            bp_graphs,
+            solver_options=solver_options,
+            alpha=cycle_decomp_alpha,
+            should_postprocess=should_postprocess_greedy_sol,
+            should_force_greedy=False,
+            pc_output_option=pc_output_option,
+            ignore_path_constraints=ignore_path_constraints,
+        )
     logger.info("Completed cycle decomposition for all amplicons.")
-    logger.info(
-        "Wrote cycles for all complicons to "
-        f"{solver_options.output_dir}/amplicon*_cycles.txt."
-    )
+    if solver_options.output_prefix == "":
+        logger.info(
+            "Wrote cycles for all complicons to "
+            f"{solver_options.output_dir}/amplicon*_cycles.txt."
+        )
+    else:
+        logger.info(
+            "Wrote cycles for all complicons to "
+            f"{solver_options.output_dir}/{solver_options.output_prefix}_amplicon*_cycles.txt."
+        )
 
 
 def postprocess_solution(

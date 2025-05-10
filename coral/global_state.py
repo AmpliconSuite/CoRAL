@@ -20,13 +20,16 @@ CLEAN_EXIT_BUFFER_S = 10
 @dataclass
 class GlobalStateProvider:
     should_profile: bool = False
-    output_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
+    output_prefix: str = str(pathlib.Path.cwd())
+    #output_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
     time_limit_s: int = 21600  # 6 hrs in seconds
     start_time: float = field(default_factory=time.time)
 
     @property
     def summary_filepath(self) -> pathlib.Path:
-        return self.output_dir / "amplicon_summary.txt"
+        if self.output_prefix == str(pathlib.Path.cwd()):
+            return pathlib.Path(self.output_prefix) / "amplicon_summary.txt"
+        return pathlib.Path(self.output_prefix + "_amplicon_summary.txt")
 
     @property
     def remaining_time_s(self) -> float:

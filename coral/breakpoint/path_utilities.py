@@ -17,6 +17,7 @@ from coral.datatypes import (
 )
 from coral.models import path_constraints
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -438,3 +439,5 @@ def get_bp_graph_paths(
         )
 
     return paths
+
+

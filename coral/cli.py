@@ -30,7 +30,7 @@ from coral.core_utils import (
     get_reconstruction_paths_from_separate_dirs,
     get_reconstruction_paths_from_shared_dir,
 )
-from coral.datatypes import Solver
+from coral.datatypes import CycleDecompOptions, OutputPCOptions, Solver 
 from coral.output import cycle_output
 from coral.scoring import score_simulation
 
@@ -52,15 +52,6 @@ def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     )
 
 
-def validate_cycle_flags(ctx: typer.Context) -> None:
-    force_min_cycles = ctx.params.get("force_min_cycles")
-    force_greedy = ctx.params.get("force_greedy")
-    if force_min_cycles and force_greedy:
-        raise typer.BadParameter(
-            "Cannot force both cycle minimization and greedy cycle extraction."
-        )
-
-
 # Note: typer.Arguments are required, typer.Options are optional
 BamArg = Annotated[
     pathlib.Path | None,
@@ -76,14 +67,19 @@ CnSegArg = Annotated[
         callback=validate_cns_file,
     ),
 ]
-OutputDirArg = Annotated[
-    pathlib.Path, typer.Option(help="Directory of output files.")
+OutputPrefixArg = Annotated[
+    str, typer.Option(help="Prefix of output files.")
 ]
-OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
-OutputPCFlag = Annotated[
-    bool,
+ReconstructLogArg = Annotated[
+    pathlib.Path | None,
+    typer.Option(help="Name of the main *.log file, which can be used to trace the status "
+    "of reconstruct run(s)."
+    ),
+]
+OutputPCArg = Annotated[
+    OutputPCOptions,
     typer.Option(
-        help="If specified, output all path constraints in *.cycles file."
+        help="Options for outputting path constraints in *.graph and *.cycles files."
     ),
 ]
 PostProcessFlag = Annotated[
@@ -92,18 +88,11 @@ PostProcessFlag = Annotated[
         help="Postprocess the cycles/paths returned in greedy cycle extraction."
     ),
 ]
-ForceGreedyFlag = Annotated[
-    bool,
+CycleDecompArg = Annotated[
+    CycleDecompOptions,
     typer.Option(
-        help="If specified, force greedy cycle extraction even if the graph is "
-        "below heuristic threshold."
-    ),
-]
-ForceMinCyclesFlag = Annotated[
-    bool,
-    typer.Option(
-        help="If specified, force cycle minimization even if the graph is "
-        "above heuristic threshold."
+        help="Cycle decomposition strategies, either directly perform greedy cycle extraction, "
+        "or first try cycle minimization and if not feasible, switch to greedy."
     ),
 ]
 IgnorePathConstraintsFlag = Annotated[
@@ -180,21 +169,18 @@ def seed(
 @coral_app.command(help="Reconstruct focal amplifications")
 def reconstruct(
     ctx: typer.Context,
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
     lr_bam: BamArg,
     cnv_seed: CnvSeedArg,
     cn_seg: CnSegArg,
     global_time_limit: GlobalTimeLimitArg = 21600,  # 6 hrs in seconds
+    cycle_decomp_mode: CycleDecompArg = CycleDecompOptions.MAX_WEIGHT,
     cycle_decomp_alpha: AlphaArg = 0.01,
+    solver: SolverArg = Solver.GUROBI,
     solver_time_limit: SolverTimeLimitArg = 7200,  # 2 hrs in seconds
     solver_threads: ThreadsArg = -1,
-    solver: SolverArg = Solver.GUROBI,
-    output_all_path_constraints: OutputPCFlag = False,
+    output_path_constraints: OutputPCArg = OutputPCOptions.LONGEST,
     postprocess_greedy_sol: PostProcessFlag = False,
-    output_bp: Annotated[
-        bool,
-        typer.Option(help="If specified, only output the list of breakpoints."),
-    ] = False,
     skip_cycle_decomp: Annotated[
         bool,
         typer.Option(
@@ -207,12 +193,11 @@ def reconstruct(
             help="Ignore breakpoints with less than (min_bp_support * normal coverage) long read support."
         ),
     ] = 1.0,
-    force_greedy: ForceGreedyFlag = True,
-    force_min_cycles: ForceMinCyclesFlag = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
+    log_file: ReconstructLogArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -220,40 +205,48 @@ def reconstruct(
         f"{colorama.Style.RESET_ALL}"
     )
 
-    pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
-    validate_cycle_flags(ctx)
+    solver_output_dir = pathlib.Path.cwd()
+    solver_output_prefix = output_prefix
+    if output_prefix.rfind("/") > 0:
+        solver_output_dir = output_prefix[: output_prefix.rfind("/")]
+        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
+    pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
+    #validate_cycle_flags(ctx)
 
+    log_fn = f"{output_prefix}_reconstruct.log"
+    if log_file:
+        log_fn = log_file
     logging.basicConfig(
-        filename=f"{output_dir}/infer_breakpoint_graph.log",
+        filename=log_fn,
         filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.INFO)
     global_state.STATE_PROVIDER.should_profile = profile
-    global_state.STATE_PROVIDER.output_dir = output_dir
+    global_state.STATE_PROVIDER.output_prefix = output_prefix
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     b2bn = infer_breakpoint_graph.reconstruct_graphs(
-        lr_bam, cnv_seed, cn_seg, output_dir, output_bp, min_bp_support
+        lr_bam, cnv_seed, cn_seg, output_prefix, output_path_constraints, min_bp_support
     )
     solver_options = datatypes.SolverOptions(
         num_threads=solver_threads,
         time_limit_s=solver_time_limit,
-        output_dir=output_dir,
+        output_dir=solver_output_dir,
+        output_prefix=solver_output_prefix,
         model_prefix="pyomo",
         solver=solver,
     )
-    if not (output_bp or skip_cycle_decomp):
+    if not skip_cycle_decomp:
         cycle_decomposition.reconstruct_cycles(
             b2bn.lr_graph,
             solver_options,
+            cycle_decomp_mode,
             cycle_decomp_alpha,
             should_postprocess_greedy_sol=postprocess_greedy_sol,
-            output_all_path_constraints=output_all_path_constraints,
-            should_force_greedy=force_greedy,
+            pc_output_option=output_path_constraints,
             ignore_path_constraints=ignore_path_constraints,
-            should_force_min_cycles=force_min_cycles,
         )
 
     b2bn.closebam()
@@ -270,33 +263,47 @@ def cycle_decomposition_mode(
     bp_graph: Annotated[
         typer.FileText, typer.Option(help="Existing BP graph file.")
     ],
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
+    log_file: ReconstructLogArg,
     alpha: AlphaArg = 0.01,
     solver_time_limit: SolverTimeLimitArg = 7200,
     threads: ThreadsArg = -1,
     solver: SolverArg = Solver.GUROBI,
     global_time_limit: GlobalTimeLimitArg = 21600,
-    output_all_path_constraints: OutputPCFlag = False,
+    cycle_decomp_mode: CycleDecompArg = CycleDecompOptions.MAX_WEIGHT,
+    output_path_constraints: OutputPCArg = OutputPCOptions.LONGEST,
     postprocess_greedy_sol: PostProcessFlag = False,
-    force_greedy: ForceGreedyFlag = True,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
-    force_min_cycles: ForceMinCyclesFlag = False,
 ) -> None:
-    validate_cycle_flags(ctx)
-    pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing reconstruction with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
 
+    solver_output_dir = pathlib.Path.cwd()
+    solver_output_prefix = output_prefix
+    if output_prefix.rfind("/") > 0:
+        solver_output_dir = pathlib.Path(output_prefix[: output_prefix.rfind("/")])
+        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
+    pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
+    validate_cycle_flags(ctx)
+
+    log_fn = f"{output_prefix}_cycle_decomposition.log"
+    if log_file:
+        log_fn = log_file
     logging.basicConfig(
-        filename=f"{output_dir}/cycle_decomposition.log",
+        filename=log_fn,
         filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
     logging.getLogger("pyomo").setLevel(logging.ERROR)
     global_state.STATE_PROVIDER.should_profile = profile
-    global_state.STATE_PROVIDER.output_dir = output_dir
+    global_state.STATE_PROVIDER.output_prefix = output_prefix
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
@@ -306,20 +313,31 @@ def cycle_decomposition_mode(
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
         time_limit_s=solver_time_limit,
-        output_dir=output_dir,
+        output_dir=solver_output_dir,
+        output_prefix=solver_output_prefix,
         model_prefix="pyomo",
         solver=solver,
     )
-    cycle_decomposition.cycle_decomposition_single_graph(
-        parsed_bp_graph,
-        solver_options,
-        alpha,
-        should_postprocess=postprocess_greedy_sol,
-        output_all_path_constraints=output_all_path_constraints,
-        should_force_greedy=force_greedy,
-        ignore_path_constraints=ignore_path_constraints,
-        should_force_min_cycles=force_min_cycles,
-    )
+    if cycle_decomp_mode == datatypes.CycleDecompOptions.MAX_WEIGHT:
+        cycle_decomposition.cycle_decomposition_single_graph(
+            parsed_bp_graph,
+            solver_options,
+            alpha,
+            should_postprocess=postprocess_greedy_sol,
+            should_force_greedy=True,
+            pc_output_option=output_path_constraints,        
+            ignore_path_constraints=ignore_path_constraints,
+        )
+    else:
+        cycle_decomposition.cycle_decomposition_single_graph(
+            parsed_bp_graph,
+            solver_options,
+            alpha,
+            should_postprocess=postprocess_greedy_sol,
+            should_force_greedy=False,
+            pc_output_option=output_path_constraints,        
+            ignore_path_constraints=ignore_path_constraints,
+        )
 
 
 @coral_app.command(
@@ -329,28 +347,42 @@ def cycle_decomposition_mode(
 def cycle_decomposition_all_mode(
     ctx: typer.Context,
     bp_dir: Annotated[
-        pathlib.Path, typer.Option(help="Directory containing BP graph files.")
+        pathlib.Path, typer.Option(help="Directory containing breakpoint graph files.")
     ],
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
+    log_file: ReconstructLogArg,
     alpha: AlphaArg = 0.01,
     solver_time_limit: SolverTimeLimitArg = 7200,
     threads: ThreadsArg = -1,
     solver: SolverArg = Solver.GUROBI,
     global_time_limit: GlobalTimeLimitArg = 21600,
-    output_all_path_constraints: OutputPCFlag = False,
+    cycle_decomp_mode: CycleDecompArg = CycleDecompOptions.MAX_WEIGHT,
+    output_path_constraints: OutputPCArg = OutputPCOptions.LONGEST,
     postprocess_greedy_sol: PostProcessFlag = False,
-    force_greedy: ForceGreedyFlag = True,
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
-    force_min_cycles: ForceMinCyclesFlag = False,
 ) -> None:
-    validate_cycle_flags(ctx)
-    pathlib.Path(f"{output_dir}/models").mkdir(parents=True, exist_ok=True)
+    print(
+        f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
+        f"Performing reconstruction with options: {ctx.params}"
+        f"{colorama.Style.RESET_ALL}"
+    )
 
+    solver_output_dir = pathlib.Path.cwd()
+    solver_output_prefix = output_prefix
+    if output_prefix.rfind("/") > 0:
+        solver_output_dir = output_prefix[: output_prefix.rfind("/")]
+        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
+    pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
+    validate_cycle_flags(ctx)
+
+    log_fn = f"{output_prefix}_cycle_decomposition.log"
+    if log_file:
+        log_fn = log_file
     logging.basicConfig(
-        filename=f"{output_dir}/cycle_decomposition_all.log",
+        filename=log_fn,
         filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -359,7 +391,7 @@ def cycle_decomposition_all_mode(
     logging.getLogger("gurobipy").setLevel(logging.ERROR)
 
     global_state.STATE_PROVIDER.should_profile = profile
-    global_state.STATE_PROVIDER.output_dir = output_dir
+    global_state.STATE_PROVIDER.output_prefix = output_prefix
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     bp_graphs = get_all_graphs_from_dir(bp_dir)
@@ -367,20 +399,31 @@ def cycle_decomposition_all_mode(
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
         time_limit_s=solver_time_limit,
-        output_dir=output_dir,
+        output_dir=solver_output_dir,
+        output_prefix=solver_output_prefix,
         model_prefix="pyomo",
         solver=solver,
     )
-    cycle_decomposition.cycle_decomposition_all_graphs(
-        bp_graphs,
-        solver_options,
-        alpha,
-        should_postprocess=postprocess_greedy_sol,
-        output_all_path_constraints=output_all_path_constraints,
-        should_force_greedy=force_greedy,
-        ignore_path_constraints=ignore_path_constraints,
-        should_force_min_cycles=force_min_cycles,
-    )
+    if cycle_decomp_mode == datatypes.CycleDecompOptions.MAX_WEIGHT:
+        cycle_decomposition.cycle_decomposition_all_graphs(
+            bp_graphs,
+            solver_options,
+            alpha,
+            should_postprocess=postprocess_greedy_sol,
+            should_force_greedy=True,
+            pc_output_option=output_path_constraints,
+            ignore_path_constraints=ignore_path_constraints,
+        )
+    else:
+        cycle_decomposition.cycle_decomposition_all_graphs(
+            bp_graphs,
+            solver_options,
+            alpha,
+            should_postprocess=postprocess_greedy_sol,
+            should_force_greedy=False,
+            pc_output_option=output_path_constraints,
+            ignore_path_constraints=ignore_path_constraints,
+        )
     if profile:
         summary.output.add_resource_usage_summary(solver_options)
 
@@ -529,7 +572,7 @@ def plot_all_mode(
     ctx: typer.Context,
     ref: ReferenceGenomeArg,
     bam: BamArg,
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
     reconstruction_dir: Annotated[
         pathlib.Path | None,
         typer.Option(help="Reconstruction directory."),
@@ -599,7 +642,7 @@ def plot_all_mode(
         f"Performing plot_all mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_prefix.mkdir(parents=True, exist_ok=True)
     global_state.STATE_PROVIDER.should_profile = profile
 
     # TODO: make this into a typer validation function, re-use in score mode
@@ -640,7 +683,7 @@ def plot_all_mode(
                 bam,
                 graph_file,
                 cycle_file,
-                output_prefix=f"{output_dir}/amplicon{amplicon_idx}",
+                output_prefix=f"{output_prefix}/amplicon{amplicon_idx}",
                 num_cycles=num_cycles,
                 max_coverage=max_coverage,
                 min_mapq=min_mapq,
@@ -701,7 +744,7 @@ def plot_cn_mode(
         typer.FileText,
         typer.Option(help="CNVkit-generated .cnr (Copy Number Ratio) file."),
     ],
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
     name: Annotated[str, typer.Option(help="Name of sample.")],
 ) -> None:
     print(
@@ -709,7 +752,7 @@ def plot_cn_mode(
         f"Performing plot mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
-    plot_cn.plot_cnr(cnr, output_dir, name)
+    plot_cn.plot_cnr(cnr, output_prefix, name)
 
 
 @coral_app.command(
@@ -720,7 +763,7 @@ def score_mode(
     ground_truth: Annotated[
         pathlib.Path, typer.Option(help="Ground-truth directory.")
     ],
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
     reconstruction_dir: Annotated[
         pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
@@ -740,10 +783,10 @@ def score_mode(
         f"Performing score mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
-    pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
+    pathlib.Path(f"{output_prefix}").mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
-        filename=f"{output_dir}/score_reconstruction.log",
+        filename=f"{output_prefix}/score_reconstruction.log",
         filemode="w+",
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
@@ -752,7 +795,7 @@ def score_mode(
         ground_truth,
         reconstruction_dir=reconstruction_dir,
         cycle_dir=cycle_dir,  # type: ignore[arg-type]
-        output_dir=output_dir,
+        output_prefix=output_prefix,
         tolerance=tolerance,
         to_skip=to_skip if to_skip else [],
     )
@@ -767,13 +810,13 @@ def plot_resource_usage(
     reconstruction_dir: Annotated[
         pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
-    output_dir: OutputDirArg,
+    output_prefix: OutputPrefixArg,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
         f"Performing plot resource usage mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
-    pathlib.Path(f"{output_dir}").mkdir(parents=True, exist_ok=True)
+    pathlib.Path(f"{output_prefix}").mkdir(parents=True, exist_ok=True)
 
-    summary.parsing.plot_resource_usage(reconstruction_dir, output_dir)
+    summary.parsing.plot_resource_usage(reconstruction_dir, output_prefix)
