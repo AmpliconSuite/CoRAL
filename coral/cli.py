@@ -264,7 +264,6 @@ def cycle_decomposition_mode(
         typer.FileText, typer.Option(help="Existing BP graph file.")
     ],
     output_prefix: OutputPrefixArg,
-    log_file: ReconstructLogArg,
     alpha: AlphaArg = 0.01,
     solver_time_limit: SolverTimeLimitArg = 7200,
     threads: ThreadsArg = -1,
@@ -277,6 +276,7 @@ def cycle_decomposition_mode(
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
+    log_file: ReconstructLogArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -290,7 +290,6 @@ def cycle_decomposition_mode(
         solver_output_dir = pathlib.Path(output_prefix[: output_prefix.rfind("/")])
         solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
     pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
-    validate_cycle_flags(ctx)
 
     log_fn = f"{output_prefix}_cycle_decomposition.log"
     if log_file:
@@ -309,6 +308,7 @@ def cycle_decomposition_mode(
     parsed_bp_graph = parse_breakpoint_graph(bp_graph)
     amplicon_idx = int(bp_graph.name.split("_")[-2].split("amplicon")[1])
     parsed_bp_graph.amplicon_idx = amplicon_idx - 1
+    parsed_bp_graph.infer_amplicon_intervals(amplicon_idx - 1)
 
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
@@ -338,6 +338,9 @@ def cycle_decomposition_mode(
             pc_output_option=output_path_constraints,        
             ignore_path_constraints=ignore_path_constraints,
         )
+    if profile:
+        summary.output.add_resource_usage_summary(solver_options)
+    print("\nCompleted cycle reconstruction.")
 
 
 @coral_app.command(
@@ -350,7 +353,6 @@ def cycle_decomposition_all_mode(
         pathlib.Path, typer.Option(help="Directory containing breakpoint graph files.")
     ],
     output_prefix: OutputPrefixArg,
-    log_file: ReconstructLogArg,
     alpha: AlphaArg = 0.01,
     solver_time_limit: SolverTimeLimitArg = 7200,
     threads: ThreadsArg = -1,
@@ -363,6 +365,7 @@ def cycle_decomposition_all_mode(
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
+    log_file: ReconstructLogArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -376,7 +379,6 @@ def cycle_decomposition_all_mode(
         solver_output_dir = output_prefix[: output_prefix.rfind("/")]
         solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
     pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
-    validate_cycle_flags(ctx)
 
     log_fn = f"{output_prefix}_cycle_decomposition.log"
     if log_file:
@@ -395,6 +397,8 @@ def cycle_decomposition_all_mode(
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     bp_graphs = get_all_graphs_from_dir(bp_dir)
+    for graph in bp_graphs:
+        graph.infer_amplicon_intervals(graph.amplicon_idx - 1)
 
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
@@ -426,6 +430,7 @@ def cycle_decomposition_all_mode(
         )
     if profile:
         summary.output.add_resource_usage_summary(solver_options)
+    print("\nCompleted cycle reconstruction.")
 
 
 @coral_app.command(

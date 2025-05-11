@@ -610,7 +610,7 @@ def cycle_decomposition_single_graph(
     ignore_path_constraints: bool = False,
 ) -> None:
     logger.info(
-        f"Begin cycle decomposition for amplicon{bp_graph.amplicon_idx}."
+        f"Begin cycle decomposition for amplicon {bp_graph.amplicon_idx + 1}."
     )
 
     total_weights = sum(len(sseg) * sseg.cn for sseg in bp_graph.sequence_edges)

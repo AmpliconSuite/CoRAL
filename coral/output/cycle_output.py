@@ -46,7 +46,7 @@ def output_amplicon_walks(
     satisfied_path_constraints = bp_graph.path_constraints_satisfied
     longest_path_constraints = bp_graph.longest_path_constraints
 
-    if pc_output_option == OutputPCOptions.ALL:
+    if pc_output_option == OutputPCOptions.ALL and len(bp_graph.path_constraints) > 0:
         fp.write("List of all subpath constraints\n")
         for path_idx, basic_pc in enumerate(bp_graph.path_constraints):
             edge_counts_idx = core_utils.path_to_edge_count(basic_pc.path)
@@ -61,7 +61,7 @@ def output_amplicon_walks(
                 fp,
             )
             fp.write("\n")
-    elif pc_output_option == OutputPCOptions.LONGEST:
+    elif pc_output_option == OutputPCOptions.LONGEST and len(bp_graph.longest_path_constraints) > 0:
         fp.write("List of longest subpath constraints\n")
         satisfied_pc_idxs = {
             path_idx

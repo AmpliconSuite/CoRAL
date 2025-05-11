@@ -22,6 +22,7 @@ from coral.breakpoint.breakpoint_utilities import (
 )
 from coral.datatypes import (
     AdjacencyMatrix,
+    AmpliconInterval,
     ConcordantEdge,
     Node,
     SequenceEdge,
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 class BreakpointGraph:
     """A container object for the breakpoint graphs."""
 
-    amplicon_intervals: list[datatypes.AmpliconInterval] = field(
+    amplicon_intervals: list[AmpliconInterval] = field(
         default_factory=list
     )
     sequence_edges: list[datatypes.SequenceEdge] = field(default_factory=list)
@@ -507,3 +508,36 @@ class BreakpointGraph:
             multiplicities_sorted[list(rc_indices).index(i)]
             for i in range(len(rc_list))
         ]
+
+    def infer_amplicon_intervals(self, amplicon_id: int = -1)-> None:
+        """
+        Estimate CN (copy number) for each edge, using only long reads.
+        """
+        self.sort_edges()
+        if len(self.sequence_edges) == 0:
+            self.amplicon_intervals = []
+            return
+        if len(self.amplicon_intervals) > 0:
+            logger.warning(f"Amplified intervals exist, skip inferring.")
+            return
+        chr_ = self.sequence_edges[0].chr
+        start_ = self.sequence_edges[0].start
+        for seqi in range(1, len(self.sequence_edges)):
+            if self.sequence_edges[seqi].chr != self.sequence_edges[seqi - 1].chr or \
+                self.sequence_edges[seqi].start != self.sequence_edges[seqi - 1].end + 1:
+                new_interval = AmpliconInterval(chr_, start_, self.sequence_edges[seqi - 1].end)
+                new_interval.amplicon_id = amplicon_id
+                self.amplicon_intervals.append(new_interval)
+                self.add_endnode(Node(chr_, start_, Strand.REVERSE))
+                self.add_endnode(Node(chr_, self.sequence_edges[seqi - 1].end, Strand.FORWARD))
+                chr_ = self.sequence_edges[seqi].chr
+                start_ = self.sequence_edges[seqi].start
+        new_interval = AmpliconInterval(chr_, start_, self.sequence_edges[-1].end)
+        new_interval.amplicon_id = amplicon_id
+        self.amplicon_intervals.append(new_interval)
+        self.add_endnode(Node(chr_, start_, Strand.REVERSE))
+        self.add_endnode(Node(chr_, self.sequence_edges[-1].end, Strand.FORWARD))
+        logger.info(f"Inferred amplicon intervals.")
+        for i, interval in enumerate(self.amplicon_intervals):
+            logger.info(f"\t{i} - Amplicon interval: {interval}")
+
