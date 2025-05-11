@@ -182,6 +182,13 @@ def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
         path_constraints.longest_path_dict(bp_graph.path_constraints)
     )
     bp_graph.max_cn += 1.0
+
+    if len(bp_graph.path_constraints) == 0:
+        logger.warning(
+            "No path constraints found in breakpoint graph file "
+            f"{graph_file.name}. Are you using a *_graph.txt file "
+            "generated with CoRAL v2.1.0+?"
+        )
     logger.info(f"Parsed breakpoint graph {graph_file} from file.")
     return bp_graph
 
