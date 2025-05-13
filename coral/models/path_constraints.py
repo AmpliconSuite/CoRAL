@@ -19,6 +19,7 @@ from coral.datatypes import (
     Strand,
     Walk,
 )
+from coral.core_utils import path_to_edge_count
 
 logger = logging.getLogger(__name__)
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
@@ -529,11 +530,7 @@ def longest_path_dict(
     final_paths: list[FinalizedPathConstraint] = []
     for path_idx in range(len(path_constraints_)):
         path = path_constraints_[path_idx].path
-        edge_counts: dict[EdgeId, int] = defaultdict(int)
-        for edge_idx in range(len(path)):
-            # Only track edge counts, not nodes
-            if edge_idx % 2 == 0:
-                edge_counts[path[edge_idx]] += 1  # type: ignore[index]
+        edge_counts = path_to_edge_count(path)
         final_paths.append(
             FinalizedPathConstraint(
                 edge_counts=edge_counts,

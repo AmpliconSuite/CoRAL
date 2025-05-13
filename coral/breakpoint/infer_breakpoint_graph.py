@@ -47,6 +47,7 @@ from coral.datatypes import (
     LargeIndelAlignment,
     Node,
     OptimizationWalk,
+    OutputPCOptions,
     PathConstraint,
     ReferenceInterval,
     SourceEdge,
@@ -1564,8 +1565,8 @@ def reconstruct_graphs(
     lr_bam_filename: pathlib.Path,
     cnv_seed_file: typer.FileText,
     cn_seg_file: typer.FileText,
-    output_dir: pathlib.Path,
-    output_bp: bool,
+    output_prefix: str,
+    output_path_constraints: OutputPCOptions,
     min_bp_support: float,
 ) -> LongReadBamToBreakpointMetadata:
     seed_intervals = breakpoint_utilities.get_intervals_from_seed_file(
@@ -1590,7 +1591,7 @@ def reconstruct_graphs(
 
     # Write chimeric alignments to pickle file to avoid re-fetching from BAM
     # on successive reconstructions
-    pickle_path = pathlib.Path(f"{output_dir}/chimeric_alignments.pickle")
+    pickle_path = pathlib.Path(f"{output_prefix}_chimeric_alignments.pickle")
     if pickle_path.exists():
         try:
             with pickle_path.open("rb") as file:
@@ -1627,40 +1628,24 @@ def reconstruct_graphs(
     logger.info("Completed finding all discordant breakpoints.")
     b2bn.build_graphs()
     logger.info("Breakpoint graphs built for all amplicons.")
+    
+    b2bn.assign_cov()
+    logger.info(
+        "Fetched read coverage for all sequence and concordant edges."
+    )
+    for gi in range(len(b2bn.lr_graph)):
+        b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
+    logger.info("Computed CN for all edges.")
+    b2bn.compute_path_constraints()
+    logger.info("Computed all subpath constraints.")
 
-    if output_bp:
-        for gi in range(len(b2bn.lr_graph)):
-            bp_stats_i = []
-            for discordant_edge in b2bn.lr_graph[gi].discordant_edges:
-                for bpi in range(len(b2bn.new_bp_list)):
-                    bp_ = b2bn.new_bp_list[bpi]
-                    if discordant_edge.matches_bp(bp_):
-                        bp_stats_i.append(b2bn.new_bp_stats[bpi])
-                        break
-            file_prefix = f"{output_dir}/amplicon{gi+1}"
-            breakpoint_utilities.output_breakpoint_info_lr(
-                b2bn.lr_graph[gi], file_prefix + "_breakpoints.txt", bp_stats_i
-            )
-        logger.info(
-            f"Wrote breakpoint information, for all amplicons, to {output_dir}/amplicon*_breakpoints.txt."
+    for gi in range(len(b2bn.lr_graph)):
+        breakpoint_utilities.output_breakpoint_graph_lr(
+            b2bn.lr_graph[gi], f"{output_prefix}_amplicon{gi+1}_graph.txt", output_path_constraints
         )
-    else:
-        b2bn.assign_cov()
-        logger.info(
-            "Fetched read coverage for all sequence and concordant edges."
-        )
-        for gi in range(len(b2bn.lr_graph)):
-            b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
-        logger.info("Computed CN for all edges.")
-        b2bn.compute_path_constraints()
-
-        for gi in range(len(b2bn.lr_graph)):
-            breakpoint_utilities.output_breakpoint_graph_lr(
-                b2bn.lr_graph[gi], f"{output_dir}/amplicon{gi+1}_graph.txt"
-            )
-            file_prefix = f"{output_dir}/amplicon{gi+1}"
-        logger.info(
-            f"Wrote breakpoint graph for all complicons to {output_dir}/amplicon*_graph.txt."
-        )
+        #file_prefix = f"{output_prefix}_amplicon{gi+1}"
+    logger.info(
+        f"Wrote breakpoint graph for all complicons to {output_prefix}_amplicon*_graph.txt."
+    )
 
     return b2bn

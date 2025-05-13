@@ -8,6 +8,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, NamedTuple, ParamSpec, TypeVar
+from collections import defaultdict
 
 import colorama
 import memray
@@ -22,6 +23,17 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+
+
+def path_to_edge_count(
+    path: Walk,
+) -> dict[EdgeId, int]:
+    edge_counts: dict[EdgeId, int] = defaultdict(int)
+    for edge_idx in range(len(path)):
+        # Only track edge counts, not nodes
+        if edge_idx % 2 == 0:
+            edge_counts[path[edge_idx]] += 1  # type: ignore[index]
+    return edge_counts
 
 
 def path_to_str(path: Walk, edge_counts: dict[EdgeId, int]) -> str:

@@ -74,13 +74,13 @@ Usage:
 ```coral seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
-* ```--cn-seg <FILE>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <file>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **Optional arguments:**
-* ```--output-prefix <STRING>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` with the same prefix as the input ```*.cns``` file.
-* ```--gain <FLOAT>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
-* ```--min-seed-size <INT>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
-* ```--max-seg-gap <INT>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000. 
+* ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` with the same prefix as the input ```*.cns``` file.
+* ```--gain <float>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
+* ```--min-seed-size <int>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
+* ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000. 
 
 
 ## 2. ```reconstruct```
@@ -88,22 +88,23 @@ Usage:
 ```reconstruct <Required arguments> <Optional arguments>```
 
 **2.1 Required arguments:**
-* ```--lr-bam <FILE>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
-* ```--cnv-seed <FILE>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
-* ```--output-dir <FOLDER>``` - Directory to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
-* ```--cn-seg <FILE>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--lr-bam <file>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
+* ```--cnv-seed <file>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
+* ```--output-prefix <path>``` - Prefix (including directory) to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
+* ```--cn-seg <file>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
 
 **2.2 Optional arguments:**
-* ```--min-bp-support <FLOAT>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
+* ```--min-bp-support <float>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
 * ```--skip-cycle-decomp``` - If specified, will stop by only outputting the breakpoint graph files ```*_graph.txt``` (see [**Expected output**](#2.3-Expected-output) below) for all amplicons and not extract cycles from the graph and output ```*_cycles.txt```.
-* ```--output-all-path_constraints``` - If specified, output all path constraints given by long reads in ```*_cycles.txt``` file (see "Expected output" below).
-* ```--cycle-decomp-alpha <FLOAT between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
-* ```--solver-time-limit <INT>``` - Maximum running time (in seconds) reserved for solving a single quadratic program using the chosen integer program solver (e.g. Gurobi, SCIP). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
-* ```--solver-threads <INT>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
+* ```--output-path_constraints <all|longest|none>``` - Options to output path constraints given by long reads. By default, CoRAL will only output the longest path constraints in ```*_graph.txt``` and ```*_cycles.txt``` files (see "Expected output" below). If ```all``` or ```none``` is specified, output all or no path constraints in both graph and cycles files.
+* ```--cycle-decomp-mode <min_cycles|max_weight> ``` - min_cycles: minimize the number of cycles/paths, if solver could not find a feasible solution within time limit, switch to greedy cycle extraction; max_weight: greedy cycle extraction by iteratively extracting cycles or paths with maximum length weighted CN and satisfying the most path constraints. Default mode is ```max_weight```.
+* ```--cycle-decomp-alpha <float between [0, 1]>``` - Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.
+* ```--solver-time-limit <int>``` - Maximum running time (in seconds) reserved for solving a single quadratic program using the chosen integer program solver (e.g. Gurobi, SCIP). The solver would return the best solution(s) it currently found, regardless of the optimality status, when reaching this time limit. Default value is 7200 (i.e., 2 hours).
+* ```--solver-threads <int>``` - Number of threads reserved for for solving the quadratic program with Gurobi (integer program solver). If not specified (and by default), the solver would attempt to use up all available cores in the working machine. 
 * ```--solver <choice>``` - Solver for cycle extraction. Must be one of `[gurobi_direct, scip]`.
-* ```--global-time-limit <INT>``` - Maximum running time (in seconds) reserved for the entire cycle decomposition process. Default value is 21600 (i.e., 6 hours).
+* ```--global-time-limit <int>``` - Maximum running time (in seconds) reserved for the entire cycle extraction process. Default value is 21600 (i.e., 6 hours).
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
-*	```--log-file <FILE>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
+*	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
 
 **2.3 Expected output:**
 
@@ -166,14 +167,16 @@ Note that if ```--output-all-path-constraints``` is specified, then all path con
 
 ## 3. ```cycle```
 Usage: 
-```coral cycle <Required arguments> <Optional arguments>```
+- ```coral cycle <Required arguments> <Optional arguments>``` for cycle extraction from a single amplicon (breakpoint graph);
+- ```coral cycle_all <Required arguments> <Optional arguments>``` for cycle extraction from all amplicons in a directory.
 
 **3.1 Required arguments:**
 
 | Argument           | Descripion                                        |
 |--------------------|---------------------------------------------------|
-| `--graph <file>`   | AA-formatted `_graph.txt` file                   |
-| `--output-dir <file>`  | Directory for output files                   |
+| `--graph <file>` (for `cycle` mode)  | AA or CoRAL-formatted `_graph.txt` file.          |
+| `--bp-dir <directory>`  (for `cycle_all` mode)  | Directory containing AA or CoRAL-formatted `_graph.txt` files for different amplicons. |
+| `--output-prefix <path>`  | Prefix (including directory) of the output ```cycles.txt``` files.                    |
 
 **3.2 Optional arguments:**
 
@@ -182,8 +185,9 @@ Usage:
 | `--alpha <float>`      | 0.01     |  Parameter used to balance CN weight and path constraints in the objective function of greedy cycle extraction. Default value is 0.01, higher values favor the satisfaction of more path constraints.                           |
 | `--solver-time-limit <int>` | 7200    | Time limit for cycle extraction (in seconds) | 
 | `--threads <int>` | -1    | Number of threads for cycle extraction. If not specified, use all available cores. |
-| `--solver <choice>` | gurobi_direct   | Solver for cycle extraction. Must be one of `[gurobi_direct, scip]` |
-| `--output-all-path-constraints` | False    | If specified, output all path constraints given by long reads in `*_cycles.txt` file (see "Expected output" below). |
+| `--solver <choice>` | gurobi_direct   | Solver for cycle extraction. Must be one of `[gurobi_direct, scip]`. |
+| `--cycle-decomp-mode <choice>` | max_weight | Cycle extraction mode. Must be one of `[min_cycles, max_weight]` (see `reconstruct` mode). |
+| `--output-path-constraints <choice>` | longest | Options for output path constraints in graph and cycle files. Must be one of `[all, longest, none]` (see `reconstruct` mode). |
 | `--postprocess-greedy-sol` | False    | If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution). |
 
 
@@ -248,11 +252,11 @@ Usage:
 ```coral cycle2bed <Required arguments> <Optional arguments>```
 
 **6.1 Required arguments:**
-* ```--cycle-file <FILE>``` - Input cycles file in AmpliconArchitect format.
-* ```--output-file <FILE>```  - Output cycles file in ```*.bed``` format.
+* ```--cycle-file <file>``` - Input cycles file in AmpliconArchitect format.
+* ```--output-file <file>```  - Output cycles file in ```*.bed``` format.
 
 **6.2 Optional arguments:** 
-* ```--num-cycles <INT>``` - If specified, only convert the first NUM_CYCLES cycles.
+* ```--num-cycles <int>``` - If specified, only convert the first NUM_CYCLES cycles.
 
 Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
 ```

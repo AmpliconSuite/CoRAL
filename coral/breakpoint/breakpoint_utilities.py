@@ -33,6 +33,7 @@ from coral.datatypes import (
     CNInterval,
     Interval,
     Node,
+    OutputPCOptions,
     Strand,
 )
 
@@ -684,7 +685,7 @@ def enumerate_partitions(
                 yield [[start, start + i - 1], *res]
 
 
-def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str) -> None:
+def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: OutputPCOptions) -> None:
     """Write a breakpoint graph to file in AA graph format with only long read information"""
     with open(ogfile, "w") as fp:
         fp.write(
@@ -717,17 +718,28 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str) -> None:
                 f"{de.cn}\t{de.lr_count}\n"
             )
         # Only output the longest path constraints (post subpath filtering)
-        fp.write("PathConstraint: Path, Support\n")
-        for pc in g.longest_path_constraints:
-            basic_pc = g.path_constraints[pc.pc_idx]
-            fp.write(
-                f"path_constraint\t"
-                f"{core_utils.path_to_str(basic_pc.path, pc.edge_counts)}\t"
-                f"{pc.support}\n"
-            )
-        fp.write("AmpliconIntervals: chr, start, end\n")
-        for ai in g.amplicon_intervals:
-            fp.write(f"interval\t{ai.chr}\t{ai.start}\t{ai.end}\n")
+        if pc_option == OutputPCOptions.LONGEST:
+            fp.write("PathConstraint: Path, Support\n")
+            for pc in g.longest_path_constraints:
+                basic_pc = g.path_constraints[pc.pc_idx]
+                fp.write(
+                    f"path_constraint\t"
+                    f"{core_utils.path_to_str(basic_pc.path, pc.edge_counts)}\t"
+                    f"{pc.support}\n"
+                )
+        elif pc_option == OutputPCOptions.ALL:
+            fp.write("PathConstraint: Path, Support\n")
+            for pc in g.path_constraints:
+                path = pc.path
+                edge_counts = core_utils.path_to_edge_count(path)
+                fp.write(
+                    f"path_constraint\t"
+                    f"{core_utils.path_to_str(path, edge_counts)}\t"
+                    f"{pc.support}\n"
+                )
+        #fp.write("AmpliconIntervals: chr, start, end\n")
+        #for ai in g.amplicon_intervals:
+        #    fp.write(f"interval\t{ai.chr}\t{ai.start}\t{ai.end}\n")
 
 
 def output_breakpoint_info_lr(

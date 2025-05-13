@@ -8,7 +8,7 @@ import os
 
 from coral import datatypes, global_state, text_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.output.utils import get_single_cycle_output, get_single_path_output
+from coral.output.utils import get_single_cycle_str, get_single_path_str
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +25,13 @@ def output_amplicon_solution(
     heaviest_walk = walk_indices[0]
     if heaviest_walk[0] == 1:
         output_file.write("\tHeaviest graph walk solved was a path.\n")
-        path_output = get_single_path_output(
+        path_output = get_single_path_str(
             bp_graph, heaviest_walk[1], 1, output_path_constraints=False
         )
         output_file.write(f"\t{path_output}")
     else:
         output_file.write("\tHeaviest graph walk solved was a cycle.\n")
-        cycle_output = get_single_cycle_output(
+        cycle_output = get_single_cycle_str(
             bp_graph, heaviest_walk[1], 1, output_path_constraints=False
         )
         output_file.write(f"\t{cycle_output}")
@@ -43,7 +43,7 @@ def output_amplicon_info(
     output_file.write(text_utils.AMPLICON_SEPARATOR + "\n")
     output_file.write(f"AmpliconID = {bp_graph.amplicon_idx+1}\n")
     output_file.write(f"#Intervals = {len(bp_graph.amplicon_intervals)}\n")
-    output_file.write("AmpliconIntervals:\n")
+    output_file.write("Amplicon Intervals:\n")
     for interval in bp_graph.amplicon_intervals:
         output_file.write(f"\t{interval}\n")
     output_file.write(
@@ -55,7 +55,7 @@ def output_amplicon_info(
     output_file.write(f"# Concordant Edges: {bp_graph.num_conc_edges}\n")
     output_file.write(f"# Discordant Edges: {bp_graph.num_disc_edges}\n")
     output_file.write(f"# Non-Source Edges: {bp_graph.num_nonsrc_edges}\n")
-    output_file.write(f"# Source Edges: {bp_graph.num_src_edges}\n")
+    output_file.write(f"# Source Edges: {len(bp_graph.amplicon_intervals) * 4}\n")
 
     if was_solved:
         output_file.write(
