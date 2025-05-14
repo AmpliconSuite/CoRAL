@@ -9,7 +9,6 @@ import io
 import pathlib
 import re
 
-import numpy as np
 import pandas as pd
 import pyranges
 
@@ -258,54 +257,6 @@ def read_breakpoint_graph(file: pathlib.Path):
     )
 
     return sequence_edges, breakpoint_edges
-
-
-def bin_genome(
-    true_segments: pd.DataFrame,
-    reconstructed_segments: pd.DataFrame,
-    margin_size: int = 10000,
-) -> tuple[pd.DataFrame, list[str]]:
-    """
-    Bin the intervals by the breakpoints union.
-    Warning: Setting a margin size can effect the output of different distances
-    """
-
-    df_bins = pd.DataFrame(
-        np.concatenate(
-            (
-                true_segments[["Chromosome", "Start"]].values,
-                true_segments[["Chromosome", "End"]].values,
-                reconstructed_segments[["Chromosome", "Start"]].values,
-                reconstructed_segments[["Chromosome", "End"]].values,
-            ),
-            axis=0,
-        )
-    )
-
-    df_bins.columns = ["Chromosome", "Start"]
-    # df_bins['Start'] = df_bins['Start']
-    df_bins = df_bins.drop_duplicates().sort_values(by=["Chromosome", "Start"])
-
-    # rotate with 1 up the start column
-    df_bins_suffix = df_bins.tail(-1)
-    df_bins_suffix = pd.concat([df_bins_suffix, df_bins.head(1)])
-
-    df_bins.reset_index(drop=True, inplace=True)
-    df_bins_suffix.reset_index(drop=True, inplace=True)
-    df_bins = pd.concat([df_bins, df_bins_suffix], axis=1, ignore_index=True)
-    df_bins.columns = ["Chromosome", "Start", "Chromosome2", "End"]
-
-    # keep only rows with same chr and non-negative distance
-    df_bins = df_bins[
-        (df_bins["Chromosome"] == df_bins["Chromosome2"])
-        & (abs(df_bins["Start"] - df_bins["End"]) >= 0)
-    ]
-
-    df_bins = df_bins[(df_bins["End"] - df_bins["Start"]) > 0]
-    df_bins["length"] = abs(df_bins["End"] - df_bins["Start"])
-    chrlist = df_bins["Chromosome"].drop_duplicates().tolist()
-
-    return df_bins[["Chromosome", "Start", "End", "length"]], chrlist
 
 
 def get_seq_edges_from_decoil(results, base_coverage=13.0):

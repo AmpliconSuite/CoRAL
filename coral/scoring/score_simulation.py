@@ -19,9 +19,9 @@ from typing import Optional
 import pandera as pa
 import pandera.typing as pat
 
+import coral.breakpoint.breakpoint_utils
 import coral.summary.parsing as summary_parsing
 from coral import core_utils, datatypes
-from coral.breakpoint import parse_graph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.scoring import scoring_types
 from coral.scoring.scoring_types import (
@@ -56,7 +56,7 @@ def score_reconstruction(
     # define statistics
     # compute overlapping sequence & discordant edges
     with (ground_truth_dir / f"{amplicon}_graph.txt").open("r") as f:
-        true_graph = parse_graph.parse_breakpoint_graph(f)
+        true_graph = parse_breakpoint_graph(f)
     cycle_filepath = ground_truth_dir / f"{amplicon}_cycles.txt"
     true_intervals = io_utils.read_cycles_intervals_to_bed(cycle_filepath)
     true_cycles_bed = io_utils.read_cycles_file_to_bed(cycle_filepath)
@@ -90,7 +90,7 @@ def score_reconstruction(
 
     for bp_graph_path in reconstruction_dir.glob("*_graph.txt"):
         with bp_graph_path.open("r") as f:
-            reconstructed_graph = parse_graph.parse_breakpoint_graph(f)
+            reconstructed_graph = parse_breakpoint_graph(f)
 
         amplicon_id = core_utils.get_amplicon_id_from_filename(
             bp_graph_path.name
@@ -104,10 +104,12 @@ def score_reconstruction(
             )
         )
 
-        num_overlapping_bp_edges = scoring_utils.find_overlapping_bp_edges(
-            true_graph,
-            reconstructed_graph,
-            tolerance=tolerance,
+        num_overlapping_bp_edges = (
+            coral.breakpoint.breakpoint_utils.find_overlapping_bp_edges(
+                true_graph,
+                reconstructed_graph,
+                tolerance=tolerance,
+            )
         )
 
         mip_gap = None
@@ -168,7 +170,7 @@ def score_reconstruction(
 
             # compute fragment overlap
             try:
-                binned_genome, _ = io_utils.bin_genome(
+                binned_genome = core_utils.bin_genome(
                     true_cycles_bed.df, reconstructed_cycles_bed.df
                 )
             except KeyError as e:

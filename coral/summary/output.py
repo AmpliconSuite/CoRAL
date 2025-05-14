@@ -5,10 +5,13 @@ import importlib.metadata
 import io
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from coral import datatypes, global_state, text_utils
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.output.utils import get_single_cycle_str, get_single_path_str
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +58,9 @@ def output_amplicon_info(
     output_file.write(f"# Concordant Edges: {bp_graph.num_conc_edges}\n")
     output_file.write(f"# Discordant Edges: {bp_graph.num_disc_edges}\n")
     output_file.write(f"# Non-Source Edges: {bp_graph.num_nonsrc_edges}\n")
-    output_file.write(f"# Source Edges: {len(bp_graph.amplicon_intervals) * 4}\n")
+    output_file.write(
+        f"# Source Edges: {len(bp_graph.amplicon_intervals) * 4}\n"
+    )
 
     if was_solved:
         output_file.write(

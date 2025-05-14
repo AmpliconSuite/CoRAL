@@ -16,7 +16,7 @@ import cvxopt.modeling  # type: ignore[import-untyped]
 import numpy as np
 
 from coral import core_types, datatypes
-from coral.breakpoint.breakpoint_utilities import (
+from coral.breakpoint.breakpoint_utils import (
     check_valid_discordant_rc_partition,
     enumerate_partitions,
 )

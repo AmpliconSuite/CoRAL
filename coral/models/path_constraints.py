@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
-from coral.breakpoint import breakpoint_utilities
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint import breakpoint_utils
+from coral.core_utils import path_to_edge_count
 from coral.datatypes import (
     BPIndexedAlignments,
     EdgeId,
@@ -19,7 +20,9 @@ from coral.datatypes import (
     Strand,
     Walk,
 )
-from coral.core_utils import path_to_edge_count
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 logger = logging.getLogger(__name__)
 edge_type_to_index = {"s": 0, "c": 1, "d": 2}
@@ -223,7 +226,7 @@ def chimeric_alignment_to_path_l(
             and seq_edge.end + 1 == next_seq_edge.start
         ):
             for ci in range(len(g.concordant_edges)):
-                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                if breakpoint_utils.does_bp_edge_join_sequence_edges(
                     g.concordant_edges[ci],
                     seq_edge,
                     next_seq_edge,
@@ -242,7 +245,7 @@ def chimeric_alignment_to_path_l(
             and seq_edge.start - 1 == next_seq_edge.end
         ):
             for ci in range(len(g.concordant_edges)):
-                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                if breakpoint_utils.does_bp_edge_join_sequence_edges(
                     g.concordant_edges[ci],
                     next_seq_edge,
                     seq_edge,
@@ -360,7 +363,7 @@ def chimeric_alignment_to_path_r(
             seq_edge.end + 1 == next_seq_edge.start
         ):
             for ci in range(len(g.concordant_edges)):
-                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                if breakpoint_utils.does_bp_edge_join_sequence_edges(
                     g.concordant_edges[ci],
                     seq_edge,
                     next_seq_edge,
@@ -372,7 +375,7 @@ def chimeric_alignment_to_path_r(
             seq_edge.start - 1 == next_seq_edge.end
         ):
             for ci in range(len(g.concordant_edges)):
-                if breakpoint_utilities.does_bp_edge_join_sequence_edges(
+                if breakpoint_utils.does_bp_edge_join_sequence_edges(
                     g.concordant_edges[ci],
                     next_seq_edge,
                     seq_edge,

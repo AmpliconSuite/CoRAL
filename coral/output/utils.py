@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.output.traversal import eulerian_cycle_t, eulerian_path_t
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 
 def get_single_cycle_str(
