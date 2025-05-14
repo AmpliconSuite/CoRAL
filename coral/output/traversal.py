@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 import random
+from typing import TYPE_CHECKING
 
 from coral import constants
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
     ConcordantEdge,
     DirectedEdge,
@@ -20,6 +20,9 @@ from coral.datatypes import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 
 def eulerian_cycle_t(

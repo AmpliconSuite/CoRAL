@@ -8,7 +8,7 @@ from typing import NamedTuple
 
 import typer
 
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
+from coral.breakpoint import BreakpointGraph
 from coral.datatypes import (
     AmpliconInterval,
     Breakpoint,

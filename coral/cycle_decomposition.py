@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import pathlib
 from collections import defaultdict
-from typing import Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Dict, List, Optional, cast
 
 import memray
 import numpy as np
@@ -24,16 +24,15 @@ import pyomo.util.infeasible
 import coral.output.utils
 import coral.summary
 from coral import core_utils, datatypes, models
-from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.core_utils import profile_fn_with_call_counter
 from coral.datatypes import OutputPCOptions
 from coral.models import cycle_utils
 from coral.models.concrete import initialize_post_processing_solver
-from coral.models.path_constraints import longest_path_dict
 from coral.output import cycle_output
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 
 def minimize_cycles(
@@ -94,9 +93,7 @@ def minimize_cycles(
     #     solver_options.time_limit_s, bp_graph.num_disc_edges * 300
     # )  # each breakpoint edge is assigned >= 5 minutes)
 
-    model_name = (
-        f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition_k_{k}"
-    )
+    model_name = f"amplicon_{bp_graph.amplicon_idx+1}_cycle_decomposition_k_{k}"
     prefixed_name = f"{solver_options.output_prefix}_{solver_options.model_prefix}_{model_name}"
     if solver_options.output_prefix == "":
         prefixed_name = f"{solver_options.model_prefix}_{model_name}"
@@ -741,7 +738,7 @@ def reconstruct_cycles(
             level=logging.INFO,
             format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
         )
-    
+
     if cycle_decomp_mode == datatypes.CycleDecompOptions.MAX_WEIGHT:
         cycle_decomposition_all_graphs(
             bp_graphs,

@@ -57,6 +57,7 @@ decorator = "^5.2.1"
 gurobipy = "^12.0.1"
 requests = "^2.32.3"
 colorama = "^0.4.6"
+pydotplus = "^2.0.2"
 
 [[tool.poetry.source]]
 name = "pytorch-cpu"

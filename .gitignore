@@ -10,4 +10,7 @@ configs/
 *.pdf
 *.ipynb
 *.code-workspace
+*.png
 notebooks/
+classify_plots/
+.cursor/

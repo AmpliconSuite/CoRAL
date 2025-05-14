@@ -20,7 +20,7 @@ import typer
 
 from coral import datatypes
 from coral.breakpoint import (
-    breakpoint_utilities,  # type: ignore[import-untyped]
+    breakpoint_utils,  # type: ignore[import-untyped]
 )
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.parse_graph import parse_breakpoint_graph
@@ -337,7 +337,7 @@ class GraphViz:
             zoom_factor = (
                 float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
             )
-        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+        sorted_chrs = breakpoint_utils.sort_chrom_names(
             self.graph_amplified_intervals.keys()
         )
         amplified_intervals_start = {}
@@ -869,26 +869,26 @@ class GraphViz:
     ) -> None:
         """Plot cycles & paths returned from cycle decomposition"""
         width = max(15, 2 * self.num_amplified_intervals)
-        cycles_to_plot = list(self.cycles)  # Get cycle ID keys
+        walks_to_plot = list(self.cycles)  # Get walk ID keys
         if num_cycles is not None:
-            cycles_to_plot = [
+            walks_to_plot = [
                 cycle_id
                 for cycle_id in self.cycles
                 if int(cycle_id) <= num_cycles
             ]
         if cycle_only:
-            cycles_to_plot = [
+            walks_to_plot = [
                 cycle_id
-                for cycle_id in cycles_to_plot
+                for cycle_id in walks_to_plot
                 if self.cycles[cycle_id].is_cyclic
             ]
-        cycles_to_plot = sorted(cycles_to_plot)
+        walks_to_plot = sorted(walks_to_plot)
         height = sum(
             [
                 3 * len(self.cycles[cycle_id].segments) - 1
-                for cycle_id in cycles_to_plot
+                for cycle_id in walks_to_plot
             ]
-        ) + 9 * (len(cycles_to_plot) - 1)
+        ) + 9 * (len(walks_to_plot) - 1)
         fig = plt.figure(figsize=(width, max(4, height * 0.25)))
         if not hide_genes:
             vrat = 50 / height
@@ -914,7 +914,7 @@ class GraphViz:
                 ],
             )
         # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
-        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+        sorted_chrs = breakpoint_utils.sort_chrom_names(
             self.cycle_amplified_intervals.keys()
         )
         amplified_intervals_start = {}
@@ -961,7 +961,7 @@ class GraphViz:
         extension = 1.5
         cycleticks = []
         cycleticklabels = []
-        for cycle_id in cycles_to_plot:
+        for cycle_id in walks_to_plot:
             ystart_cycle_id = y_cur
             cycle_min_x = float("inf")
             cycle_max_x = 0.0
