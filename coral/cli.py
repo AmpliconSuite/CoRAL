@@ -30,7 +30,7 @@ from coral.core_utils import (
     get_reconstruction_paths_from_separate_dirs,
     get_reconstruction_paths_from_shared_dir,
 )
-from coral.datatypes import CycleDecompOptions, OutputPCOptions, Solver 
+from coral.datatypes import CycleDecompOptions, OutputPCOptions, Solver
 from coral.output import cycle_output
 from coral.scoring import score_simulation
 
@@ -67,13 +67,12 @@ CnSegArg = Annotated[
         callback=validate_cns_file,
     ),
 ]
-OutputPrefixArg = Annotated[
-    str, typer.Option(help="Prefix of output files.")
-]
+OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
 ReconstructLogArg = Annotated[
     pathlib.Path | None,
-    typer.Option(help="Name of the main *.log file, which can be used to trace the status "
-    "of reconstruct run(s)."
+    typer.Option(
+        help="Name of the main *.log file, which can be used to trace the status "
+        "of reconstruct run(s)."
     ),
 ]
 OutputPCArg = Annotated[
@@ -209,9 +208,11 @@ def reconstruct(
     solver_output_prefix = output_prefix
     if output_prefix.rfind("/") > 0:
         solver_output_dir = output_prefix[: output_prefix.rfind("/")]
-        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
-    pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
-    #validate_cycle_flags(ctx)
+        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1 :]
+    pathlib.Path(f"{solver_output_dir}/models").mkdir(
+        parents=True, exist_ok=True
+    )
+    # validate_cycle_flags(ctx)
 
     log_fn = f"{output_prefix}_reconstruct.log"
     if log_file:
@@ -228,7 +229,12 @@ def reconstruct(
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
 
     b2bn = infer_breakpoint_graph.reconstruct_graphs(
-        lr_bam, cnv_seed, cn_seg, output_prefix, output_path_constraints, min_bp_support
+        lr_bam,
+        cnv_seed,
+        cn_seg,
+        output_prefix,
+        output_path_constraints,
+        min_bp_support,
     )
     solver_options = datatypes.SolverOptions(
         num_threads=solver_threads,
@@ -287,9 +293,13 @@ def cycle_decomposition_mode(
     solver_output_dir = pathlib.Path.cwd()
     solver_output_prefix = output_prefix
     if output_prefix.rfind("/") > 0:
-        solver_output_dir = pathlib.Path(output_prefix[: output_prefix.rfind("/")])
-        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
-    pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
+        solver_output_dir = pathlib.Path(
+            output_prefix[: output_prefix.rfind("/")]
+        )
+        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1 :]
+    pathlib.Path(f"{solver_output_dir}/models").mkdir(
+        parents=True, exist_ok=True
+    )
 
     log_fn = f"{output_prefix}_cycle_decomposition.log"
     if log_file:
@@ -325,7 +335,7 @@ def cycle_decomposition_mode(
             alpha,
             should_postprocess=postprocess_greedy_sol,
             should_force_greedy=True,
-            pc_output_option=output_path_constraints,        
+            pc_output_option=output_path_constraints,
             ignore_path_constraints=ignore_path_constraints,
         )
     else:
@@ -335,7 +345,7 @@ def cycle_decomposition_mode(
             alpha,
             should_postprocess=postprocess_greedy_sol,
             should_force_greedy=False,
-            pc_output_option=output_path_constraints,        
+            pc_output_option=output_path_constraints,
             ignore_path_constraints=ignore_path_constraints,
         )
     if profile:
@@ -350,7 +360,8 @@ def cycle_decomposition_mode(
 def cycle_decomposition_all_mode(
     ctx: typer.Context,
     bp_dir: Annotated[
-        pathlib.Path, typer.Option(help="Directory containing breakpoint graph files.")
+        pathlib.Path,
+        typer.Option(help="Directory containing breakpoint graph files."),
     ],
     output_prefix: OutputPrefixArg,
     alpha: AlphaArg = 0.01,
@@ -377,8 +388,10 @@ def cycle_decomposition_all_mode(
     solver_output_prefix = output_prefix
     if output_prefix.rfind("/") > 0:
         solver_output_dir = output_prefix[: output_prefix.rfind("/")]
-        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1:]
-    pathlib.Path(f"{solver_output_dir}/models").mkdir(parents=True, exist_ok=True)
+        solver_output_prefix = output_prefix[output_prefix.rfind("/") + 1 :]
+    pathlib.Path(f"{solver_output_dir}/models").mkdir(
+        parents=True, exist_ok=True
+    )
 
     log_fn = f"{output_prefix}_cycle_decomposition.log"
     if log_file:
@@ -480,11 +493,11 @@ def hsr_mode(
 def plot_mode(
     ctx: typer.Context,
     ref: ReferenceGenomeArg,
+    output_prefix: OutputPrefixArg,
     graph: Annotated[
         typer.FileText | None,
         typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
-    ],
-    output_prefix: OutputPrefixArg,
+    ] = None,
     bam: BamArg = None,
     cycle_file: Annotated[
         typer.FileText | None,
