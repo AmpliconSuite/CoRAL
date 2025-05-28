@@ -9,7 +9,7 @@ import matplotlib as mpl
 import pysam
 import typer
 
-from coral.breakpoint.breakpoint_utilities import (
+from coral.breakpoint.breakpoint_utils import (
     bpc2bp,
     cluster_bp_list,
     interval2bp,

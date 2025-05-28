@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import TYPE_CHECKING, List
 
 import pyomo.environ as pyo
 
 from coral import datatypes
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import EdgeToCN
 from coral.models import constraints
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 
 def get_minimize_objective(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List
 
 import pyomo
 import pyomo.contrib.appsi
@@ -18,7 +18,6 @@ import pyomo.solvers.plugins.solvers.GUROBI
 import pyomo.util.infeasible
 
 from coral import datatypes, global_state
-from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
     CycleSolution,
     EdgeId,
@@ -29,6 +28,9 @@ from coral.datatypes import (
 from coral.pyomo_wrappers import PyomoResults
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from coral.breakpoint.breakpoint_graph import BreakpointGraph
 
 
 def process_walk_edge(

@@ -18,10 +18,10 @@ import pysam
 import typer
 
 from coral import bam_types, core_types, core_utils
-from coral.breakpoint import breakpoint_utilities, path_utilities
+from coral.breakpoint import breakpoint_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.breakpoint_types import CNSSegData
-from coral.breakpoint.breakpoint_utilities import (
+from coral.breakpoint.breakpoint_utils import (
     alignment2bp,
     alignment2bp_l,
     bpc2bp,
@@ -117,9 +117,7 @@ class LongReadBamToBreakpointMetadata:
         default_factory=lambda: defaultdict(set)
     )
 
-    cns_intervals: list[CNInterval] = field(
-        default_factory=list
-    )  # CN segments
+    cns_intervals: list[CNInterval] = field(default_factory=list)  # CN segments
     cns_intervals_by_chr: dict[str, list[CNInterval]] = field(
         default_factory=dict
     )
@@ -974,7 +972,7 @@ class LongReadBamToBreakpointMetadata:
                                 read_name
                             )
             chr_to_cni_to_reads = (
-                breakpoint_utilities.filter_small_breakpoint_clusters(
+                breakpoint_utils.filter_small_breakpoint_clusters(
                     chr_to_cni_to_reads, self.min_cluster_cutoff
                 )
             )
@@ -1143,7 +1141,7 @@ class LongReadBamToBreakpointMetadata:
         for ai in self.amplicon_intervals:
             for read in self.bam.fetch_interval(ai):
                 indel_alignments = (
-                    breakpoint_utilities.get_indel_alignments_from_read(
+                    breakpoint_utils.get_indel_alignments_from_read(
                         ai.chr, read, self.min_del_len, nm_threshold
                     )
                 )
@@ -1569,7 +1567,7 @@ def reconstruct_graphs(
     output_path_constraints: OutputPCOptions,
     min_bp_support: float,
 ) -> LongReadBamToBreakpointMetadata:
-    seed_intervals = breakpoint_utilities.get_intervals_from_seed_file(
+    seed_intervals = breakpoint_utils.get_intervals_from_seed_file(
         cnv_seed_file
     )  # type: ignore[arg-type] # file is passed as IO stream
     logger.info(f"Parsed {len(seed_intervals)} seed amplicon intervals.")
@@ -1601,14 +1599,14 @@ def reconstruct_graphs(
                 f"Unable to load chimeric alignments: {e}, re-fetching"
             )
             chimeric_alignments, edit_dist_stats = (
-                breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
+                breakpoint_utils.fetch_breakpoint_reads(b2bn.bam)
             )
             with pickle_path.open("wb") as file:
                 pickle.dump(chimeric_alignments, file)
     else:
         start = time.time()
         chimeric_alignments, edit_dist_stats = (
-            breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
+            breakpoint_utils.fetch_breakpoint_reads(b2bn.bam)
         )
         with pickle_path.open("wb") as file:
             pickle.dump(chimeric_alignments, file)
@@ -1628,11 +1626,9 @@ def reconstruct_graphs(
     logger.info("Completed finding all discordant breakpoints.")
     b2bn.build_graphs()
     logger.info("Breakpoint graphs built for all amplicons.")
-    
+
     b2bn.assign_cov()
-    logger.info(
-        "Fetched read coverage for all sequence and concordant edges."
-    )
+    logger.info("Fetched read coverage for all sequence and concordant edges.")
     for gi in range(len(b2bn.lr_graph)):
         b2bn.lr_graph[gi].compute_cn_lr(b2bn.normal_cov)
     logger.info("Computed CN for all edges.")
@@ -1640,10 +1636,12 @@ def reconstruct_graphs(
     logger.info("Computed all subpath constraints.")
 
     for gi in range(len(b2bn.lr_graph)):
-        breakpoint_utilities.output_breakpoint_graph_lr(
-            b2bn.lr_graph[gi], f"{output_prefix}_amplicon{gi+1}_graph.txt", output_path_constraints
+        breakpoint_utils.output_breakpoint_graph_lr(
+            b2bn.lr_graph[gi],
+            f"{output_prefix}_amplicon{gi+1}_graph.txt",
+            output_path_constraints,
         )
-        #file_prefix = f"{output_prefix}_amplicon{gi+1}"
+        # file_prefix = f"{output_prefix}_amplicon{gi+1}"
     logger.info(
         f"Wrote breakpoint graph for all complicons to {output_prefix}_amplicon*_graph.txt."
     )

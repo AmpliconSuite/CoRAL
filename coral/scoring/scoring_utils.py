@@ -9,6 +9,8 @@ import warnings
 from itertools import combinations, product
 from typing import Optional
 
+from coral import core_utils
+from coral.breakpoint import breakpoint_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import Node, SequenceEdge, Strand
 
@@ -19,42 +21,6 @@ import numpy as np
 import pandas as pd
 import pyranges
 import scipy
-
-from coral.scoring import io_utils, scoring_utils
-
-
-def is_breakpoint_match(
-    node1: Node,
-    node2: Node,
-    other_node1: Node,
-    other_node2: Node,
-    tolerance: int = 100,
-) -> bool:
-    # Need to check both orientations
-    return is_oriented_breakpoint_match(
-        node1, node2, other_node1, other_node2, tolerance
-    ) or is_oriented_breakpoint_match(
-        node1, node2, other_node2, other_node1, tolerance
-    )
-
-
-def is_oriented_breakpoint_match(
-    node1: Node,
-    node2: Node,
-    other_node1: Node,
-    other_node2: Node,
-    tolerance: int = 100,
-) -> bool:
-    if node1.chr != other_node1.chr or node2.chr != other_node2.chr:
-        return False
-
-    if node1.strand != other_node1.strand or node2.strand != other_node2.strand:
-        return False
-
-    return (
-        abs(node1.pos - other_node1.pos) < tolerance
-        and abs(node2.pos - other_node2.pos) < tolerance
-    )
 
 
 def repartition_intervals(cycle, intervals):
@@ -128,7 +94,9 @@ def compute_normalized_longest_cycle_subsequence(
             lambda x: (x.Chromosome, x.Start, x.End), axis=1
         )
 
-        binned_genome, _ = io_utils.bin_genome(_true_cycle, reconstructed_cycle)
+        binned_genome, _ = core_utils.bin_genome(
+            _true_cycle, reconstructed_cycle
+        )
 
         grs = {
             n: s
@@ -292,47 +260,13 @@ def find_overlapping_sequence_edges(
         for other_edge in reconstructed_graph.sequence_edges:
             other_node1 = Node(other_edge.chr, other_edge.start, Strand.REVERSE)
             other_node2 = Node(other_edge.chr, other_edge.end, Strand.FORWARD)
-            if is_breakpoint_match(
+            if breakpoint_utils.is_breakpoint_match(
                 node1, node2, other_node1, other_node2, tolerance
             ):
                 num_edges_found += 1
                 break
 
     return num_edges_found  # , num_edges_found / len(true_graph.sequence_edges)
-
-
-def find_overlapping_bp_edges(
-    true_graph: BreakpointGraph,
-    reconstructed_graph: BreakpointGraph,
-    tolerance: int = 1000,
-) -> int:
-    # naively test if we find an edge that looks similar
-    # for all edges in edges1
-    num_edges_found = 0
-    for edge in true_graph.discordant_edges:
-        node1 = Node(edge.node1.chr, edge.node1.pos, edge.node1.strand)
-        node2 = Node(edge.node2.chr, edge.node2.pos, edge.node2.strand)
-
-        for other_edge in reconstructed_graph.discordant_edges:
-            other_node1 = Node(
-                other_edge.node1.chr,
-                other_edge.node1.pos,
-                other_edge.node1.strand,
-            )
-            other_node2 = Node(
-                other_edge.node2.chr,
-                other_edge.node2.pos,
-                other_edge.node2.strand,
-            )
-            if is_breakpoint_match(
-                node1, node2, other_node1, other_node2, tolerance
-            ):
-                num_edges_found += 1
-                break
-
-    return (
-        num_edges_found  # , num_edges_found / len(true_graph.breakpoint_edges)
-    )
 
 
 def create_cycle_graph(cycle: pd.DataFrame) -> tuple[nx.DiGraph, nx.DiGraph]:

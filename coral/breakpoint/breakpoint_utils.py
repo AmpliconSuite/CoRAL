@@ -43,6 +43,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def is_oriented_breakpoint_match(
+    node1: Node,
+    node2: Node,
+    other_node1: Node,
+    other_node2: Node,
+    tolerance: int = 100,
+) -> bool:
+    if node1.chr != other_node1.chr or node2.chr != other_node2.chr:
+        return False
+
+    if node1.strand != other_node1.strand or node2.strand != other_node2.strand:
+        return False
+
+    return (
+        abs(node1.pos - other_node1.pos) < tolerance
+        and abs(node2.pos - other_node2.pos) < tolerance
+    )
+
+
+def is_breakpoint_match(
+    node1: Node,
+    node2: Node,
+    other_node1: Node,
+    other_node2: Node,
+    tolerance: int = 100,
+) -> bool:
+    # Need to check both orientations
+    return is_oriented_breakpoint_match(
+        node1, node2, other_node1, other_node2, tolerance
+    ) or is_oriented_breakpoint_match(
+        node1, node2, other_node2, other_node1, tolerance
+    )
+
+
 def interval_overlap(int1: list[int], int2: list[int]) -> bool:
     """Check if two chromosome intervals overlap (share a subsequence).
 
@@ -510,7 +544,7 @@ def bpc2bp(bp_cluster: list[Breakpoint], bp_distance_cutoff: float):
 
 def bp_match(
     bp1: Breakpoint, bp2: Breakpoint, rgap: float, bp_dist_cutoff: float
-):
+) -> bool:
     """
     Check if two breakpoints match
     A breakpoint (chr1, e1, chr2, s2) must either satisfy
@@ -685,7 +719,9 @@ def enumerate_partitions(
                 yield [[start, start + i - 1], *res]
 
 
-def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: OutputPCOptions) -> None:
+def output_breakpoint_graph_lr(
+    g: BreakpointGraph, ogfile: str, pc_option: OutputPCOptions
+) -> None:
     """Write a breakpoint graph to file in AA graph format with only long read information"""
     with open(ogfile, "w") as fp:
         fp.write(
@@ -737,8 +773,8 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
                     f"{core_utils.path_to_str(path, edge_counts)}\t"
                     f"{pc.support}\n"
                 )
-        #fp.write("AmpliconIntervals: chr, start, end\n")
-        #for ai in g.amplicon_intervals:
+        # fp.write("AmpliconIntervals: chr, start, end\n")
+        # for ai in g.amplicon_intervals:
         #    fp.write(f"interval\t{ai.chr}\t{ai.start}\t{ai.end}\n")
 
 
@@ -857,4 +893,38 @@ def does_bp_edge_join_sequence_edges(
         bp_edge.node1.chr == seq_edge_1.chr
         and bp_edge.node1.pos == seq_edge_1.end
         and bp_edge.node2.pos == seq_edge_2.start
+    )
+
+
+def find_overlapping_bp_edges(
+    true_graph: BreakpointGraph,
+    reconstructed_graph: BreakpointGraph,
+    tolerance: int = 1000,
+) -> int:
+    # naively test if we find an edge that looks similar
+    # for all edges in edges1
+    num_edges_found = 0
+    for edge in true_graph.discordant_edges:
+        node1 = Node(edge.node1.chr, edge.node1.pos, edge.node1.strand)
+        node2 = Node(edge.node2.chr, edge.node2.pos, edge.node2.strand)
+
+        for other_edge in reconstructed_graph.discordant_edges:
+            other_node1 = Node(
+                other_edge.node1.chr,
+                other_edge.node1.pos,
+                other_edge.node1.strand,
+            )
+            other_node2 = Node(
+                other_edge.node2.chr,
+                other_edge.node2.pos,
+                other_edge.node2.strand,
+            )
+            if is_breakpoint_match(
+                node1, node2, other_node1, other_node2, tolerance
+            ):
+                num_edges_found += 1
+                break
+
+    return (
+        num_edges_found  # , num_edges_found / len(true_graph.breakpoint_edges)
     )
