@@ -660,7 +660,7 @@ def plot_all_mode(
         f"Performing plot_all mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
-    output_prefix.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(output_prefix).mkdir(parents=True, exist_ok=True)
     global_state.STATE_PROVIDER.should_profile = profile
 
     # TODO: make this into a typer validation function, re-use in score mode

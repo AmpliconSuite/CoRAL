@@ -332,7 +332,7 @@ class GraphViz:
             zoom_factor = (
                 float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
             )
-        sorted_chrs = breakpoint_utils.sort_chrom_names(
+        sorted_chrs = breakpoint_utilities.sort_chrom_names(
             self.graph_intervals.keys()
         )
         amplified_intervals_start = {}
