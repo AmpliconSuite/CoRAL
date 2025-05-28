@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_sequence_edge(line: str) -> SequenceEdge:
-    s = line.strip().split("\t")
+    s = line.strip().split()
     return SequenceEdge(
         chr=s[1].split(":")[0],
         start=int(s[1].split(":")[1][:-1]),
@@ -41,7 +41,7 @@ def parse_sequence_edge(line: str) -> SequenceEdge:
 
 
 def parse_concordant_edge(line: str) -> ConcordantEdge:
-    s = line.strip().split("\t")
+    s = line.strip().split()
     node1_str = s[1].split("->")[0]
     node2_str = s[1].split("->")[1]
     if s[2] == "":
@@ -64,7 +64,7 @@ def parse_concordant_edge(line: str) -> ConcordantEdge:
 
 
 def parse_discordant_edge(line: str) -> DiscordantEdge:
-    s = line.strip().split("\t")
+    s = line.strip().split()
     node1_str = s[1].split("->")[0]
     node2_str = s[1].split("->")[1]
     if s[2] == "":
@@ -142,7 +142,7 @@ def parse_path(
 def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
     bp_graph = BreakpointGraph()
     for line in graph_file:
-        s = line.strip().split("\t")
+        s = line.strip().split()
         if s[0] == "sequence":
             seq_edge = parse_sequence_edge(line)
             bp_graph.add_sequence_edge(
@@ -178,8 +178,8 @@ def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
                 PathConstraint(path=path, support=int(s[2]))
             )
 
-    bp_graph.longest_path_constraints = (
-        path_constraints.longest_path_dict(bp_graph.path_constraints)
+    bp_graph.longest_path_constraints = path_constraints.longest_path_dict(
+        bp_graph.path_constraints
     )
     bp_graph.max_cn += 1.0
 
