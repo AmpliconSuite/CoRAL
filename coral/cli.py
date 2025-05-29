@@ -499,7 +499,7 @@ def plot_mode(
         typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
     ] = None,
     bam: BamArg = None,
-    cycle_file: Annotated[
+    cycles: Annotated[
         typer.FileText | None,
         typer.Option(
             help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
@@ -516,7 +516,7 @@ def plot_mode(
     ] = None,
     plot_graph: Annotated[
         bool, typer.Option(help="Visualize breakpoint graph.")
-    ] = True,
+    ] = False,
     plot_cycles: Annotated[
         bool, typer.Option(help="Visualize (selected) cycles.")
     ] = False,
@@ -562,11 +562,15 @@ def plot_mode(
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
 
+    if graph and not plot_graph:
+        plot_graph = True
+    if cycles and not plot_cycles:
+        plot_cycles = True
     plot_amplicons.plot_amplicon(
         ref,
         bam,
         graph,
-        cycle_file,
+        cycles,
         output_prefix,
         num_cycles,
         max_coverage,
@@ -595,7 +599,7 @@ def plot_all_mode(
         pathlib.Path | None,
         typer.Option(help="Reconstruction directory."),
     ] = None,
-    cycle_dir: Annotated[
+    cycles_dir: Annotated[
         pathlib.Path | None,
         typer.Option(help="Cycle directory."),
     ] = None,
@@ -605,7 +609,7 @@ def plot_all_mode(
     ] = None,
     plot_graph: Annotated[
         bool, typer.Option(help="Visualize breakpoint graph.")
-    ] = True,
+    ] = False,
     plot_cycles: Annotated[
         bool, typer.Option(help="Visualize (selected) cycles.")
     ] = False,
@@ -665,7 +669,7 @@ def plot_all_mode(
 
     # TODO: make this into a typer validation function, re-use in score mode
     shared_dir_set = reconstruction_dir is not None
-    separate_dirs_set = cycle_dir is not None and graph_dir is not None
+    separate_dirs_set = cycles_dir is not None and graph_dir is not None
     if shared_dir_set == separate_dirs_set:
         raise typer.BadParameter(
             "Must specify either a shared reconstruction directory or "
@@ -682,12 +686,12 @@ def plot_all_mode(
             )
     else:
         reconstruction_paths = get_reconstruction_paths_from_separate_dirs(
-            cycle_dir,  # type: ignore[arg-type]
+            cycles_dir,  # type: ignore[arg-type]
             graph_dir,  # type: ignore[arg-type]
         )
         if not reconstruction_paths:
             raise typer.BadParameter(
-                f"No reconstruction files found in the given directories: {cycle_dir} and {graph_dir}"
+                f"No reconstruction files found in the given directories: {cycles_dir} and {graph_dir}"
             )
 
     for graph_path, cycle_path in reconstruction_paths:
@@ -748,7 +752,7 @@ def cycle2bed_mode(
         f"{colorama.Style.RESET_ALL}"
     )
     cycle2bed.convert_cycles_to_bed(
-        cycle_file, output_file, rotate_to_min, num_cycles
+        cycle_file, output_file, rotate_to_min, num_cycles, parse_cycle_file = True
     )
 
 
@@ -785,7 +789,7 @@ def score_mode(
     reconstruction_dir: Annotated[
         pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
-    cycle_dir: Annotated[
+    cycles_dir: Annotated[
         pathlib.Path | None,
         typer.Option(help="Cycle directory."),
     ] = None,
@@ -812,7 +816,7 @@ def score_mode(
     score_simulation.score_simulations(
         ground_truth,
         reconstruction_dir=reconstruction_dir,
-        cycle_dir=cycle_dir,  # type: ignore[arg-type]
+        cycles_dir=cycles_dir,  # type: ignore[arg-type]
         output_prefix=output_prefix,
         tolerance=tolerance,
         to_skip=to_skip if to_skip else [],

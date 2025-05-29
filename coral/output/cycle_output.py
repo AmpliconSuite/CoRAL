@@ -93,7 +93,7 @@ def output_amplicon_walks(
     fp.write("List of extracted cycles/paths\n")
     for walk_type, walk_idx in walk_indices:
         if walk_type == 0:  # cycles
-            if pc_output_option == OutputPCOptions.LONGEST:
+            if pc_output_option == OutputPCOptions.LONGEST and len(bp_graph.longest_path_constraints) > 0:
                 output_str = get_single_cycle_str(
                     bp_graph, walk_idx, walk_indices.index((0, walk_idx)) + 1, 
                     output_path_constraints = True
@@ -105,7 +105,7 @@ def output_amplicon_walks(
                 )
             fp.write(output_str)
         else:  # paths
-            if pc_output_option == OutputPCOptions.LONGEST:
+            if pc_output_option == OutputPCOptions.LONGEST and len(bp_graph.longest_path_constraints) > 0:
                 output_str = get_single_path_str(
                     bp_graph, walk_idx, walk_indices.index((1, walk_idx)) + 1,
                     output_path_constraints = True
