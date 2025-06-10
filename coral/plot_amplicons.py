@@ -336,6 +336,7 @@ class GraphViz:
         )
         amplified_intervals_start = {}
         ymax = 0
+        ylim_params = [0, 0]
         x = margin_between_intervals
         for chrom in sorted_chrs:
             interval_idx = 0
@@ -363,6 +364,8 @@ class GraphViz:
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 y = seq.cn
+                ylim_params[0] += (seq.cn ** 2)
+                ylim_params[1] += (seq.cn * seq.lr_nc / 1.25)
                 ymax = max(y, ymax)
 
                 ax2.hlines(y, x1, x2, color="black", lw=6, zorder=2)
@@ -466,7 +469,7 @@ class GraphViz:
                 print("Could not place " + str(bp))
                 continue
 
-        ax2.set_ylim(0, 1.4 * ymax)
+        #ax2.set_ylim(0, 1.4 * ymax)
         ax2.set_ylabel("CN", fontsize=fontsize)
         ax2.tick_params(axis="y", labelsize=fontsize)
 
@@ -542,6 +545,8 @@ class GraphViz:
                         zorder=1,
                     )
                     ax.add_patch(rect)
+        ylim_params[1] /= max_cov
+        ax2.set_ylim(0, ylim_params[0] / ylim_params[1])
         ax.set_ylabel("Coverage", fontsize=fontsize)
         ax.set_ylim(0, min(1.25 * max_cov, max_cov_cutoff))
         ax.tick_params(axis="y", labelsize=fontsize)
