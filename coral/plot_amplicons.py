@@ -38,7 +38,6 @@ from coral import (
     bam_types,
     core_types,
     core_utils,
-    cycle2bed,
     supplemental_data,
 )
 
@@ -75,7 +74,7 @@ class GraphViz:
     bam: Optional[bam_types.BAMWrapper] = None
     graph: datatypes.BreakpointGraph | None = None
 
-    graph_intervals: dict[core_types.ChrTag, list[datatypes.Interval]] = field(
+    graph_amplified_intervals: dict[core_types.ChrTag, list[datatypes.Interval]] = field(
         default_factory=lambda: defaultdict(list)
     )
     num_amplified_intervals: int = 0
@@ -139,18 +138,18 @@ class GraphViz:
                 if ref_genome in {
                     core_types.ReferenceGenome.hg19,
                     core_types.ReferenceGenome.hg38,
-                } and not curr_chrom.startswith("hpv"):
-                    curr_chrom = curr_chrom[3:]
+                } and not curr_chrom.startswith("chr"):
+                    curr_chrom = "chr" + curr_chrom
 
                 tstart = int(fields[4])
                 tend = int(fields[5])
                 gname = fields[-4]
                 is_other_feature = gname.startswith(("LOC", "LINC", "MIR"))
                 if (
-                    restrict_to_bushman
-                    and gname not in bushman_set
-                    or gene_subset_list
-                    and gname not in gene_subset_list
+                    (restrict_to_bushman
+                    and gname not in bushman_set)
+                    or (gene_subset_list
+                    and gname not in gene_subset_list)
                 ):
                     continue
 
@@ -162,14 +161,14 @@ class GraphViz:
     def update_graph_intervals(self) -> None:
         for chrom in self.sequence_edges_by_chr:
             lstart, lend = -2, -2
-            if chrom not in self.graph_intervals:
-                self.graph_intervals[chrom] = []
+            if chrom not in self.graph_amplified_intervals:
+                self.graph_amplified_intervals[chrom] = []
             for seq_edge in self.sequence_edges_by_chr[chrom]:
                 start = seq_edge.start
                 end = seq_edge.end
                 if start != lend + 1:
                     if lstart >= 0:
-                        self.graph_intervals[chrom].append(
+                        self.graph_amplified_intervals[chrom].append(
                             datatypes.Interval(chrom, lstart, lend)
                         )
                         self.num_amplified_intervals += 1
@@ -177,7 +176,7 @@ class GraphViz:
                     lend = end
                 else:
                     lend = end
-            self.graph_intervals[chrom].append(
+            self.graph_amplified_intervals[chrom].append(
                 datatypes.Interval(chrom, lstart, lend)
             )
             self.num_amplified_intervals += 1
@@ -218,7 +217,7 @@ class GraphViz:
         if graph_given:  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
                 for cycle_seg in self.cycles[cycle_id].segments:
-                    for graph_intv in self.graph_intervals[cycle_seg.chr]:
+                    for graph_intv in self.graph_amplified_intervals[cycle_seg.chr]:
                         if not graph_intv.encompasses(cycle_seg):
                             continue
 
@@ -322,9 +321,9 @@ class GraphViz:
 
         # Draw sequence edges
         total_len_amp = 0  # Total length of amplified intervals
-        for chrom in self.graph_intervals:
+        for chrom in self.graph_amplified_intervals:
             total_len_amp += sum(
-                [len(graph_intv) for graph_intv in self.graph_intervals[chrom]],
+                [len(graph_intv) for graph_intv in self.graph_amplified_intervals[chrom]],
             )
         # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         zoom_factor = 1.0
@@ -332,19 +331,20 @@ class GraphViz:
             zoom_factor = (
                 float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
             )
-        sorted_chrs = breakpoint_utils.sort_chrom_names(
-            self.graph_intervals.keys()
+        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+            self.graph_amplified_intervals.keys()
         )
         amplified_intervals_start = {}
         ymax = 0
+        ylim_params = [0, 0]
         x = margin_between_intervals
         for chrom in sorted_chrs:
             interval_idx = 0
             amplified_intervals_start[chrom] = [x]
             for seq in self.sequence_edges_by_chr[chrom]:
-                if chrom not in self.graph_intervals or (
-                    interval_idx >= len(self.graph_intervals[chrom])
-                    or seq.start > self.graph_intervals[chrom][interval_idx].end
+                if chrom not in self.graph_amplified_intervals or (
+                    interval_idx >= len(self.graph_amplified_intervals[chrom])
+                    or seq.start > self.graph_amplified_intervals[chrom][interval_idx].end
                 ):
                     # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
@@ -364,6 +364,8 @@ class GraphViz:
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 y = seq.cn
+                ylim_params[0] += (seq.cn ** 2)
+                ylim_params[1] += (seq.cn * seq.lr_nc / 1.25)
                 ymax = max(y, ymax)
 
                 ax2.hlines(y, x1, x2, color="black", lw=6, zorder=2)
@@ -419,20 +421,20 @@ class GraphViz:
             int1 = 0
             int2 = 0
             ort = f"{bp.node1.strand}{bp.node2.strand}"
-            if chr1 in self.graph_intervals and chr2 in self.graph_intervals:
-                while pos1 > self.graph_intervals[chr1][int1].end:
+            if chr1 in self.graph_amplified_intervals and chr2 in self.graph_amplified_intervals:
+                while pos1 > self.graph_amplified_intervals[chr1][int1].end:
                     int1 += 1
                 bp_x1 = (
                     amplified_intervals_start[chr1][int1]
-                    + (pos1 - self.graph_intervals[chr1][int1].start)
+                    + (pos1 - self.graph_amplified_intervals[chr1][int1].start)
                     * 100.0
                     / total_len_amp
                 )
-                while pos2 > self.graph_intervals[chr2][int2].end:
+                while pos2 > self.graph_amplified_intervals[chr2][int2].end:
                     int2 += 1
                 bp_x2 = (
                     amplified_intervals_start[chr2][int2]
-                    + (pos2 - self.graph_intervals[chr2][int2].start)
+                    + (pos2 - self.graph_amplified_intervals[chr2][int2].start)
                     * 100.0
                     / total_len_amp
                 )
@@ -467,15 +469,15 @@ class GraphViz:
                 print("Could not place " + str(bp))
                 continue
 
-        ax2.set_ylim(0, 1.4 * ymax)
+        #ax2.set_ylim(0, 1.4 * ymax)
         ax2.set_ylabel("CN", fontsize=fontsize)
         ax2.tick_params(axis="y", labelsize=fontsize)
 
         # Draw coverage within amplified intervals
         max_cov = 0
         for chrom in sorted_chrs:
-            for inti in range(len(self.graph_intervals[chrom])):
-                graph_intv = self.graph_intervals[chrom][inti]
+            for inti in range(len(self.graph_amplified_intervals[chrom])):
+                graph_intv = self.graph_amplified_intervals[chrom][inti]
                 if self.plot_bounds:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
@@ -543,6 +545,8 @@ class GraphViz:
                         zorder=1,
                     )
                     ax.add_patch(rect)
+        ylim_params[1] /= max_cov
+        ax2.set_ylim(0, ylim_params[0] / ylim_params[1])
         ax.set_ylabel("Coverage", fontsize=fontsize)
         ax.set_ylim(0, min(1.25 * max_cov, max_cov_cutoff))
         ax.tick_params(axis="y", labelsize=fontsize)
@@ -550,8 +554,8 @@ class GraphViz:
         # draw genes below plot
         if not hide_genes:
             for chrom in sorted_chrs:
-                for inti in range(len(self.graph_intervals[chrom])):
-                    graph_intv = self.graph_intervals[chrom][inti]
+                for inti in range(len(self.graph_amplified_intervals[chrom])):
+                    graph_intv = self.graph_amplified_intervals[chrom][inti]
                     if self.plot_bounds:
                         if chrom != self.plot_bounds[0]:
                             continue  # Skip if chromosome doesn't match plot bounds
@@ -713,7 +717,7 @@ class GraphViz:
                 + (self.num_amplified_intervals + 1) * margin_between_intervals,
             )
             for chrom in sorted_chrs:
-                nint_chr = len(self.graph_intervals[chrom])
+                nint_chr = len(self.graph_amplified_intervals[chrom])
                 for inti in range(len(amplified_intervals_start[chrom])):
                     if inti > 0:
                         xtickpos.append(
@@ -773,9 +777,9 @@ class GraphViz:
                 100 + self.num_amplified_intervals * margin_between_intervals
             )
             for chrom in sorted_chrs:
-                nint_chr = len(self.graph_intervals[chrom])
+                nint_chr = len(self.graph_amplified_intervals[chrom])
                 for inti in range(nint_chr):
-                    graph_intv = self.graph_intervals[chrom][inti]
+                    graph_intv = self.graph_amplified_intervals[chrom][inti]
                     xticklabels.append(f"{graph_intv.start:,}   ")
                     if nint_chr % 2 == 1 and inti == (nint_chr - 1) // 2:
                         xticklabels.append(chrom)
@@ -794,17 +798,17 @@ class GraphViz:
         else:  # self.plot_bounds are given
             # look up the segment
             pchrom, pstart, pend = self.plot_bounds
-            nint_chr = len(self.graph_intervals[pchrom])
+            nint_chr = len(self.graph_amplified_intervals[pchrom])
             relint = None
             rint_ = None
             for inti in range(nint_chr):
                 istart, iend = (
-                    self.graph_intervals[pchrom][inti].start,
-                    self.graph_intervals[pchrom][inti].end,
+                    self.graph_amplified_intervals[pchrom][inti].start,
+                    self.graph_amplified_intervals[pchrom][inti].end,
                 )
                 if istart <= pstart <= iend:
                     relint = inti
-                    rint_ = self.graph_intervals[pchrom][inti]
+                    rint_ = self.graph_amplified_intervals[pchrom][inti]
                     break
 
             if relint is None:
@@ -1563,7 +1567,6 @@ class GraphViz:
 
                     for gene_obj in rel_genes:  # plot gene lines
                         height = gene_obj.height
-                        # print(gene_obj)
                         cut_gs = max(intv.start, gene_obj.gstart)
                         cut_ge = min(intv.end, gene_obj.gend)
                         gene_start = (
@@ -1581,8 +1584,6 @@ class GraphViz:
                             color="cornflowerblue",
                             lw=4.5,
                         )  # Draw horizontal bars for genes
-                        print((gene_start + gene_end) / 2, height + 0.05)
-                        print(height, gene_start, gene_end)
                         ax3.text(
                             (gene_start + gene_end) / 2,
                             height + 0.05,
@@ -1715,10 +1716,10 @@ class GraphViz:
             nint_chr = len(self.cycle_amplified_intervals[chrom])
             for int_idx in range(nint_chr):
                 intv = self.cycle_amplified_intervals[chrom][int_idx]
-                xticklabels.append(f"{intv.start:}")
+                xticklabels.append(f"{intv.start:}   ")
                 if nint_chr % 2 == 1 and int_idx == (nint_chr - 1) // 2:
                     xticklabels.append(chrom)
-                xticklabels.append(f"{intv.end:}")
+                xticklabels.append(f"{intv.end:}   ")
                 if nint_chr % 2 == 0 and int_idx == (nint_chr - 2) // 2:
                     xticklabels.append(chrom)
         ax3.set_xticks(xtickpos)
@@ -1777,11 +1778,10 @@ def plot_amplicon(
         print("Please specify the cycle file, in *.bed format, to plot.")
         sys.exit(1)
 
-    bp_graph = parse_breakpoint_graph(graph_file)  # type: ignore[arg-type]
-
     g = GraphViz()
     g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes)
     if should_plot_graph:
+        bp_graph = parse_breakpoint_graph(graph_file)  # type: ignore[arg-type]
         g.open_bam(bam_path)
         g.graph = bp_graph
         if region:
@@ -1806,11 +1806,8 @@ def plot_amplicon(
         for cycle_id, cycle in recon_cycles.items():
             g.cycles[cycle_id] = cycle
         cycle_ids_ = None
-        cycle_only_ = False
         if num_cycles:
             cycle_ids_ = [i + 1 for i in range(num_cycles)]
-        if should_plot_cycles and not should_plot_graph:
-            cycle_only_ = True
 
         graph_given_ = graph_file is not None
         if graph_given_:
@@ -1818,7 +1815,7 @@ def plot_amplicon(
             g.update_graph_intervals()
         g.update_cycle_amplified_intervals(
             cycle_ids=cycle_ids_,
-            cycle_only=cycle_only_,
+            cycle_only=should_plot_only_cyclic_walks,
             graph_given=graph_given_,
         )
         gtitle = output_prefix
@@ -1828,16 +1825,21 @@ def plot_amplicon(
             gtitle,
             output_prefix + "_cycles",
             num_cycles=num_cycles,
-            cycle_only=cycle_only_,
+            cycle_only=should_plot_only_cyclic_walks,
             hide_genes=should_hide_genes,
             gene_font_size=gene_fontsize,
         )
     g.close_bam()
-    print(
-        f"Visualization completed for {colorama.Fore.LIGHTCYAN_EX}"
-        f"{graph_file.name} ({cycle_file.name if cycle_file else 'no cycles'}"  # type: ignore[union-attr]
-        f"{colorama.Style.RESET_ALL})"
-    )
+    if graph_file:
+        print(
+            f"Visualization completed for {colorama.Fore.LIGHTCYAN_EX}"
+            f"{graph_file.name} ({cycle_file.name if cycle_file else 'no cycles'}"  # type: ignore[union-attr]
+            f"{colorama.Style.RESET_ALL})"
+        )
+    elif cycle_file:
+        print(
+            f"Visualization completed for {colorama.Fore.LIGHTCYAN_EX}{cycle_file.name}"
+        )
 
 
 def draw_cycle(

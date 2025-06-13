@@ -351,6 +351,7 @@ def parse_cycle_file(
     cycle_file: io.TextIOWrapper,
     output_prefix: str,
     num_cycles: int | None,
+    print_command: bool = False,
 ) -> dict[int, datatypes.ReconstructedCycle]:
     """
     Parse a '*_cycles.{txt,bed}' file  into a dict of
@@ -374,7 +375,7 @@ def parse_cycle_file(
         )
         bed_filename = f"{prefix}converted_{num_str}_cycles.bed"
         cycle2bed.convert_cycles_to_bed(
-            cycle_file, bed_filename, num_cycles=num_cycles
+            cycle_file, bed_filename, num_cycles=num_cycles, print_command = print_command
         )
         bed_path = pathlib.Path(bed_filename)
     elif cycle_path.suffix == ".bed":

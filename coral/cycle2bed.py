@@ -14,6 +14,7 @@ def convert_cycles_to_bed(
     output_fn: str,
     rotate_to_min: bool = False,
     num_cycles: int | None = None,
+    print_command: bool = False,
 ) -> None:
     """Convert an AA-formatted .txt file into equivalent .bed representation."""
     all_segs: dict[str, list[str | int]] = dict()
@@ -108,7 +109,8 @@ def convert_cycles_to_bed(
                             )  # type: ignore[operator]
             cycles[int(cycle_id)] = [iscyclic, cycle_weight, cycle]
 
-    print("Creating bed-converted cycles file: " + output_fn)
+    if print_command:
+        print("Creating bed-converted cycles file: " + output_fn)
     with open(output_fn, "w") as fp:
         fp.write("#chr\tstart\tend\torientation\tcycle_id\tiscyclic\tweight\n")
         full_num_cycles = len(cycles)

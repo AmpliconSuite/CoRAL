@@ -551,10 +551,9 @@ def bp_match(
 
 
 def sort_chrom_names(chromlist: Iterable[str]) -> list[str]:
-    # TODO: use CHR_TAG_TO_IDX instead of this method?
     def sort_key(x: str) -> int:
-        chr_val = x[3] if x.startswith("chr") else x
-        return int(chr_val) if chr_val.isnumeric() else ord(chr_val)
+        chr_val = x if x.startswith("chr") else ("chr" + x)
+        return CHR_TAG_TO_IDX[chr_val]
 
     return sorted(chromlist, key=sort_key)
 
