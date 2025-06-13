@@ -855,3 +855,13 @@ class ReconstructedCycle:
     @property
     def overall_cn(self) -> float:
         return min(seg.cn for seg in self.segments)
+
+class SolutionStatus(enum.StrEnum):
+    UNKNOWN = "UNKNOWN"
+    SUCCESS = "SUCCESS"
+    PARTIAL = "PARTIAL"
+    FAILURE = "FAILURE"
+
+    @property
+    def has_result(self) -> bool:
+        return self in {self.SUCCESS, self.PARTIAL}

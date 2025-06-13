@@ -74,6 +74,7 @@ class BreakpointGraph:
 
     # Only filled in after valid LP solution
     # TODO: add docstring
+    solution_status: datatypes.SolutionStatus = datatypes.SolutionStatus.UNKNOWN
     walks: WalkData[datatypes.OptimizationWalk] = field(
         default_factory=lambda: WalkData([], [])
     )

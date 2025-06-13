@@ -24,12 +24,13 @@ class GlobalStateProvider:
     #output_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
     time_limit_s: int = 21600  # 6 hrs in seconds
     start_time: float = field(default_factory=time.time)
+    summary_filename: str = "amplicon_summary.txt"
 
     @property
     def summary_filepath(self) -> pathlib.Path:
         if self.output_prefix == str(pathlib.Path.cwd()):
-            return pathlib.Path(self.output_prefix) / "amplicon_summary.txt"
-        return pathlib.Path(self.output_prefix + "_amplicon_summary.txt")
+            return pathlib.Path(self.output_prefix) / self.summary_filename
+        return pathlib.Path(self.output_prefix + "_" + self.summary_filename)
 
     @property
     def remaining_time_s(self) -> float:
