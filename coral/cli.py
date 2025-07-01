@@ -781,7 +781,7 @@ def cycle2bed_mode(
         f"{colorama.Style.RESET_ALL}"
     )
     cycle2bed.convert_cycles_to_bed(
-        cycle_file, output_file, rotate_to_min, num_cycles, parse_cycle_file = True
+        cycle_file, output_file, rotate_to_min, num_cycles, print_command = True
     )
 
 
