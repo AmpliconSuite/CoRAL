@@ -365,6 +365,7 @@ def parse_cycle_file(
     cycle_path = pathlib.Path(cycle_file.name).resolve()
     # check if it ends with .bed, if not convert it
     bed_path = None
+    converted = False
     if cycle_path.suffix == ".txt":
         # convert it to a bed
         num_str = str(num_cycles) if num_cycles else "all"
@@ -378,6 +379,7 @@ def parse_cycle_file(
             cycle_file, bed_filename, num_cycles=num_cycles, print_command = print_command
         )
         bed_path = pathlib.Path(bed_filename)
+        converted = True
     elif cycle_path.suffix == ".bed":
         bed_path = cycle_path
     else:
@@ -406,4 +408,6 @@ def parse_cycle_file(
                 )
             cycles[cycle_id].segments.append(intv)
 
+    if converted and bed_path.exists():
+        bed_path.unlink()
     return cycles
