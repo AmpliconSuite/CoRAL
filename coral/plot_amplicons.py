@@ -1543,13 +1543,13 @@ class GraphViz:
                 cycleticklabels.append(
                     f"cycle {cycle_id}:\n"
                     f"CN = {self.cycles[cycle_id].overall_cn:.2f}\n"
-                    f"CN-weighted size = {self.cycles[cycle_id].total_cn_weighted_length:,.2f}"
+                    f"weighted-CN = {self.cycles[cycle_id].total_cn_weighted_length:,.2e}"
                 )
             else:
                 cycleticklabels.append(
                     f"path {cycle_id}:\n"
                     f"CN = {self.cycles[cycle_id].overall_cn:.2f}\n"
-                    f"CN-weighted size = {self.cycles[cycle_id].total_cn_weighted_length:,.2f}"
+                    f"weighted-CN = {self.cycles[cycle_id].total_cn_weighted_length:,.2e}"
                 )
             y_cur -= 4
 
