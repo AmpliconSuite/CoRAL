@@ -57,9 +57,9 @@ def output_amplicon_info(
     output_file.write(f"# Non-Source Edges: {bp_graph.num_nonsrc_edges}\n")
     output_file.write(f"# Source Edges: {len(bp_graph.amplicon_intervals) * 4}\n")
 
-    if was_solved:
+    if bp_graph.solution_status.has_result:
         output_file.write(
-            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='SUCCESS')}\n"
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status=bp_graph.solution_status)}\n"
         )
         if model_metadata := bp_graph.model_metadata:
             output_file.write(f"\t{model_metadata.to_output_str()}\n")
@@ -76,7 +76,7 @@ def output_amplicon_info(
         output_amplicon_solution(bp_graph, output_file)
     else:
         output_file.write(
-            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='FAILURE')}\n"
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status=bp_graph.solution_status)}\n"
         )
         if model_metadata := bp_graph.model_metadata:
             output_file.write(f"\t{model_metadata.to_output_str()}\n")
@@ -108,7 +108,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
             )
 
 
-def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
+def get_summary_header_all(was_amplicon_solved: dict[int, bool]) -> str:
     header_str = f"{text_utils.VERSION_TEMPLATE.format(
         version=importlib.metadata.version("coral")
     )}\n"
@@ -122,15 +122,36 @@ def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
     return header_str
 
 
-def output_summary_amplicon_stats(
+def get_summary_header_single() -> str:
+    header_str = f"{text_utils.VERSION_TEMPLATE.format(
+        version=importlib.metadata.version("coral")
+    )}\n"
+    header_str += f"{text_utils.PROFILE_ENABLED_TEMPLATE.format(
+        enabled=global_state.STATE_PROVIDER.should_profile)}\n"
+
+    return header_str
+
+
+def output_summary_amplicon_stats_all(
     was_amplicon_solved: dict[int, bool],
     bp_graphs: list[BreakpointGraph],
 ) -> None:
     logger.info("Outputting solution info for all amplicons.")
 
     with global_state.STATE_PROVIDER.summary_filepath.open("w") as fp:
-        fp.write(get_summary_header(was_amplicon_solved))
+        fp.write(get_summary_header_all(was_amplicon_solved))
         for bp_graph in bp_graphs:
             output_amplicon_info(
                 bp_graph, fp, was_amplicon_solved[bp_graph.amplicon_idx]
             )
+
+
+def output_summary_amplicon_stats_single(
+    bp_graph: BreakpointGraph
+) -> None:
+    logger.info("Outputting solution info for amplicon.")
+
+    with global_state.STATE_PROVIDER.summary_filepath.open("w") as fp:
+        fp.write(get_summary_header_single())
+        was_solved = bool(bp_graph.walks.paths or bp_graph.walks.cycles)
+        output_amplicon_info(bp_graph, fp, was_solved)

@@ -319,6 +319,8 @@ def cycle_decomposition_mode(
     parsed_bp_graph.amplicon_idx = amplicon_idx - 1
     parsed_bp_graph.infer_amplicon_intervals(amplicon_idx - 1)
 
+    global_state.STATE_PROVIDER.summary_filename = f"amplicon{amplicon_idx}_summary.txt"
+
     solver_options = datatypes.SolverOptions(
         num_threads=threads,
         time_limit_s=solver_time_limit,

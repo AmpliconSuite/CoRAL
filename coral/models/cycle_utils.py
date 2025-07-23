@@ -288,6 +288,10 @@ class PyomoSolverWrapper:
                 # keepfiles=True,
                 # load_solutions=True,
             )
+            # Infeasible SCIP solutions sometimes don't populate gap attribute
+            if not hasattr(results.solver, "gap"):
+                results.solver.gap = None
+
             # We potentially need to load because the Pyomo flag will delete the
             # solver results object, which we need to extract MIP Gap
             # information for certain solvers where the Pyomo log-parsing fails.
