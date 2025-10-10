@@ -60,7 +60,7 @@ def path_to_str(path: Walk, edge_counts: dict[EdgeId, int]) -> str:
             edge_id: EdgeId = path[i]  # type: ignore[assignment]
             edge_count = edge_counts[edge_id]
             path_str += f"{edge_id.type.value}{edge_id.idx+1}"
-            if i < len(path) - 1:
+            if i < len(path) - 2:
                 next_node: Node = path[i + 1]  # type: ignore[assignment]
                 path_str += f"{next_node.strand.value}:{edge_count},"
             else:

@@ -108,7 +108,7 @@ def parse_path(
     path.extend([edge_id, first_node])
 
     # Iterate through path_pieces in edge pairs, ignore final edge
-    for edge_str in path_pieces[1:-1]:
+    for edge_str in path_pieces[1:]:
         id_str, count_str = edge_str.split(":")
         edge_id = EdgeId(EdgeType(id_str[0]), int(id_str[1:-1]) - 1)
         edge_counts[edge_id] = int(count_str)
