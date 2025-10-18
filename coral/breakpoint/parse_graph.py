@@ -117,13 +117,12 @@ def parse_path(
             seq_edge = bp_graph.sequence_edges[edge_id.idx]
             prev_node = (
                 seq_edge.start_node
-                if strand == Strand.REVERSE  # Use strand from previous BP edge
+                if strand == Strand.FORWARD  # Use strand from previous BP edge
                 else seq_edge.end_node
             )
             path.append(prev_node)
             path.append(edge_id)
             strand = Strand(id_str[-1])
-
             next_node = (
                 seq_edge.start_node
                 if strand == Strand.REVERSE  # Use strand from previous BP edge
@@ -136,7 +135,7 @@ def parse_path(
     id_str, count_str = path_pieces[-1].split(":")
     edge_id = EdgeId(EdgeType(id_str[0]), int(id_str[1:-1]) - 1)
     edge_counts[edge_id] = int(count_str)
-    return path, edge_counts
+    return path[:-1], edge_counts
 
 
 def parse_breakpoint_graph(graph_file: io.TextIOWrapper) -> BreakpointGraph:
