@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.output.traversal import eulerian_cycle_t, eulerian_path_t
+from coral.output.traversal import eulerian_cycle_t, eulerian_cycle_enum, eulerian_path_t
 
 logger = logging.getLogger(__name__)
 

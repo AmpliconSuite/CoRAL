@@ -401,6 +401,19 @@ class Breakpoint:
             f"read_support={self.read_support})"
         )
 
+    def __lt__(self, other: Breakpoint) -> bool:
+        return (
+            CHR_TAG_TO_IDX[self.node1.chr],
+            self.node1.pos,
+            CHR_TAG_TO_IDX[self.node2.chr],
+            self.node2.pos,
+        ) < (
+            CHR_TAG_TO_IDX[other.node1.chr],
+            other.node1.pos,
+            CHR_TAG_TO_IDX[other.node2.chr],
+            other.node2.pos,
+        )
+
 
 @dataclass
 class BreakpointStats:

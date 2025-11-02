@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import logging
 import random
 
@@ -232,6 +233,158 @@ def eulerian_cycle_t(
             unsatisfied_path_metric.path_length = path_metric.path_length
             unsatisfied_path_metric.path_support = path_metric.path_support
             best_cycle = eulerian_subcycle
+    if len(unsatisfied_path_metric.path_idxs) == 0:
+        logger.debug("Cycle satisfies all subpath constraints.")
+    else:
+        logger.debug("The following path constraints are not satisfied:")
+        for pathi in unsatisfied_path_metric.path_idxs:
+            logger.debug(f"{path_constraints_next_cycle[pathi]}")
+    return best_cycle
+
+
+def eulerian_cycle_r(
+    cur_seq_edge: EdgeId,
+    cur_edge_dir: Strand,
+    cur_cycle: Walk,
+    edge_counts: dict[EdgeId, int],
+    cycle_list: list[Walk],
+    g: BreakpointGraph,
+) -> list[Walk]:
+    if len(edge_counts) == 0:
+        cur_cycle.append(cur_seq_edge)
+        print (cur_cycle)
+        cycle_list.append(cur_cycle)
+        return cycle_list
+    if cur_seq_edge not in edge_counts or edge_counts[cur_seq_edge] <= 0:
+        return cycle_list
+    cur_cycle.append(cur_seq_edge)
+    edge_counts_ = edge_counts.copy()
+    edge_counts_[cur_seq_edge] -= 1
+    if edge_counts_[cur_seq_edge] <= 0:
+        del edge_counts_[cur_seq_edge]
+    seq_edge = g.sequence_edges[cur_seq_edge[1]]
+    node = Node(seq_edge.chr, seq_edge.end, Strand.FORWARD)
+    if cur_edge_dir == Strand.REVERSE:
+        node = Node(seq_edge.chr, seq_edge.start, Strand.REVERSE)
+    cur_cycle.append(node)
+    next_bp_edges = []
+    for ci in g.node_adjacencies[node].concordant:
+        next_bp_edges.append(EdgeId(EdgeType.CONCORDANT, ci))
+    for di in g.node_adjacencies[node].discordant:
+        next_bp_edges.append(EdgeId(EdgeType.DISCORDANT, di))
+    del_list = [i for i in range(len(next_bp_edges)) if next_bp_edges[i] not in edge_counts_]
+    for i in del_list[::-1]:
+        del next_bp_edges[i]
+    if len(next_bp_edges) == 0:
+        return cycle_list
+    #print (len(edge_counts), next_bp_edges)
+    cycle_list_all = []
+    for bp_edge_id in next_bp_edges:
+        cur_cycle.append(bp_edge_id)
+        edge_counts_[bp_edge_id] -= 1
+        if edge_counts_[bp_edge_id] == 0:
+            del edge_counts_[bp_edge_id]
+        if bp_edge_id[0] == EdgeType.CONCORDANT:
+            bp_edge = g.concordant_edges[bp_edge_id[1]]
+        else:
+            bp_edge = g.discordant_edges[bp_edge_id[1]]
+        node_ = bp_edge.node1
+        if node == node_:
+            node_ = bp_edge.node2
+        cur_cycle.append(node_)
+        next_idx = g.node_adjacencies[node_].sequence[0]
+        next_strand = Strand.FORWARD
+        if node_[2] == "+":
+            next_strand = Strand.REVERSE
+        cycle_list_all += eulerian_cycle_r(EdgeId(EdgeType.SEQUENCE, next_idx), next_strand, cur_cycle, edge_counts_, cycle_list, g)
+    return cycle_list_all
+
+
+def eulerian_cycle_enum(
+    g: BreakpointGraph,
+    edge_counts_next_cycle: dict[EdgeId, int],
+    path_constraints_next_cycle: list[Walk],
+    path_constraints_support: list[int],
+) -> DirectedWalk:
+    """Return an eulerian traversal of a cycle, represented by a list of
+     directed edges.
+
+    g: breakpoint graph (object)
+    edges_next_cycle: subgraph induced by the cycle, as a dict that maps an edge
+        to its multiplicity
+    path_constraints_next_cycle: list of subpath constraints to be satisfied,
+        each as a list of alternating nodes and edges
+        ***
+        Note: the traversal may not satisfy all subpath constraints in case not
+        all subpath constraints are satisfied, return the eulerian traversal
+        satisfying the maximum number of subpath constraints
+        ***
+    path_constraints_support: num long reads supporting each subpath constraint
+    """
+    start_edge = len(g.sequence_edges)
+
+    # A cycle is edge - node list starting and ending with the same edge
+    init_cycle: Walk = []
+    cycles: list[Walk] = []
+    for edge in edge_counts_next_cycle.keys():
+        if edge[0] == "e":
+            start_edge = min(start_edge, edge[1])
+
+    eulerian_cycle_r(EdgeId(EdgeType.SEQUENCE, start_edge), Strand.FORWARD, init_cycle, edge_counts_next_cycle.copy(), cycles, g)
+    # Since Eulerian, there could be subcycles in the middle of a cycle
+    best_cycle: DirectedWalk = []  # Cycle in AA cycle format
+    if len(cycles) == 0:
+        raise RuntimeError("Empty list of valid traversals.")
+    num_pc = len(path_constraints_next_cycle)
+    unsatisfied_path_metric = PathMetric(
+        path_idxs = list(range(num_pc)),
+        path_length = 100 * num_pc,
+        path_support = 100 * max(path_constraints_support + [0]),
+    )
+    for cycle in cycles:
+        path_metric = PathMetric(path_idxs = [], path_length = 0, path_support = 0)
+        # check if the remaining path constraints are satisfied
+        for pathi in range(len(path_constraints_next_cycle)):
+            path_ = path_constraints_next_cycle[pathi]
+            print (path_)
+            path0 = path_[0]
+            s = 0
+            for ei in range(len(cycle) - 1):
+                obj = cycle[ei]
+                if obj == path0:
+                    s_ = 1
+                    for i in range(len(path_)):
+                        if (cycle[:-1][(ei + i) % (len(cycle) - 1)] != path_[i]):
+                            s_ = 0
+                            break
+                    if s_ == 1:
+                        s = 1
+                        break
+                    s_ = 1
+                    for i in range(len(path_)):
+                        if cycle[:-1][ei - i] != path_[i]:
+                            s_ = 0
+                            break
+                    if s_ == 1:
+                        s = 1
+                        break
+            if s == 0:
+                path_metric.path_idxs.append(pathi)
+                path_metric.path_length += len(path_)
+                path_metric.path_support += path_constraints_support[pathi]
+        logger.debug(f"Cycle {cycle} satisfies {len(path_metric.path_idxs)} subpath constraints, total num reads: {path_metric.path_support}.")
+        if ((len(path_metric.path_idxs) < len(unsatisfied_path_metric.path_idxs))
+            or (len(path_metric.path_idxs) == len(unsatisfied_path_metric.path_idxs)
+                and path_metric.path_length < unsatisfied_path_metric.path_length)
+            or (len(path_metric.path_idxs) == len(unsatisfied_path_metric.path_idxs)
+                and path_metric.path_length == unsatisfied_path_metric.path_length
+                and path_metric.path_support < unsatisfied_path_metric.path_support)):
+            #DirectedEdge(last_seq_edge_idx + 1, Strand.REVERSE)
+            cycle_wo_nodes = [cycle[i] for i in range(len(cycle)) if i % 2 == 0]
+            best_cycle = cycle_wo_nodes
+            unsatisfied_path_metric.path_idxs = path_metric.path_idxs
+            unsatisfied_path_metric.path_length = path_metric.path_length
+            unsatisfied_path_metric.path_support = path_metric.path_support
     if len(unsatisfied_path_metric.path_idxs) == 0:
         logger.debug("Cycle satisfies all subpath constraints.")
     else:

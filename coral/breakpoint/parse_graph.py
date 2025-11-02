@@ -114,20 +114,20 @@ def parse_path(
         edge_counts[edge_id] = int(count_str)
 
         if edge_id.type == EdgeType.SEQUENCE:
+            strand = Strand(id_str[-1])
             seq_edge = bp_graph.sequence_edges[edge_id.idx]
             prev_node = (
                 seq_edge.start_node
                 if strand == Strand.FORWARD  # Use strand from previous BP edge
                 else seq_edge.end_node
             )
-            path.append(prev_node)
-            path.append(edge_id)
-            strand = Strand(id_str[-1])
             next_node = (
                 seq_edge.start_node
                 if strand == Strand.REVERSE  # Use strand from previous BP edge
                 else seq_edge.end_node
             )
+            path.append(prev_node)
+            path.append(edge_id)
             path.append(next_node)
         else:
             path.append(edge_id)

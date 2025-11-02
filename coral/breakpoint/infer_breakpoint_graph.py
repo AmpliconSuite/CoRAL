@@ -1303,6 +1303,7 @@ class LongReadBamToBreakpointMetadata:
                 logger.debug(f"\tAmplicon {amplicon_idx + 1}, node {node}.")
 
         # Construct graphs with discordant and source edges
+        self.new_bp_list = sorted(self.new_bp_list)
         for bpi in range(len(self.new_bp_list)):
             bp = self.new_bp_list[bpi]
             bp_ccid = self.new_bp_ccids[bpi]
