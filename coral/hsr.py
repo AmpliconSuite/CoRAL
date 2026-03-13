@@ -13,12 +13,10 @@ from coral.breakpoint.breakpoint_utilities import (
     bpc2bp,
     cluster_bp_list,
     interval2bp,
-    interval_include,
-    interval_overlap,
     interval_overlap_l,
 )
-from coral.constants import CHR_SIZES
-from coral.datatypes import Interval
+from coral.constants import CHR_SIZES, CHR_TAG_TO_IDX
+from coral.datatypes import BPAlignments, Interval
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -56,9 +54,8 @@ def fetch(lr_bamfh):
         if r not in read_length:
             reads_wo_primary_alignment.append(r)
             continue
-        rl = read_length[r]
         chimeric_alignments[r] = cigar_parsing.alignment_from_satags(
-            chimeric_alignments[r], rl
+            chimeric_alignments[r], r
         )
     for r in reads_wo_primary_alignment:
         del chimeric_alignments[r]
@@ -140,73 +137,68 @@ def locate_hsrs(
     bp_list = []
     for r in chimeric_alignments:
         cycle_flag = False
-        r_int = chimeric_alignments[r][0]
-        rr_int = chimeric_alignments[r][1]
-        q_ = chimeric_alignments[r][2]
+        cas = chimeric_alignments[r]
+        cas = [ca for ca in cas if ca.ref_interval.chr in CHR_TAG_TO_IDX]
+        ref_intvs = [ca.ref_interval for ca in cas]
         for interval in ecdna_intervals:
-            i = interval_overlap_l(interval, rr_int)
-            if i >= 0 and interval_include(rr_int[i], interval):
+            i = interval_overlap_l(interval, ref_intvs)
+            if i is not None and ref_intvs[i].does_overlap(interval):
                 cycle_flag = True
                 break
         if cycle_flag:
-            bassigned = [0 for i in range(len(rr_int) - 1)]
+            bassigned = [0 for i in range(len(cas) - 1)]
             """
 			Breakpoint from local alignment i and i + 1
 			"""
-            for ri in range(len(rr_int) - 1):
+            for ri in range(len(cas) - 1):
                 if (
-                    q_[ri] >= 20
-                    and q_[ri + 1] >= 20
-                    and interval_overlap_l(rr_int[ri], ecdna_intervals) == -1
-                    and interval_overlap_l(rr_int[ri + 1], ecdna_intervals) >= 0
+                    cas[ri].mapq >= 20
+                    and cas[ri + 1].mapq >= 20
+                    and interval_overlap_l(cas[ri].ref_interval, ecdna_intervals) is None
+                    and interval_overlap_l(cas[ri + 1].ref_interval, ecdna_intervals) is not None
                 ) or (
-                    q_[ri] >= 20
-                    and q_[ri + 1] >= 20
-                    and interval_overlap_l(rr_int[ri], ecdna_intervals) >= 0
-                    and interval_overlap_l(rr_int[ri + 1], ecdna_intervals)
-                    == -1
+                    cas[ri].mapq >= 20
+                    and cas[ri + 1].mapq >= 20
+                    and interval_overlap_l(cas[ri].ref_interval, ecdna_intervals) is not None
+                    and interval_overlap_l(cas[ri + 1].ref_interval, ecdna_intervals) is None
                 ):
                     bp_list.append(
                         interval2bp(
-                            rr_int[ri],
-                            rr_int[ri + 1],
-                            (r, ri, ri + 1),
-                            int(r_int[ri + 1][0]) - int(r_int[ri][1]),
+                            cas[ri],
+                            cas[ri + 1],
+                            BPAlignments(r, ri, ri + 1),
+                            cas[ri + 1].query_bounds.start - cas[ri].query_bounds.end,
                         )
-                        + [q_[ri], q_[ri + 1]]
                     )
                     bassigned[ri] = 1
             """
 			Breakpoint from local alignment i - 1 and i + 1
 			"""
-            for ri in range(1, len(rr_int) - 1):
+            for ri in range(1, len(cas) - 1):
                 if (
                     bassigned[ri - 1] == 0
                     and bassigned[ri] == 0
-                    and q_[ri] < 10
-                    and q_[ri - 1] >= 20
-                    and q_[ri + 1] >= 20
-                    and interval_overlap_l(rr_int[ri - 1], ecdna_intervals)
-                    == -1
-                    and interval_overlap(rr_int[ri + 1], ecdna_intervals) >= 0  # type: ignore[arg-type]
+                    and cas[ri].mapq < 10
+                    and cas[ri - 1].mapq >= 20
+                    and cas[ri + 1].mapq >= 20
+                    and interval_overlap_l(cas[ri - 1].ref_interval, ecdna_intervals) is None
+                    and interval_overlap_l(cas[ri + 1].ref_interval, ecdna_intervals) is not None
                 ) or (
                     bassigned[ri - 1] == 0
                     and bassigned[ri] == 0
-                    and q_[ri] < 10
-                    and q_[ri - 1] >= 20
-                    and q_[ri + 1] >= 20
-                    and interval_overlap_l(rr_int[ri - 1], ecdna_intervals)
-                    == -1
-                    and interval_overlap(rr_int[ri + 1], ecdna_intervals) >= 0  # type: ignore[arg-type]
+                    and cas[ri].mapq < 10
+                    and cas[ri - 1].mapq >= 20
+                    and cas[ri + 1].mapq >= 20
+                    and interval_overlap_l(cas[ri - 1].ref_interval, ecdna_intervals) is not None
+                    and interval_overlap_l(cas[ri + 1].ref_interval, ecdna_intervals) is None
                 ):
                     bp_list.append(
                         interval2bp(
-                            rr_int[ri - 1],
-                            rr_int[ri + 1],
-                            (r, ri - 1, ri + 1),
-                            int(r_int[ri + 1][0]) - int(r_int[ri - 1][1]),
+                            cas[ri - 1],
+                            cas[ri + 1],
+                            BPAlignments(r, ri - 1, ri + 1),
+                            cas[ri + 1].query_bounds.start - cas[ri - 1].query_bounds.end,
                         )
-                        + [q_[ri - 1], q_[ri + 1]]
                     )
 
     bp_clusters = cluster_bp_list(
@@ -225,20 +217,20 @@ def locate_hsrs(
                 if len(set(bpr)) >= float(normal_cov) * 0.5:
                     bpi_ = -1
                     for bpi in range(len(bp_refined)):
-                        bp_ = bp_refined[bpi]
+                        bp_, reads_ = bp_refined[bpi]
                         if (
-                            bp[0] == bp_[0]
-                            and bp[3] == bp_[3]
-                            and bp[2] == bp_[2]
-                            and bp[5] == bp_[5]
-                            and abs(bp[1] - bp_[1]) <= bp_match_cutoff
-                            and abs(bp[4] - bp_[4]) < bp_match_cutoff
+                            bp.chr1 == bp_.chr1
+                            and bp.chr2 == bp_.chr2
+                            and bp.strand1 == bp_.strand1
+                            and bp.strand2 == bp_.strand2
+                            and abs(bp.pos1 - bp_.pos1) <= bp_match_cutoff
+                            and abs(bp.pos2 - bp_.pos2) < bp_match_cutoff
                         ):
-                            bp_refined[bpi][-1] |= set(bpr)
+                            bp_refined[bpi][1] |= set(bpr)
                             bpi_ = bpi
                             break
                     if bpi_ < 0:
-                        bp_refined.append(bp + [bpr])
+                        bp_refined.append([bp, set(bpr)])
                         bp_stats.append(bp_stats_)
     print(
         f"Found {len(bp_refined)} breakpoints connecting ecDNA and chromosomes."
@@ -260,48 +252,49 @@ def locate_hsrs(
         xtick_pos.append((agg_size - 0.5 * CHR_SIZES[chr]) * 100.0 / sum_sizes)
         starting_pos[chr] = (agg_size - CHR_SIZES[chr]) * 100.0 / sum_sizes
 
-    for bp in bp_refined:
+    for bp_entry in bp_refined:
+        bp_obj, bp_reads = bp_entry
         if (
             interval_overlap_l(
-                Interval(bp[0], bp[1], bp[1]), ecdna_intervals_ext
+                Interval(bp_obj.chr1, bp_obj.pos1, bp_obj.pos1), ecdna_intervals_ext
             )
-            >= 0
+            is not None
             and interval_overlap_l(
-                Interval(bp[3], bp[4], bp[4]), ecdna_intervals_ext
+                Interval(bp_obj.chr2, bp_obj.pos2, bp_obj.pos2), ecdna_intervals_ext
             )
-            < 0
+            is None
         ):
-            if bp[3] in starting_pos:
+            if bp_obj.chr2 in starting_pos:
                 cn = 0.0
-                for seg in cns_dict[bp[3]]:
-                    if bp[4] > seg[0] and bp[4] < seg[1]:
+                for seg in cns_dict[bp_obj.chr2]:
+                    if bp_obj.pos2 > seg[0] and bp_obj.pos2 < seg[1]:
                         cn = seg[2]
                         break
-                if cn <= 5.0 and len(bp[-1]) <= float(normal_cov) * 2.5:
-                    print("Breakpoint", bp[:6], "Support = ", len(bp[-1]))
-                    xpos = starting_pos[bp[3]] + bp[4] * 100.0 / sum_sizes
-                    ypos = len(bp[-1])
+                if cn <= 5.0 and len(bp_reads) <= float(normal_cov) * 2.5:
+                    print("Breakpoint", bp_obj, "Support = ", len(bp_reads))
+                    xpos = starting_pos[bp_obj.chr2] + bp_obj.pos2 * 100.0 / sum_sizes
+                    ypos = len(bp_reads)
                     plt.plot(xpos, ypos, "bo")
         elif (
             interval_overlap_l(
-                Interval(bp[0], bp[1], bp[1]), ecdna_intervals_ext
+                Interval(bp_obj.chr1, bp_obj.pos1, bp_obj.pos1), ecdna_intervals_ext
             )
-            < 0
+            is None
             and interval_overlap_l(
-                Interval(bp[3], bp[4], bp[4]), ecdna_intervals_ext
+                Interval(bp_obj.chr2, bp_obj.pos2, bp_obj.pos2), ecdna_intervals_ext
             )
-            >= 0
+            is not None
         ):
-            if bp[0] in starting_pos:
+            if bp_obj.chr1 in starting_pos:
                 cn = 0.0
-                for seg in cns_dict[bp[0]]:
-                    if bp[1] > seg[0] and bp[1] < seg[1]:
+                for seg in cns_dict[bp_obj.chr1]:
+                    if bp_obj.pos1 > seg[0] and bp_obj.pos1 < seg[1]:
                         cn = seg[2]
                         break
-                if cn <= 5.0 and len(bp[-1]) <= float(normal_cov) * 2.5:
-                    print("Breakpoint", bp[:6], "Support = ", len(bp[-1]))
-                    xpos = starting_pos[bp[0]] + bp[1] * 100.0 / sum_sizes
-                    ypos = len(bp[-1])
+                if cn <= 5.0 and len(bp_reads) <= float(normal_cov) * 2.5:
+                    print("Breakpoint", bp_obj, "Support = ", len(bp_reads))
+                    xpos = starting_pos[bp_obj.chr1] + bp_obj.pos1 * 100.0 / sum_sizes
+                    ypos = len(bp_reads)
                     plt.plot(xpos, ypos, "bo")
 
     plt.xlim([0, 100])
@@ -311,6 +304,6 @@ def locate_hsrs(
     plt.title(output_prefix + " integration loci", fontsize=25)
     plt.ylabel("Long read support", fontsize=25)
     plt.tight_layout()
-    out_img_name = "integration_sites_" + output_prefix
+    out_img_name = output_prefix + "_integration_sites"
     plt.savefig(out_img_name + ".png")
     print("\nCreated " + out_img_name + ".png")
