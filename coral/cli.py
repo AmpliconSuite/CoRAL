@@ -27,6 +27,7 @@ from coral.breakpoint.parse_graph import (
 )
 from coral.cnv_seed import run_seeding
 from coral.core_utils import (
+    build_chr_sizes_from_bam,
     get_reconstruction_paths_from_shared_dir,
 )
 from coral.datatypes import CycleDecompOptions, OutputPCOptions, Solver
@@ -128,6 +129,21 @@ ReferenceGenomeArg = Annotated[
     core_types.ReferenceGenome,
     typer.Option(help="Reference genome."),
 ]
+ExtraContigsArg = Annotated[
+    pathlib.Path | None,
+    typer.Option(
+        help="Text file of additional contig names (one per line, first column) "
+        "to include alongside standard chromosomes when reading chr sizes from "
+        "the BAM header."
+    ),
+]
+CentromereFileArg = Annotated[
+    pathlib.Path | None,
+    typer.Option(
+        help="Centromere BED file in paired p/q arm format (two consecutive lines "
+        "per chromosome). Defaults to the bundled GRCh38 file."
+    ),
+]
 
 
 @coral_app.command(help="Filter and merge amplified intervals.")
@@ -153,6 +169,9 @@ def seed(
             help="Maximum gap size (in bp) to merge two proximal intervals."
         ),
     ] = 300000,
+    lr_bam: BamArg = None,
+    extra_contigs: ExtraContigsArg = None,
+    centromere_file: CentromereFileArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -161,7 +180,8 @@ def seed(
     )
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
-    run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap)
+    chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs) if lr_bam else None
+    run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap, centromere_file, chr_sizes)
 
 
 @coral_app.command(help="Reconstruct focal amplifications")
@@ -196,6 +216,7 @@ def reconstruct(
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     log_file: ReconstructLogArg = None,
+    extra_contigs: ExtraContigsArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -226,6 +247,8 @@ def reconstruct(
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_prefix = output_prefix
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
+    if lr_bam:
+        global_state.STATE_PROVIDER.chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
 
     b2bn = infer_breakpoint_graph.reconstruct_graphs(
         lr_bam,
@@ -468,12 +491,15 @@ def hsr_mode(
         int,
         typer.Option(help="Crude breakpoint matching cutoff for clustering."),
     ] = 2000,
+    extra_contigs: ExtraContigsArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
         f"Performing HSR mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
+    if lr_bam:
+        global_state.STATE_PROVIDER.chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
     hsr.locate_hsrs(
         lr_bam,
         cycles,

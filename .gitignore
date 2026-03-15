@@ -11,3 +11,4 @@ configs/
 *.ipynb
 *.code-workspace
 notebooks/
+CLAUDE.md

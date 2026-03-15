@@ -4,6 +4,7 @@ import copy
 import importlib.resources
 import logging
 import os
+import pathlib
 
 import typer
 
@@ -14,12 +15,32 @@ from coral.datatypes import ChrArmInfo, CNInterval, Interval, SingleArmInfo
 logger = logging.getLogger(__name__)
 
 
-def parse_centromere_arms() -> dict[str, ChrArmInfo]:
+def parse_centromere_arms(
+    centromere_file: pathlib.Path | None = None,
+    chr_sizes: dict[str, int] | None = None,
+) -> dict[str, ChrArmInfo]:
+    """Parse a centromere BED file into per-chromosome arm info.
+
+    Args:
+        centromere_file: Path to a centromere BED file in paired p/q arm
+            format (two consecutive lines per chromosome, sorted by
+            chromosome). Defaults to the bundled GRCh38 file.
+        chr_sizes: Mapping of chromosome name to length, used to compute
+            q-arm sizes. Defaults to the hardcoded hg38 constants.
+    """
+    if chr_sizes is None:
+        chr_sizes = CHR_SIZES
+
     chr_arms: dict[str, ChrArmInfo] = {}
 
-    with (
-        importlib.resources.files(supplemental_data) / "GRCh38_centromere.bed"
-    ).open("r") as fp:
+    if centromere_file is not None:
+        ctx = open(centromere_file)
+    else:
+        ctx = (  # type: ignore[assignment]
+            importlib.resources.files(supplemental_data) / "GRCh38_centromere.bed"
+        ).open("r")
+
+    with ctx as fp:
         p_line = fp.readline()
         # Iterate through centromere file in pairs of lines to match p + q arms
         while p_line:
@@ -35,7 +56,7 @@ def parse_centromere_arms() -> dict[str, ChrArmInfo]:
                 interval=full_intv,
                 p_arm=SingleArmInfo(p_intv, size=p_intv.end),
                 q_arm=SingleArmInfo(
-                    q_intv, size=CHR_SIZES[p_intv.chr] - q_intv.end
+                    q_intv, size=chr_sizes[p_intv.chr] - q_intv.end
                 ),
             )
             p_line = fp.readline()
@@ -64,6 +85,8 @@ def run_seeding(
     gain: float,
     min_seed_size: float,
     max_seg_gap: float,
+    centromere_file: pathlib.Path | None = None,
+    chr_sizes: dict[str, int] | None = None,
 ) -> None:
     """Generate seed intervals from file containing WGS CN calls.
 
@@ -80,10 +103,15 @@ def run_seeding(
         max_seg_gap: Maximum gap size (in base pairs) between two adjacent
             potential seed intervals for them to be merged into a single seed.
             If merged, min_seed_size is enforced on the combined interval.
+        centromere_file: Path to a centromere BED file (paired p/q arm format).
+            Defaults to the bundled GRCh38 file.
+        chr_sizes: Chromosome name-to-length mapping. Defaults to the hardcoded
+            hg38 constants. Pass the result of core_utils.build_chr_sizes_from_bam()
+            when working with a non-hg38 genome.
 
     """
 
-    chr_arms = parse_centromere_arms()
+    chr_arms = parse_centromere_arms(centromere_file, chr_sizes)
     cnv_seeds: list[list[CNInterval]] = []
     cur_seed: list[CNInterval] = []
     for line in cn_seg_file:

@@ -19,7 +19,6 @@ import numpy as np
 import pyomo.environ as pyo
 
 from coral import core_types, text_utils
-from coral.constants import CHR_TAG_TO_IDX
 
 if TYPE_CHECKING:
     from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -153,8 +152,8 @@ class Interval:
         return self.end - self.start + 1
 
     def __lt__(self, other: Interval) -> bool:
-        return (CHR_TAG_TO_IDX[self.chr], self.start, self.end) < (
-            CHR_TAG_TO_IDX[other.chr],
+        return (core_types.chr_sort_key(self.chr), self.start, self.end) < (
+            core_types.chr_sort_key(other.chr),
             other.start,
             other.end,
         )
@@ -403,14 +402,14 @@ class Breakpoint:
 
     def __lt__(self, other: Breakpoint) -> bool:
         return (
-            CHR_TAG_TO_IDX[self.node1.chr],
+            core_types.chr_sort_key(self.node1.chr),
             self.node1.pos,
-            CHR_TAG_TO_IDX[self.node2.chr],
+            core_types.chr_sort_key(self.node2.chr),
             self.node2.pos,
         ) < (
-            CHR_TAG_TO_IDX[other.node1.chr],
+            core_types.chr_sort_key(other.node1.chr),
             other.node1.pos,
-            CHR_TAG_TO_IDX[other.node2.chr],
+            core_types.chr_sort_key(other.node2.chr),
             other.node2.pos,
         )
 
@@ -675,8 +674,8 @@ class SequenceEdge:
         return f"SeqEdge({self.chr}-{self.start:,d}-{self.end:,d})"
 
     def __lt__(self, other: SequenceEdge) -> bool:
-        return (CHR_TAG_TO_IDX[self.chr], self.start, self.end) < (
-            CHR_TAG_TO_IDX[other.chr],
+        return (core_types.chr_sort_key(self.chr), self.start, self.end) < (
+            core_types.chr_sort_key(other.chr),
             other.start,
             other.end,
         )
@@ -711,14 +710,14 @@ class BreakpointEdge:
 
     def __lt__(self, other: BreakpointEdge) -> bool:
         return (
-            CHR_TAG_TO_IDX[self.node1.chr],
+            core_types.chr_sort_key(self.node1.chr),
             self.node1.pos,
-            CHR_TAG_TO_IDX[self.node2.chr],
+            core_types.chr_sort_key(self.node2.chr),
             self.node2.pos,
         ) < (
-            CHR_TAG_TO_IDX[other.node1.chr],
+            core_types.chr_sort_key(other.node1.chr),
             other.node1.pos,
-            CHR_TAG_TO_IDX[other.node2.chr],
+            core_types.chr_sort_key(other.node2.chr),
             other.node2.pos,
         )
 

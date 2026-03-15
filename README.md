@@ -2,30 +2,45 @@
 ## Reference
 CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. The original Genome Research '24 paper is available here: https://genome.cshlp.org/content/34/9/1344.
 
-- **CoRAL only works on long-read
-whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted 
-sequencing!**
-- **We also only support hg38-aligned data currently. Support for other genomes 
-is [coming soon](https://github.com/AmpliconSuite/CoRAL/issues/33)!**
+**CoRAL only works on long-read whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted sequencing!**
 
 ## Installation
-CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
+CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.12 is required.
 
-CoRAL requires python>=3.12; we recommend using venv/conda for managing Python/pip installations.
-
-1. Clone source
-    ```
+1. Clone the repository
+    ```bash
     git clone https://github.com/AmpliconSuite/CoRAL
     cd CoRAL
     ```
-2. Install packages using `poetry`. 
-      ```bash
-      pip install poetry
-      poetry install
-     ```
-3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
-   - Place the `gurobi.lic` file you download into `$HOME/`. This path is usually `/home/username/gurobi.lic`.
-4. Finish installing CNVkit dependencies (recommended)
+
+2. Install dependencies using `poetry`
+
+   **Option A: conda (recommended)**
+   ```bash
+   conda create -n coral python=3.12
+   conda activate coral
+   conda install -c bioconda pysam   # avoids htslib build issues
+   pip install poetry
+   poetry config virtualenvs.create false --local
+   poetry install
+   ```
+
+   **Option B: without conda**
+   ```bash
+   pip install poetry
+   poetry install
+   ```
+   If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
+
+3. Verify the installation
+   ```bash
+   coral --help
+   ```
+
+4. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
+   - Place the `gurobi.lic` file in `$HOME/gurobi.lic`.
+
+5. Finish installing CNVkit dependencies (recommended)
    ```bash
    Rscript -e 'if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")'
    Rscript -e 'BiocManager::install("DNAcopy")'

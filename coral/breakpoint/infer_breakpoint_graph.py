@@ -29,7 +29,6 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_exclusive,
     interval_overlap_l,
 )
-from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
     BPAlignments,
@@ -923,7 +922,7 @@ class LongReadBamToBreakpointMetadata:
                 logger.exception(f"Unable to parse {bp=}")
 
         return sorted(same_chr_segs), sorted(
-            diff_chr_segs, key=lambda item: (CHR_TAG_TO_IDX[item[0]], item[1:])
+            diff_chr_segs, key=lambda item: (core_types.chr_sort_key(item[0]), item[1:])
         )
 
     def find_interval_i(self, ai: int, ccid: int) -> None:
@@ -984,7 +983,7 @@ class LongReadBamToBreakpointMetadata:
 
             for chr_, cni_to_reads in sorted(
                 chr_to_cni_to_reads.items(),
-                key=lambda item: CHR_TAG_TO_IDX[item[0]],
+                key=lambda item: core_types.chr_sort_key(item[0]),
             ):
                 # Verify if there are any CN segments on this chr
                 if len(cni_to_reads) == 0:

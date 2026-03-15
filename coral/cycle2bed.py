@@ -6,7 +6,8 @@ from typing import Any
 
 import typer
 
-from coral.constants import CHR_TAG_TO_IDX, INVERT_STRAND_DIRECTION
+from coral.constants import INVERT_STRAND_DIRECTION
+from coral.core_types import chr_sort_key
 
 
 def convert_cycles_to_bed(
@@ -81,7 +82,7 @@ def convert_cycles_to_bed(
                     argmin_idx = cycle.index(
                         min(
                             cycle,
-                            key=lambda seg: (CHR_TAG_TO_IDX[seg[0]], seg[1]),  # type: ignore[index]
+                            key=lambda seg: (chr_sort_key(seg[0]), seg[1]),  # type: ignore[index]
                         ),
                     )
                     if cycle[argmin_idx][-1] == "+":
@@ -95,10 +96,10 @@ def convert_cycles_to_bed(
                             cycle[idx][-1] = INVERT_STRAND_DIRECTION(
                                 cycle[idx][-1]
                             )  # type: ignore[operator]
-                elif CHR_TAG_TO_IDX[cycle[-1][0]] < CHR_TAG_TO_IDX[  # type: ignore[index]
+                elif chr_sort_key(cycle[-1][0]) < chr_sort_key(  # type: ignore[index]
                     cycle[0][0]  # type: ignore[index]
-                ] or (
-                    CHR_TAG_TO_IDX[cycle[-1][0]] == CHR_TAG_TO_IDX[cycle[0][0]]  # type: ignore[index]
+                ) or (
+                    chr_sort_key(cycle[-1][0]) == chr_sort_key(cycle[0][0])  # type: ignore[index]
                     and cycle[-1][1] < cycle[-1][1]  # type: ignore[index, operator]
                 ):
                     cycle = cycle[::-1]

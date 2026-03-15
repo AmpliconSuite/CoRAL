@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 
 from coral import datatypes
+from coral.constants import CHR_SIZES
 from coral.datatypes import FnCall
 
 # Time required to parse solution and generate summary file when we are unable
@@ -24,6 +25,9 @@ class GlobalStateProvider:
     #output_dir: pathlib.Path = field(default_factory=pathlib.Path.cwd)
     time_limit_s: int = 21600  # 6 hrs in seconds
     start_time: float = field(default_factory=time.time)
+    # Populated from BAM header by core_utils.build_chr_sizes_from_bam() when
+    # a BAM is available; falls back to hardcoded hg38 values otherwise.
+    chr_sizes: dict[str, int] = field(default_factory=lambda: dict(CHR_SIZES))
 
     @property
     def summary_filepath(self) -> pathlib.Path:
