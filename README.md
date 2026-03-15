@@ -17,7 +17,7 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
 
    **Option A: conda (recommended)**
    ```bash
-   conda create -n coral python=3.12
+   conda create -n coral python>=3.12
    conda activate coral
    conda install -c bioconda pysam   # avoids htslib build issues
    pip install poetry
@@ -125,7 +125,7 @@ Usage:
 
 CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the directory specified with ```--output_dir```.
 
-* Graph file: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
+* Graph fil-e: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
    * As of version 2.1.0, CoRAL additionally includes `path constraints` and 
    `amplicon intervals` in the `*_graph.txt` file. This results in the graph
    being fully self-contained and able to be passed to cycle extraction without 
