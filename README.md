@@ -2,30 +2,49 @@
 ## Reference
 CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as input, and identifies candidate ecDNA structures. The original Genome Research '24 paper is available here: https://genome.cshlp.org/content/34/9/1344.
 
-- **CoRAL only works on long-read
-whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted 
-sequencing!**
-- **We also only support hg38-aligned data currently. Support for other genomes 
-is [coming soon](https://github.com/AmpliconSuite/CoRAL/issues/33)!**
+**CoRAL only works on long-read whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted sequencing!**
 
 ## Installation
-CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). 
+CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.10 is required.
 
-CoRAL requires python>=3.12; we recommend using venv/conda for managing Python/pip installations.
-
-1. Clone source
-    ```
+1. Clone the repository
+    ```bash
     git clone https://github.com/AmpliconSuite/CoRAL
     cd CoRAL
     ```
-2. Install packages using `poetry`. 
-      ```bash
-      pip install poetry
-      poetry install
-     ```
-3. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
-   - Place the `gurobi.lic` file you download into `$HOME/`. This path is usually `/home/username/gurobi.lic`.
-4. Finish installing CNVkit dependencies (recommended)
+
+2. Install Poetry (if not already installed)
+   ```bash
+   pip install --user pipx
+   pipx install poetry
+   ```
+   `pipx` installs Poetry in its own isolated environment, preventing conflicts with system Python packages. Do not use `pip install poetry` directly on a system Python.
+
+3. Install CoRAL dependencies
+   ```bash
+   poetry install
+   ```
+   Poetry creates an isolated virtual environment automatically. If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
+
+4. Activate the environment and verify the installation
+   ```bash
+   source $(poetry env info --path)/bin/activate
+   coral --help
+   ```
+   This works with all versions of Poetry. To deactivate the environment, run `deactivate`.
+
+### Re-activating the environment
+After the initial install, you only need to re-run the activation command each time you start a new shell session (e.g. after logging out and back in):
+```bash
+cd /your/path/to/CoRAL/
+source $(poetry env info --path)/bin/activate
+```
+Run this from the CoRAL repository directory. To avoid doing this manually each session, you can add it to your `~/.bashrc` or `~/.zshrc`.
+
+5. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
+   - Place the `gurobi.lic` file in `$HOME/gurobi.lic`.
+
+6. Finish installing CNVkit dependencies (recommended)
    ```bash
    Rscript -e 'if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")'
    Rscript -e 'BiocManager::install("DNAcopy")'
@@ -74,13 +93,23 @@ Usage:
 ```coral seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
-* ```--cn-seg <file>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <file>``` - Long read segmented whole genome CN calls. Accepts CNVkit `.cns` format, or a tab-separated `.bed` file where the **last column** is the copy number value.
+* ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.
+* ```--lr-bam <file>``` - Coordinate sorted BAM file, used to read chromosome lengths from the header.
+* ```--centromere-file <file>``` - Centromere BED file for the reference genome used.
+
+  The file must be tab-separated with columns `chr`, `start`, `end` (BED3 format; additional columns are ignored). Each contig may have one entry, or two entries that overlap or directly abut (they will be merged). Multiple distinct non-adjacent regions for the same contig will raise an error. Contigs absent from the file are treated as having no centromere (all segments on that contig are eligible as seeds). Example:
+  ```
+  chr1	121700000	125100000
+  chr2	91800000	100200000
+  ```
+  The UCSC `centromeres` or `gap` track (available via the Table Browser for most assemblies) is a convenient source for this file.
 
 **Optional arguments:**
-* ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` with the same prefix as the input ```*.cns``` file.
 * ```--gain <float>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
 * ```--min-seed-size <int>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
-* ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000. 
+* ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000.
+* ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header.
 
 
 ## 2. ```reconstruct```
@@ -91,7 +120,7 @@ Usage:
 * ```--lr-bam <file>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
 * ```--cnv-seed <file>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
 * ```--output-prefix <path>``` - Prefix (including directory) to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
-* ```--cn-seg <file>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <file>``` - Long read segmented whole genome CN calls. Accepts CNVkit `.cns` format, or a tab-separated `.bed` file where the **last column** is the copy number value.
 
 **2.2 Optional arguments:**
 * ```--min-bp-support <float>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
@@ -104,13 +133,13 @@ Usage:
 * ```--solver <choice>``` - Solver for cycle extraction. Must be one of `[gurobi_direct, scip]`.
 * ```--global-time-limit <int>``` - Maximum running time (in seconds) reserved for the entire cycle extraction process. Default value is 21600 (i.e., 6 hours).
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
-*	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
+*	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s).
 
 **2.3 Expected output:**
 
 CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the directory specified with ```--output_dir```.
 
-* Graph file: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
+* Graph fil-e: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
    * As of version 2.1.0, CoRAL additionally includes `path constraints` and 
    `amplicon intervals` in the `*_graph.txt` file. This results in the graph
    being fully self-contained and able to be passed to cycle extraction without 
@@ -196,23 +225,21 @@ Usage:
 ```coral plot <Required arguments> <Optional arguments>```
 
 **4.1 Required arguments:**
-If `--plot-graph` is given, `--graph` is required. If `--plot-cycles` is given `--cycles` is required.
 
 | Argument                | Description                                                            |
 |-------------------------|-----------------------------------------------------------------------|
-| `--ref <choice>`        | Reference genome choice. Must be one of  `[hg19, hg38, GRCh38, mm10]` |
-| `--bam <file>` | Bam file the run was based on                                         |
-| `--graph <file>`        | AA-formatted `_graph.txt` file                                        |
-| `--cycles <file>`       | AA-formatted `_cycles.txt` file                                       |
-| `--output-dir <str>` | Directory for output files                                          |
+| `--ref <choice>`        | Reference genome. Must be one of `[hg19, hg38, mm10]`                 |
+| `--output-prefix <str>` | Prefix of output files                                                 |
 
+At least one of `--graph` or `--cycles` must also be provided.
 
 **4.2 Optional arguments:**
 
 | Argument                                   | Default                          | Description                                                                                                                               |
 |--------------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `--plot-graph`                             |                                  | Plot the AA graph file CN, SVs and coverage as a sashimi plot                                                                             |
-| `--plot-cycles`                            |                                  | Plot the AA cycles file genome decompositions                                                                                             |
+| `--graph <file>`                           |                                  | AA-formatted `_graph.txt` file                                                                                                            |
+| `--cycles <file>`                          |                                  | AA-formatted `_cycles.txt` file                                                                                                           |
+| `--bam <file>`                             |                                  | Sorted indexed BAM file (required for coverage track in graph plot)                                                                       |
 | `--only-cyclic-paths`                      |                                  | Only visualize the cyclic paths in the cycles file                                                                                        |
 | `--num-cycles <int>`                       | `[all]`                          | Only plot the first `[arg]` cycles from the cycles file                                                                                   |
 | `--max-coverage <float>`                   | `[1.25x max coverage in region]` | Do not extend coverage plot in graph sashimi plot above `[arg]` value                                                                     |
@@ -234,15 +261,16 @@ Usage:
 |--------------------|---------------------------------------------------|
 | `--lr-bam <file>`  | Coordinate-sorted and indexed long read .bam file |
 | `--cycles <file>`  | AA-formatted `_cycles.txt` file                   |
-| `--cn-segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
+| `--cn-seg <file>` | Long read segmented whole genome CN calls. Accepts CNVkit `.cns` format, or a tab-separated `.bed` file where the **last column** is the copy number value.            |
 | `--normal-cov <float>` | Estimated coverage of diploid genome regions      |
 
 **5.2 Optional arguments:**
 
-| Argument                     | Default | Description                                                        |
-|------------------------------|---------|--------------------------------------------------------------------|
-| --bp_match_cutoff <int>      | 100     | Breakpoint matching cutoff distance (bp)                           |
-| --bp_match_cutoff_clustering | 2000    | Crude breakpoint matching cutoff distance (bp) for clustering | 
+| Argument                          | Default | Description                                                        |
+|-----------------------------------|---------|--------------------------------------------------------------------|
+| `--bp-match-cutoff <int>`         | 100     | Breakpoint matching cutoff distance (bp)                           |
+| `--bp-match-cutoff-clustering <int>` | 2000 | Crude breakpoint matching cutoff distance (bp) for clustering      |
+| `--extra-contigs <file>`          |         | Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. |
 
 
 ## 6. ```cycle2bed```
