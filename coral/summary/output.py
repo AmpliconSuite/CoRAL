@@ -19,7 +19,7 @@ def output_amplicon_solution(
     walk_indices = sorted(
         [(0, i) for i in range(len(bp_graph.walk_weights.cycles))]
         + [(1, i) for i in range(len(bp_graph.walk_weights.paths))],
-        key=lambda item: bp_graph.walk_weights[item[0]][item[1]],
+        key=lambda item: (bp_graph.walk_weights.cycles if item[0] == 0 else bp_graph.walk_weights.paths)[item[1]],
         reverse=True,
     )
     heaviest_walk = walk_indices[0]
