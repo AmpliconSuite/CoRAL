@@ -123,7 +123,7 @@ def locate_hsrs(
         if cn_seg_file.name.endswith(".cns"):
             cn = 2 * (2 ** float(s[4]))
         elif cn_seg_file.name.endswith(".bed"):
-            cn = float(s[3])
+            cn = float(s[-1])
         else:
             logger.error(cn_seg_file.name + "\n")
             logger.error("Invalid cn_seg file format!\n")
