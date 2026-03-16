@@ -473,7 +473,8 @@ class EdgeToCN:
         )
 
 
-class WalkData(NamedTuple, Generic[T]):
+@dataclass
+class WalkData(Generic[T]):
     """Container for storing graph walk data, separated into cycles and paths."""
 
     cycles: list[T]

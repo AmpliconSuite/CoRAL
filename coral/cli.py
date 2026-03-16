@@ -216,7 +216,6 @@ def reconstruct(
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     log_file: ReconstructLogArg = None,
-    extra_contigs: ExtraContigsArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -247,8 +246,6 @@ def reconstruct(
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_prefix = output_prefix
     global_state.STATE_PROVIDER.time_limit_s = global_time_limit
-    if lr_bam:
-        global_state.STATE_PROVIDER.chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
 
     b2bn = infer_breakpoint_graph.reconstruct_graphs(
         lr_bam,

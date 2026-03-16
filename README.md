@@ -26,10 +26,12 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
    ```
    Poetry creates an isolated virtual environment automatically. If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
 
-4. Verify the installation
+4. Activate the environment and verify the installation
    ```bash
+   source $(poetry env info --path)/bin/activate
    coral --help
    ```
+   This works with all versions of Poetry. To deactivate the environment, run `deactivate`. You will need to re-activate in each new shell session, or add the activation step to your `.bashrc`/`.zshrc`.
 
 5. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
    - Place the `gurobi.lic` file in `$HOME/gurobi.lic`.
@@ -117,7 +119,6 @@ Usage:
 * ```--global-time-limit <int>``` - Maximum running time (in seconds) reserved for the entire cycle extraction process. Default value is 21600 (i.e., 6 hours).
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
 *	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s).
-* ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. Required only when working with a reference genome that includes non-standard contigs you wish to retain.
 
 **2.3 Expected output:**
 

@@ -29,6 +29,11 @@ def parse_centromere_arms(
             q-arm sizes. Defaults to the hardcoded hg38 constants.
     """
     if chr_sizes is None:
+        logger.warning(
+            "No BAM file provided to seed mode -- falling back to hardcoded "
+            "hg38 chromosome sizes. If your data is not aligned to hg38, "
+            "provide --lr-bam to read chromosome sizes from the BAM header."
+        )
         chr_sizes = CHR_SIZES
 
     chr_arms: dict[str, ChrArmInfo] = {}
