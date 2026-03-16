@@ -150,6 +150,7 @@ def seed(
     ctx: typer.Context,
     cn_seg: CnSegArg,
     output_prefix: OutputPrefixArg,
+    lr_bam: BamArg,
     gain: Annotated[
         float,
         typer.Option(
@@ -168,7 +169,6 @@ def seed(
             help="Maximum gap size (in bp) to merge two proximal intervals."
         ),
     ] = 300000,
-    lr_bam: BamArg,
     extra_contigs: ExtraContigsArg = None,
     centromere_file: CentromereFileArg = None,
 ) -> None:
