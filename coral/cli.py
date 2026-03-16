@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-from typing import Annotated
+from typing import Annotated, Optional
 
 import colorama
 import typer
@@ -54,7 +54,7 @@ def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
 
 # Note: typer.Arguments are required, typer.Options are optional
 BamArg = Annotated[
-    pathlib.Path | None,
+    Optional[pathlib.Path],
     typer.Option(help="Sorted indexed (long read) bam file."),
 ]
 CnvSeedArg = Annotated[
@@ -69,7 +69,7 @@ CnSegArg = Annotated[
 ]
 OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
 ReconstructLogArg = Annotated[
-    pathlib.Path | None,
+    Optional[pathlib.Path],
     typer.Option(
         help="Name of the main *.log file, which can be used to trace the status "
         "of reconstruct run(s)."
@@ -130,7 +130,7 @@ ReferenceGenomeArg = Annotated[
     typer.Option(help="Reference genome."),
 ]
 ExtraContigsArg = Annotated[
-    pathlib.Path | None,
+    Optional[pathlib.Path],
     typer.Option(
         help="Text file of additional contig names (one per line, first column) "
         "to include alongside standard chromosomes when reading chr sizes from "
@@ -138,7 +138,7 @@ ExtraContigsArg = Annotated[
     ),
 ]
 CentromereFileArg = Annotated[
-    pathlib.Path | None,
+    Optional[pathlib.Path],
     typer.Option(
         help="Centromere BED file in paired p/q arm format (two consecutive lines "
         "per chromosome). Defaults to the bundled GRCh38 file."
@@ -517,21 +517,21 @@ def plot_mode(
     ref: ReferenceGenomeArg,
     output_prefix: OutputPrefixArg,
     graph: Annotated[
-        typer.FileText | None,
+        Optional[typer.FileText],
         typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
     ] = None,
     bam: BamArg = None,
     cycles: Annotated[
-        typer.FileText | None,
+        Optional[typer.FileText],
         typer.Option(
             help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
         ),
     ] = None,
     num_cycles: Annotated[
-        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
     ] = None,
     region: Annotated[
-        str | None,
+        Optional[str],
         typer.Option(
             help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
         ),
@@ -615,15 +615,15 @@ def plot_all_mode(
     ref: ReferenceGenomeArg,
     output_prefix: OutputPrefixArg,
     reconstruction_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Reconstruction directory."),
     ] = None,
     cycles_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Cycle directory."),
     ] = None,
     graph_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Graph directory."),
     ] = None,
     bam: BamArg = None,
@@ -631,7 +631,7 @@ def plot_all_mode(
         bool, typer.Option(help="Only plot cyclic paths from cycles file.")
     ] = False,
     num_cycles: Annotated[
-        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
     ] = None,
     max_coverage: Annotated[
         float,
@@ -646,7 +646,7 @@ def plot_all_mode(
         ),
     ] = 0.0,
     region: Annotated[
-        str | None,
+        Optional[str],
         typer.Option(
             help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
         ),
@@ -789,7 +789,7 @@ def cycle2bed_mode(
     ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
     num_cycles: Annotated[
-        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
     ] = None,
     rotate_to_min: Annotated[
         bool,
@@ -842,14 +842,14 @@ def score_mode(
         pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
     cycles_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Cycle directory."),
     ] = None,
     tolerance: Annotated[
         int, typer.Option(help="Breakpoint matching tolerance.")
     ] = 100,
     to_skip: Annotated[
-        list[str] | None, typer.Option(help="List of datasets to skip.")
+        Optional[list[str]], typer.Option(help="List of datasets to skip.")
     ] = None,
 ) -> None:
     print(
