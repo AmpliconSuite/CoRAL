@@ -94,6 +94,7 @@ Usage:
 
 **Required arguments:**
 * ```--cn-seg <file>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.
 * ```--lr-bam <file>``` - Coordinate sorted BAM file, used to read chromosome lengths from the header.
 * ```--centromere-file <file>``` - Centromere BED file for the reference genome used.
 
@@ -103,7 +104,12 @@ Usage:
   chr2	91800000	100200000
   ```
   The UCSC `centromeres` or `gap` track (available via the Table Browser for most assemblies) is a convenient source for this file.
-* ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. Only relevant when ```--lr-bam``` is also provided.
+
+**Optional arguments:**
+* ```--gain <float>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
+* ```--min-seed-size <int>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
+* ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000.
+* ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header.
 
 
 ## 2. ```reconstruct```
