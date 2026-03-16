@@ -93,7 +93,7 @@ Usage:
 ```coral seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
-* ```--cn-seg <file>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <file>``` - Long read segmented whole genome CN calls. Accepts CNVkit `.cns` format, or a tab-separated `.bed` file where the **last column** is the copy number value.
 * ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.
 * ```--lr-bam <file>``` - Coordinate sorted BAM file, used to read chromosome lengths from the header.
 * ```--centromere-file <file>``` - Centromere BED file for the reference genome used.
@@ -120,7 +120,7 @@ Usage:
 * ```--lr-bam <file>``` - Coordinate sorted ```*.BAM``` file, with ```*.bai``` index (mapped to the provided reference genome) in the same directory.
 * ```--cnv-seed <file>``` - ```*.bed``` file with a putative list of seed amplification intervals. The seed amplification intervals can be obtained through [running ```seed``` mode](#CoRAL.py-```seed```), or provided manually.
 * ```--output-prefix <path>``` - Prefix (including directory) to which the output ```graph.txt``` and ```cycles.txt``` files will be written.
-* ```--cn-seg <file>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <file>``` - Long read segmented whole genome CN calls. Accepts CNVkit `.cns` format, or a tab-separated `.bed` file where the **last column** is the copy number value.
 
 **2.2 Optional arguments:**
 * ```--min-bp-support <float>``` - Filter out breakpoints with less than (min_bp_support * normal coverage) long read support in breakpoint graph construction. The default value is set to 1.0, meaning to filter out breakpoints supported by less than diploid coverage, but ***it is highly recommended to specify a much larger value, e.g. 10.0 to obtain a cleaner breakpoint graph and the dominating ecDNA cycle(s).***
@@ -261,7 +261,7 @@ Usage:
 |--------------------|---------------------------------------------------|
 | `--lr-bam <file>`  | Coordinate-sorted and indexed long read .bam file |
 | `--cycles <file>`  | AA-formatted `_cycles.txt` file                   |
-| `--cn-seg <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
+| `--cn-seg <file>` | Long read segmented whole genome CN calls. Accepts CNVkit `.cns` format, or a tab-separated `.bed` file where the **last column** is the copy number value.            |
 | `--normal-cov <float>` | Estimated coverage of diploid genome regions      |
 
 **5.2 Optional arguments:**

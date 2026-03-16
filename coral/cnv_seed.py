@@ -148,7 +148,7 @@ def run_seeding(
             if cn_seg_file.name.endswith(".cns"):
                 cn = 2 * (2 ** float(s[4]))
             elif cn_seg_file.name.endswith(".bed"):
-                cn = float(s[3])
+                cn = float(s[-1])  # CN is always the last column in BED input
             else:
                 logger.error(cn_seg_file.name + "\n")
                 raise SystemExit("Invalid cn_seg file format!\n")
