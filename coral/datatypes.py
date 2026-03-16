@@ -19,6 +19,7 @@ import numpy as np
 import pyomo.environ as pyo
 
 from coral import core_types, text_utils
+from coral.core_types import StrEnum
 
 if TYPE_CHECKING:
     from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -31,7 +32,7 @@ EdgeCount = int
 
 
 # EdgeType = Literal["e", "c", "d", "s", "t", "ns", "nt", "$"]
-class EdgeType(enum.StrEnum):
+class EdgeType(StrEnum):
     SEQUENCE = "e"
     CONCORDANT = "c"
     DISCORDANT = "d"
@@ -62,7 +63,7 @@ class DirectedEdge(NamedTuple):
 OptimizationWalk = dict[EdgeId, EdgeCount]
 
 
-class Strand(enum.StrEnum):
+class Strand(StrEnum):
     FORWARD = "+"
     REVERSE = "-"
 

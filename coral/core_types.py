@@ -1,6 +1,13 @@
 """Primitive types, associated containers, and useful aliases within Coral."""
 
 import enum
+import sys
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    class StrEnum(str, enum.Enum):  # type: ignore[no-redef]
+        pass
 
 
 def chr_sort_key(name: str) -> tuple[int, int, str]:
@@ -28,7 +35,7 @@ ReadName = str
 BPIdx = int
 
 
-class ReferenceGenome(enum.StrEnum):
+class ReferenceGenome(StrEnum):
     """Reference genome."""
 
     hg19 = "hg19"

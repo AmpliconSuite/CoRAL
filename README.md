@@ -5,7 +5,7 @@ CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as
 **CoRAL only works on long-read whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted sequencing!**
 
 ## Installation
-CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.12 is required.
+CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.10 is required.
 
 1. Clone the repository
     ```bash
@@ -14,23 +14,11 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
     ```
 
 2. Install dependencies using `poetry`
-
-   **Option A: conda (recommended)**
-   ```bash
-   conda create -n coral python>=3.12
-   conda activate coral
-   conda install -c bioconda pysam   # avoids htslib build issues
-   pip install poetry
-   poetry config virtualenvs.create false --local
-   poetry install
-   ```
-
-   **Option B: without conda**
    ```bash
    pip install poetry
    poetry install
    ```
-   If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
+   Poetry creates an isolated virtual environment automatically. If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
 
 3. Verify the installation
    ```bash
@@ -95,7 +83,10 @@ Usage:
 * ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` with the same prefix as the input ```*.cns``` file.
 * ```--gain <float>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
 * ```--min-seed-size <int>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
-* ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000. 
+* ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000.
+* ```--lr-bam <file>``` - BAM file, used only to read chromosome lengths from the header. Required when working with a non-hg38 reference genome. If not provided, falls back to hardcoded hg38 chromosome sizes.
+* ```--centromere-file <file>``` - Centromere BED file in paired p/q arm format (two consecutive lines per chromosome). Defaults to the bundled GRCh38 centromere file. Required when working with a non-hg38 reference genome.
+* ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. Only relevant when ```--lr-bam``` is also provided.
 
 
 ## 2. ```reconstruct```
@@ -119,7 +110,8 @@ Usage:
 * ```--solver <choice>``` - Solver for cycle extraction. Must be one of `[gurobi_direct, scip]`.
 * ```--global-time-limit <int>``` - Maximum running time (in seconds) reserved for the entire cycle extraction process. Default value is 21600 (i.e., 6 hours).
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
-*	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s). 
+*	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s).
+* ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. Required only when working with a reference genome that includes non-standard contigs you wish to retain.
 
 **2.3 Expected output:**
 
@@ -249,15 +241,16 @@ Usage:
 |--------------------|---------------------------------------------------|
 | `--lr-bam <file>`  | Coordinate-sorted and indexed long read .bam file |
 | `--cycles <file>`  | AA-formatted `_cycles.txt` file                   |
-| `--cn-segs <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
+| `--cn-seg <file>` | Long read segmented whole genome CN calls (.bed or CNVkit .cns file).            |
 | `--normal-cov <float>` | Estimated coverage of diploid genome regions      |
 
 **5.2 Optional arguments:**
 
-| Argument                     | Default | Description                                                        |
-|------------------------------|---------|--------------------------------------------------------------------|
-| --bp_match_cutoff <int>      | 100     | Breakpoint matching cutoff distance (bp)                           |
-| --bp_match_cutoff_clustering | 2000    | Crude breakpoint matching cutoff distance (bp) for clustering | 
+| Argument                          | Default | Description                                                        |
+|-----------------------------------|---------|--------------------------------------------------------------------|
+| `--bp-match-cutoff <int>`         | 100     | Breakpoint matching cutoff distance (bp)                           |
+| `--bp-match-cutoff-clustering <int>` | 2000 | Crude breakpoint matching cutoff distance (bp) for clustering      |
+| `--extra-contigs <file>`          |         | Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. |
 
 
 ## 6. ```cycle2bed```
