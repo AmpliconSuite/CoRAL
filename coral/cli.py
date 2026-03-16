@@ -137,11 +137,8 @@ ExtraContigsArg = Annotated[
     ),
 ]
 CentromereFileArg = Annotated[
-    Optional[pathlib.Path],
-    typer.Option(
-        help="Centromere BED file in paired p/q arm format (two consecutive lines "
-        "per chromosome). Defaults to the bundled GRCh38 file."
-    ),
+    pathlib.Path,
+    typer.Option(help="Centromere BED file (chr, start, end). See docs for format."),
 ]
 
 
@@ -151,6 +148,7 @@ def seed(
     cn_seg: CnSegArg,
     output_prefix: OutputPrefixArg,
     lr_bam: BamArg,
+    centromere_file: CentromereFileArg,
     gain: Annotated[
         float,
         typer.Option(
@@ -170,7 +168,6 @@ def seed(
         ),
     ] = 300000,
     extra_contigs: ExtraContigsArg = None,
-    centromere_file: CentromereFileArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
