@@ -13,22 +13,28 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
     cd CoRAL
     ```
 
-2. Install dependencies using `poetry`
+2. Install Poetry (if not already installed)
    ```bash
-   pip install poetry
+   pip install --user pipx
+   pipx install poetry
+   ```
+   `pipx` installs Poetry in its own isolated environment, preventing conflicts with system Python packages. Do not use `pip install poetry` directly on a system Python.
+
+3. Install CoRAL dependencies
+   ```bash
    poetry install
    ```
    Poetry creates an isolated virtual environment automatically. If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
 
-3. Verify the installation
+4. Verify the installation
    ```bash
    coral --help
    ```
 
-4. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
+5. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
    - Place the `gurobi.lic` file in `$HOME/gurobi.lic`.
 
-5. Finish installing CNVkit dependencies (recommended)
+6. Finish installing CNVkit dependencies (recommended)
    ```bash
    Rscript -e 'if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")'
    Rscript -e 'BiocManager::install("DNAcopy")'
