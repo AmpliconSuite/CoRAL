@@ -101,7 +101,14 @@ Usage:
 * ```--min-seed-size <int>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
 * ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000.
 * ```--lr-bam <file>``` - BAM file, used only to read chromosome lengths from the header. Required when working with a non-hg38 reference genome. If not provided, falls back to hardcoded hg38 chromosome sizes.
-* ```--centromere-file <file>``` - Centromere BED file in paired p/q arm format (two consecutive lines per chromosome). Defaults to the bundled GRCh38 centromere file. Required when working with a non-hg38 reference genome.
+* ```--centromere-file <file>``` - Centromere BED file in paired p/q arm format. Defaults to the bundled GRCh38 centromere file. Required when working with a non-hg38 reference genome.
+
+  The file must be tab-separated with columns `chr`, `start`, `end` (BED3 format; additional columns are ignored). Each contig may have one entry, or two entries that overlap or directly abut (they will be merged). Multiple distinct non-adjacent regions for the same contig will raise an error. Contigs absent from the file are treated as having no centromere (all segments on that contig are eligible as seeds). Example:
+  ```
+  chr1	121700000	125100000
+  chr2	91800000	100200000
+  ```
+  The UCSC `centromeres` or `gap` track (available via the Table Browser for most assemblies) is a convenient source for this file.
 * ```--extra-contigs <file>``` - Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. Only relevant when ```--lr-bam``` is also provided.
 
 
