@@ -35,7 +35,8 @@ from coral.scoring import score_simulation
 colorama.init()
 coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities.",
-    pretty_exceptions_enable=False,
+    pretty_exceptions_show_locals=False,  # Prints all local variables in the
+    # error traceback, which is typically kind of insane with WGS data
 )
 logger = logging.getLogger(__name__)
 
