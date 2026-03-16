@@ -109,15 +109,16 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
 
 
 def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
-    header_str = f"{text_utils.VERSION_TEMPLATE.format(
+    version_str = text_utils.VERSION_TEMPLATE.format(
         version=importlib.metadata.version("coral")
-    )}\n"
-    header_str += f"{sum(was_amplicon_solved.values())}/{len(was_amplicon_solved)} amplicons solved.\n"
-    header_str += (
-        f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
     )
-    header_str += f"{text_utils.PROFILE_ENABLED_TEMPLATE.format(
-        enabled=global_state.STATE_PROVIDER.should_profile)}\n"
+    profile_str = text_utils.PROFILE_ENABLED_TEMPLATE.format(
+        enabled=global_state.STATE_PROVIDER.should_profile
+    )
+    header_str = f"{version_str}\n"
+    header_str += f"{sum(was_amplicon_solved.values())}/{len(was_amplicon_solved)} amplicons solved.\n"
+    header_str += f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
+    header_str += f"{profile_str}\n"
 
     return header_str
 
