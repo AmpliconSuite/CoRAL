@@ -225,23 +225,21 @@ Usage:
 ```coral plot <Required arguments> <Optional arguments>```
 
 **4.1 Required arguments:**
-If `--plot-graph` is given, `--graph` is required. If `--plot-cycles` is given `--cycles` is required.
 
 | Argument                | Description                                                            |
 |-------------------------|-----------------------------------------------------------------------|
-| `--ref <choice>`        | Reference genome choice. Must be one of  `[hg19, hg38, GRCh38, mm10]` |
-| `--bam <file>` | Bam file the run was based on                                         |
-| `--graph <file>`        | AA-formatted `_graph.txt` file                                        |
-| `--cycles <file>`       | AA-formatted `_cycles.txt` file                                       |
-| `--output-dir <str>` | Directory for output files                                          |
+| `--ref <choice>`        | Reference genome. Must be one of `[hg19, hg38, mm10]`                 |
+| `--output-prefix <str>` | Prefix of output files                                                 |
 
+At least one of `--graph` or `--cycles` must also be provided.
 
 **4.2 Optional arguments:**
 
 | Argument                                   | Default                          | Description                                                                                                                               |
 |--------------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `--plot-graph`                             |                                  | Plot the AA graph file CN, SVs and coverage as a sashimi plot                                                                             |
-| `--plot-cycles`                            |                                  | Plot the AA cycles file genome decompositions                                                                                             |
+| `--graph <file>`                           |                                  | AA-formatted `_graph.txt` file                                                                                                            |
+| `--cycles <file>`                          |                                  | AA-formatted `_cycles.txt` file                                                                                                           |
+| `--bam <file>`                             |                                  | Sorted indexed BAM file (required for coverage track in graph plot)                                                                       |
 | `--only-cyclic-paths`                      |                                  | Only visualize the cyclic paths in the cycles file                                                                                        |
 | `--num-cycles <int>`                       | `[all]`                          | Only plot the first `[arg]` cycles from the cycles file                                                                                   |
 | `--max-coverage <float>`                   | `[1.25x max coverage in region]` | Do not extend coverage plot in graph sashimi plot above `[arg]` value                                                                     |
