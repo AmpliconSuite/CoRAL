@@ -93,14 +93,14 @@ Usage:
 ```coral seed <Required arguments> <Optional arguments>```
 
 **Required arguments:**
-* ```--cn-seg <file>```, Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--cn-seg <file>``` - Long read segmented whole genome CN calls (.bed or CNVkit .cns file).
+* ```--lr-bam <file>``` - Coordinate sorted BAM file, used to read chromosome lengths from the header.
 
 **Optional arguments:**
 * ```--output-prefix <string>``` - Prefix of the output ```*_CNV_SEEDS.bed``` file.  If not specified (by default), output the ```*_CNV_SEEDS.bed``` with the same prefix as the input ```*.cns``` file.
 * ```--gain <float>``` - A minimum CN threshold (with the assumption of diploid genome) for a particular CN segment to be considered as a seed. Default is 6.0.
 * ```--min-seed-size <int>``` - Minimum size (in bp) for a CN segment to be considered as a seed. Default is 100000.
 * ```--max-seg-gap <int>``` - Maximum gap size (in bp) to merge two proximal CN segments to be considered as seed intervals. If at least two segments are merged, then they will be treated as a single candidate to be filtered with ```--min-seed-size```, and their aggregate size will be compared with the value. Default is 300000.
-* ```--lr-bam <file>``` - BAM file, used only to read chromosome lengths from the header. Required when working with a non-hg38 reference genome. If not provided, falls back to hardcoded hg38 chromosome sizes.
 * ```--centromere-file <file>``` - Centromere BED file in paired p/q arm format. Defaults to the bundled GRCh38 centromere file. Required when working with a non-hg38 reference genome.
 
   The file must be tab-separated with columns `chr`, `start`, `end` (BED3 format; additional columns are ignored). Each contig may have one entry, or two entries that overlap or directly abut (they will be merged). Multiple distinct non-adjacent regions for the same contig will raise an error. Contigs absent from the file are treated as having no centromere (all segments on that contig are eligible as seeds). Example:

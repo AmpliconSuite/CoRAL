@@ -37,6 +37,7 @@ coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities.",
     pretty_exceptions_show_locals=False,  # Prints all local variables in the
     # error traceback, which is typically kind of insane with WGS data
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def seed(
             help="Maximum gap size (in bp) to merge two proximal intervals."
         ),
     ] = 300000,
-    lr_bam: BamArg = None,
+    lr_bam: BamArg,
     extra_contigs: ExtraContigsArg = None,
     centromere_file: CentromereFileArg = None,
 ) -> None:
@@ -178,7 +179,7 @@ def seed(
     )
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
-    chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs) if lr_bam else None
+    chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
     run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap, centromere_file, chr_sizes)
 
 
