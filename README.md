@@ -31,7 +31,15 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
    source $(poetry env info --path)/bin/activate
    coral --help
    ```
-   This works with all versions of Poetry. To deactivate the environment, run `deactivate`. You will need to re-activate in each new shell session, or add the activation step to your `.bashrc`/`.zshrc`.
+   This works with all versions of Poetry. To deactivate the environment, run `deactivate`.
+
+### Re-activating the environment
+After the initial install, you only need to re-run the activation command each time you start a new shell session (e.g. after logging out and back in):
+```bash
+cd /your/path/to/CoRAL/
+source $(poetry env info --path)/bin/activate
+```
+Run this from the CoRAL repository directory. To avoid doing this manually each session, you can add it to your `~/.bashrc` or `~/.zshrc`.
 
 5. [Download a Gurobi optimizer license](https://support.gurobi.com/hc/en-us/articles/360040541251-How-do-I-obtain-a-free-academic-license) (free for academic use)
    - Place the `gurobi.lic` file in `$HOME/gurobi.lic`.
