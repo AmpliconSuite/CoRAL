@@ -8,6 +8,7 @@ import io
 import logging
 import pathlib
 import pickle
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -165,30 +166,42 @@ class LongReadBamToBreakpointMetadata:
         self.set_raw_cns_data(CNSSegData.from_file(cns_file))
 
         logger.info(f"Total num LR CN segments:{len(self.log2_cn)}.")
-        log2_cn_order = np.argsort(self.log2_cn)
+        _sex_chr = re.compile(r"^(chr)?[XY]$", re.IGNORECASE)
+        autosome_idx = [
+            i
+            for i, intv in enumerate(self.cns_intervals)
+            if not _sex_chr.match(intv.chr)
+        ]
+        autosome_intervals = [self.cns_intervals[i] for i in autosome_idx]
+        autosome_log2_cn = np.array([self.log2_cn[i] for i in autosome_idx])
+        logger.info(
+            f"Excluded {len(self.cns_intervals) - len(autosome_idx)} "
+            "sex-chromosome CN segments from baseline estimation."
+        )
+        log2_cn_order = np.argsort(autosome_log2_cn)
         cns_intervals_median: list[CNInterval] = []
         log2_cn_median = []
         im = int(len(log2_cn_order) / 2.4)
         ip = im + 1
         total_int_len = 0
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[ip]])
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[im]])
-        log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-        log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-        total_int_len += len(self.cns_intervals[log2_cn_order[ip]])
-        total_int_len += len(self.cns_intervals[log2_cn_order[im]])
+        cns_intervals_median.append(autosome_intervals[log2_cn_order[ip]])
+        cns_intervals_median.append(autosome_intervals[log2_cn_order[im]])
+        log2_cn_median.append(autosome_log2_cn[log2_cn_order[ip]])
+        log2_cn_median.append(autosome_log2_cn[log2_cn_order[im]])
+        total_int_len += len(autosome_intervals[log2_cn_order[ip]])
+        total_int_len += len(autosome_intervals[log2_cn_order[im]])
         i = 1
         while total_int_len < 10_000_000:
             cns_intervals_median.append(
-                self.cns_intervals[log2_cn_order[ip + i]]
+                autosome_intervals[log2_cn_order[ip + i]]
             )
             cns_intervals_median.append(
-                self.cns_intervals[log2_cn_order[im - i]]
+                autosome_intervals[log2_cn_order[im - i]]
             )
-            log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-            log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-            total_int_len += len(self.cns_intervals[log2_cn_order[ip + i]])
-            total_int_len += len(self.cns_intervals[log2_cn_order[im - i]])
+            log2_cn_median.append(autosome_log2_cn[log2_cn_order[ip]])
+            log2_cn_median.append(autosome_log2_cn[log2_cn_order[im]])
+            total_int_len += len(autosome_intervals[log2_cn_order[ip + i]])
+            total_int_len += len(autosome_intervals[log2_cn_order[im - i]])
             i += 1
         logger.debug(
             f"Use {len(cns_intervals_median)} LR copy number segments."
