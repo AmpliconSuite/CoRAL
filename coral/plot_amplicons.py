@@ -10,7 +10,7 @@ import pathlib
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import DefaultDict, Optional
+from typing import Any, DefaultDict, Optional
 
 import colorama
 import intervaltree
@@ -111,7 +111,24 @@ class GraphViz:
         ref_genome: core_types.ReferenceGenome,
         gene_subset_list=None,
         restrict_to_bushman=False,
+        refgene_file: pathlib.Path | None = None,
     ) -> None:
+        if refgene_file is None:
+            if ref_genome == core_types.ReferenceGenome.other:
+                logger.warning(
+                    "No --refgene-file provided for --ref other; "
+                    "skipping gene track."
+                )
+                return
+            ref_gene_filepath: Any = (
+                importlib.resources.files(supplemental_data)
+                / f"refGene_{ref_genome}.txt"
+            )
+            use_custom = False
+        else:
+            ref_gene_filepath = refgene_file
+            use_custom = True
+
         bushman_set = set()
         if restrict_to_bushman:
             bushman_filepath = (
@@ -126,16 +143,12 @@ class GraphViz:
                     bushman_set.add(bushman_fields[-1].strip('"'))
 
         seen_names = set()
-        ref_gene_filepath = (
-            importlib.resources.files(supplemental_data)
-            / f"refGene_{ref_genome}.txt"
-        )
-        with ref_gene_filepath.open("r") as infile:
+        with open(ref_gene_filepath) as infile:
             for line in infile:
                 if not (fields := line.rstrip().rsplit()):
                     continue
                 curr_chrom: str = fields[2]
-                if ref_genome in {
+                if not use_custom and ref_genome in {
                     core_types.ReferenceGenome.hg19,
                     core_types.ReferenceGenome.hg38,
                 } and not curr_chrom.startswith("chr"):
@@ -157,6 +170,13 @@ class GraphViz:
                     seen_names.add(gname)
                     curr_gene = Gene(curr_chrom, tstart, tend, fields)
                     self.genes[curr_chrom][tstart:tend] = curr_gene
+
+        if not self.genes:
+            logger.warning(
+                "No genes loaded from %s. Chromosome names in the gene file "
+                "may not match the BAM/graph. Gene track will be empty.",
+                ref_gene_filepath,
+            )
 
     def update_graph_intervals(self) -> None:
         for chrom in self.sequence_edges_by_chr:
@@ -1765,6 +1785,7 @@ def plot_amplicon(
     should_hide_genes: bool,
     should_restrict_to_bushman_genes: bool,
     should_plot_only_cyclic_walks: bool,
+    refgene_file: pathlib.Path | None = None,
 ) -> None:
     if should_plot_graph:
         if not graph_file:
@@ -1779,7 +1800,7 @@ def plot_amplicon(
         sys.exit(1)
 
     g = GraphViz()
-    g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes)
+    g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes, refgene_file)
     if should_plot_graph:
         bp_graph = parse_breakpoint_graph(graph_file)  # type: ignore[arg-type]
         g.open_bam(bam_path)

@@ -565,6 +565,15 @@ def plot_mode(
             help="Reduce gene set to the Bushman cancer-related gene set."
         ),
     ] = False,
+    refgene_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            help="Custom refGene-format file for the gene track. "
+            "If provided, overrides the bundled gene file for the selected "
+            "reference genome. Required when --ref other. "
+            "See coral/supplemental_data/refGene_hg38.txt for the expected format."
+        ),
+    ] = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -599,6 +608,7 @@ def plot_mode(
         should_hide_genes=hide_genes,
         should_restrict_to_bushman_genes=bushman_genes,
         should_plot_only_cyclic_walks=only_cyclic_paths,
+        refgene_file=refgene_file,
     )
 
 
@@ -668,6 +678,15 @@ def plot_all_mode(
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
+    refgene_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            help="Custom refGene-format file for the gene track. "
+            "If provided, overrides the bundled gene file for the selected "
+            "reference genome. Required when --ref other. "
+            "See coral/supplemental_data/refGene_hg38.txt for the expected format."
+        ),
+    ] = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -718,6 +737,7 @@ def plot_all_mode(
                     should_hide_genes=hide_genes,
                     should_restrict_to_bushman_genes=bushman_genes,
                     should_plot_only_cyclic_walks=only_cyclic_paths,
+                    refgene_file=refgene_file,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -745,6 +765,7 @@ def plot_all_mode(
                         should_hide_genes=hide_genes,
                         should_restrict_to_bushman_genes=bushman_genes,
                         should_plot_only_cyclic_walks=only_cyclic_paths,
+                        refgene_file=refgene_file,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):
@@ -769,6 +790,7 @@ def plot_all_mode(
                         should_hide_genes=hide_genes,
                         should_restrict_to_bushman_genes=bushman_genes,
                         should_plot_only_cyclic_walks=only_cyclic_paths,
+                        refgene_file=refgene_file,
                     )
 
 

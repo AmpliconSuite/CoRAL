@@ -41,3 +41,5 @@ class ReferenceGenome(StrEnum):
     hg19 = "hg19"
     hg38 = "hg38"
     mm10 = "mm10"
+    t2t = "t2t"
+    other = "other"
