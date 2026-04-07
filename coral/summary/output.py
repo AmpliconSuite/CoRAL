@@ -19,7 +19,7 @@ def output_amplicon_solution(
     walk_indices = sorted(
         [(0, i) for i in range(len(bp_graph.walk_weights.cycles))]
         + [(1, i) for i in range(len(bp_graph.walk_weights.paths))],
-        key=lambda item: bp_graph.walk_weights[item[0]][item[1]],
+        key=lambda item: (bp_graph.walk_weights.cycles if item[0] == 0 else bp_graph.walk_weights.paths)[item[1]],
         reverse=True,
     )
     heaviest_walk = walk_indices[0]
@@ -109,15 +109,16 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
 
 
 def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
-    header_str = f"{text_utils.VERSION_TEMPLATE.format(
+    version_str = text_utils.VERSION_TEMPLATE.format(
         version=importlib.metadata.version("coral")
-    )}\n"
-    header_str += f"{sum(was_amplicon_solved.values())}/{len(was_amplicon_solved)} amplicons solved.\n"
-    header_str += (
-        f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
     )
-    header_str += f"{text_utils.PROFILE_ENABLED_TEMPLATE.format(
-        enabled=global_state.STATE_PROVIDER.should_profile)}\n"
+    profile_str = text_utils.PROFILE_ENABLED_TEMPLATE.format(
+        enabled=global_state.STATE_PROVIDER.should_profile
+    )
+    header_str = f"{version_str}\n"
+    header_str += f"{sum(was_amplicon_solved.values())}/{len(was_amplicon_solved)} amplicons solved.\n"
+    header_str += f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
+    header_str += f"{profile_str}\n"
 
     return header_str
 
