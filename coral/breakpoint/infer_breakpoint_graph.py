@@ -470,6 +470,45 @@ class LongReadBamToBreakpointMetadata:
             },
         )
 
+    def merge_connected_amplicons(self) -> None:
+        """Merge amplicons connected by breakpoints discovered during BFS.
+
+        During BFS interval expansion, discordant reads can link two intervals
+        that end up assigned to separate amplicons. Because these breakpoints
+        already passed the min-support cutoff (they are in new_bp_list), the
+        two amplicons should be treated as a single structure. This method
+        reassigns amplicon_ids to unify them, iterating until stable so that
+        chains (A→B and B→C) are fully collapsed.
+        """
+        changed = True
+        while changed:
+            changed = False
+            for bp in self.new_bp_list:
+                io1 = interval_overlap_l(
+                    Interval(bp.chr1, bp.pos1, bp.pos1),
+                    self.amplicon_intervals,
+                )
+                io2 = interval_overlap_l(
+                    Interval(bp.chr2, bp.pos2, bp.pos2),
+                    self.amplicon_intervals,
+                )
+                if io1 is None or io2 is None:
+                    continue
+                intv1 = self.amplicon_intervals[io1]
+                intv2 = self.amplicon_intervals[io2]
+                if intv1.amplicon_id == intv2.amplicon_id:
+                    continue
+                old_id = intv2.amplicon_id
+                new_id = intv1.amplicon_id
+                logger.info(
+                    f"Merging amplicons {old_id} and {new_id} due to "
+                    f"connecting breakpoint {bp}."
+                )
+                for intv in self.amplicon_intervals:
+                    if intv.amplicon_id == old_id:
+                        intv.amplicon_id = new_id
+                changed = True
+
     def find_amplicon_intervals(self) -> None:
         # Reset seed intervals
         logger.debug("Widening seed amplicon intervals based on CN segments.")
@@ -496,6 +535,10 @@ class LongReadBamToBreakpointMetadata:
         # Merge amplicon intervals
         logger.info("Begin merging adjacent intervals.")
         self.merge_amplicon_intervals()
+
+        # Merge amplicons connected by BFS-discovered breakpoints
+        logger.info("Begin merging amplicons connected by breakpoints.")
+        self.merge_connected_amplicons()
 
         logger.info(
             f"There are {len(self.amplicon_intervals)} amplicon intervals after"
@@ -1328,7 +1371,13 @@ class LongReadBamToBreakpointMetadata:
             assert io1 is not None and io2 is not None
             intv1 = self.amplicon_intervals[io1]
             intv2 = self.amplicon_intervals[io2]
-            assert intv1.amplicon_id == intv2.amplicon_id
+            if intv1.amplicon_id != intv2.amplicon_id:
+                logger.error(
+                    f"Breakpoint {bp} connects intervals in different "
+                    f"amplicons ({intv1.amplicon_id} vs "
+                    f"{intv2.amplicon_id}); skipping."
+                )
+                continue
 
             amplicon_idx = self.ccid2id[intv1.amplicon_id] - 1
             if intv1.amplicon_id != bp_ccid:
