@@ -46,9 +46,9 @@ class CNSSegData:
 
             # Calc log2 CN for .cns
             log2_cn = (
-                float(fields[4]) if is_cns else np.log2(float(fields[3]) / 2.0)
+                float(fields[4]) if is_cns else np.log2(float(fields[-1]) / 2.0)
             )
-            raw_cn = 2 * (2**log2_cn) if is_cns else float(fields[3])
+            raw_cn = 2 * (2**log2_cn) if is_cns else float(fields[-1])
             log2_cns.append(log2_cn)
             cns_interval = CNInterval(chr_tag, start, end - 1, raw_cn)
 

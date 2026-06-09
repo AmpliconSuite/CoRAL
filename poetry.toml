@@ -1,1 +1,2 @@
 keyring.enabled = false
+virtualenvs.create = true

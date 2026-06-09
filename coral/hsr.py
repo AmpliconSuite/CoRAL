@@ -15,8 +15,9 @@ from coral.breakpoint.breakpoint_utilities import (
     interval2bp,
     interval_overlap_l,
 )
-from coral.constants import CHR_SIZES, CHR_TAG_TO_IDX
+from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import BPAlignments, Interval
+from coral.global_state import STATE_PROVIDER
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
@@ -120,7 +121,7 @@ def locate_hsrs(
         if cn_seg_file.name.endswith(".cns"):
             cn = 2 * (2 ** float(s[4]))
         elif cn_seg_file.name.endswith(".bed"):
-            cn = float(s[3])
+            cn = float(s[-1])
         else:
             logger.error(cn_seg_file.name + "\n")
             logger.error("Invalid cn_seg file format!\n")
@@ -236,12 +237,13 @@ def locate_hsrs(
         f"Found {len(bp_refined)} breakpoints connecting ecDNA and chromosomes."
     )
     lr_bamfh.close()
-    sum_sizes = sum(CHR_SIZES.values())
+    chr_sizes = STATE_PROVIDER.chr_sizes
+    sum_sizes = sum(chr_sizes.values())
     agg_size = 0
     xtick_pos = []
     starting_pos = dict()
-    for chr in CHR_SIZES.keys():
-        agg_size += CHR_SIZES[chr]
+    for chr in chr_sizes.keys():
+        agg_size += chr_sizes[chr]
         if agg_size < sum_sizes:
             plt.plot(
                 [agg_size * 100.0 / sum_sizes, agg_size * 100.0 / sum_sizes],
@@ -249,8 +251,8 @@ def locate_hsrs(
                 "k--",
                 linewidth=2,
             )
-        xtick_pos.append((agg_size - 0.5 * CHR_SIZES[chr]) * 100.0 / sum_sizes)
-        starting_pos[chr] = (agg_size - CHR_SIZES[chr]) * 100.0 / sum_sizes
+        xtick_pos.append((agg_size - 0.5 * chr_sizes[chr]) * 100.0 / sum_sizes)
+        starting_pos[chr] = (agg_size - chr_sizes[chr]) * 100.0 / sum_sizes
 
     for bp_entry in bp_refined:
         bp_obj, bp_reads = bp_entry

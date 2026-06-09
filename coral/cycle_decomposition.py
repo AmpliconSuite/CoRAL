@@ -195,11 +195,11 @@ def minimize_cycles_post(
     #     solver_options.time_limit_s, bp_graph.num_disc_edges * 300
     # )  # each breakpoint edge is assigned >= 5 minutes)
 
-    k = len(init_sol.walks[0]) + len(init_sol.walks[1])
+    k = len(init_sol.walks.cycles) + len(init_sol.walks.paths)
     logger.debug(f"Reset k (num cycles) to {k}.")
     p_path_constraints = 0.0
     path_constraint_indices_ = []
-    for paths in init_sol.satisfied_pc[0] + init_sol.satisfied_pc[1]:
+    for paths in init_sol.satisfied_pc.cycles + init_sol.satisfied_pc.paths:
         for pathi in paths:
             if pathi not in path_constraint_indices_:
                 path_constraint_indices_.append(pathi)
@@ -815,7 +815,7 @@ def postprocess_solution(
 
     logger.info("Completed postprocessing of the greedy solution.")
     logger.info(
-        f"Num cycles = {len(lp_solution.walks[0])}; num paths = {len(lp_solution.walks[1])}."
+        f"Num cycles = {len(lp_solution.walks.cycles)}; num paths = {len(lp_solution.walks.paths)}."
     )
     logger.info(
         f"Total length weighted CN = {lp_solution.total_weights_included}/{total_weights}."

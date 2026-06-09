@@ -8,6 +8,7 @@ import io
 import logging
 import pathlib
 import pickle
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -29,7 +30,6 @@ from coral.breakpoint.breakpoint_utilities import (
     interval_exclusive,
     interval_overlap_l,
 )
-from coral.constants import CHR_TAG_TO_IDX
 from coral.datatypes import (
     AmpliconInterval,
     BPAlignments,
@@ -165,30 +165,42 @@ class LongReadBamToBreakpointMetadata:
         self.set_raw_cns_data(CNSSegData.from_file(cns_file))
 
         logger.info(f"Total num LR CN segments:{len(self.log2_cn)}.")
-        log2_cn_order = np.argsort(self.log2_cn)
+        _sex_chr = re.compile(r"^(chr)?[XY]$", re.IGNORECASE)
+        autosome_idx = [
+            i
+            for i, intv in enumerate(self.cns_intervals)
+            if not _sex_chr.match(intv.chr)
+        ]
+        autosome_intervals = [self.cns_intervals[i] for i in autosome_idx]
+        autosome_log2_cn = np.array([self.log2_cn[i] for i in autosome_idx])
+        logger.info(
+            f"Excluded {len(self.cns_intervals) - len(autosome_idx)} "
+            "sex-chromosome CN segments from baseline estimation."
+        )
+        log2_cn_order = np.argsort(autosome_log2_cn)
         cns_intervals_median: list[CNInterval] = []
         log2_cn_median = []
         im = int(len(log2_cn_order) / 2.4)
         ip = im + 1
         total_int_len = 0
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[ip]])
-        cns_intervals_median.append(self.cns_intervals[log2_cn_order[im]])
-        log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-        log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-        total_int_len += len(self.cns_intervals[log2_cn_order[ip]])
-        total_int_len += len(self.cns_intervals[log2_cn_order[im]])
+        cns_intervals_median.append(autosome_intervals[log2_cn_order[ip]])
+        cns_intervals_median.append(autosome_intervals[log2_cn_order[im]])
+        log2_cn_median.append(autosome_log2_cn[log2_cn_order[ip]])
+        log2_cn_median.append(autosome_log2_cn[log2_cn_order[im]])
+        total_int_len += len(autosome_intervals[log2_cn_order[ip]])
+        total_int_len += len(autosome_intervals[log2_cn_order[im]])
         i = 1
         while total_int_len < 10_000_000:
             cns_intervals_median.append(
-                self.cns_intervals[log2_cn_order[ip + i]]
+                autosome_intervals[log2_cn_order[ip + i]]
             )
             cns_intervals_median.append(
-                self.cns_intervals[log2_cn_order[im - i]]
+                autosome_intervals[log2_cn_order[im - i]]
             )
-            log2_cn_median.append(self.log2_cn[log2_cn_order[ip]])
-            log2_cn_median.append(self.log2_cn[log2_cn_order[im]])
-            total_int_len += len(self.cns_intervals[log2_cn_order[ip + i]])
-            total_int_len += len(self.cns_intervals[log2_cn_order[im - i]])
+            log2_cn_median.append(autosome_log2_cn[log2_cn_order[ip]])
+            log2_cn_median.append(autosome_log2_cn[log2_cn_order[im]])
+            total_int_len += len(autosome_intervals[log2_cn_order[ip + i]])
+            total_int_len += len(autosome_intervals[log2_cn_order[im - i]])
             i += 1
         logger.debug(
             f"Use {len(cns_intervals_median)} LR copy number segments."
@@ -458,6 +470,45 @@ class LongReadBamToBreakpointMetadata:
             },
         )
 
+    def merge_connected_amplicons(self) -> None:
+        """Merge amplicons connected by breakpoints discovered during BFS.
+
+        During BFS interval expansion, discordant reads can link two intervals
+        that end up assigned to separate amplicons. Because these breakpoints
+        already passed the min-support cutoff (they are in new_bp_list), the
+        two amplicons should be treated as a single structure. This method
+        reassigns amplicon_ids to unify them, iterating until stable so that
+        chains (A→B and B→C) are fully collapsed.
+        """
+        changed = True
+        while changed:
+            changed = False
+            for bp in self.new_bp_list:
+                io1 = interval_overlap_l(
+                    Interval(bp.chr1, bp.pos1, bp.pos1),
+                    self.amplicon_intervals,
+                )
+                io2 = interval_overlap_l(
+                    Interval(bp.chr2, bp.pos2, bp.pos2),
+                    self.amplicon_intervals,
+                )
+                if io1 is None or io2 is None:
+                    continue
+                intv1 = self.amplicon_intervals[io1]
+                intv2 = self.amplicon_intervals[io2]
+                if intv1.amplicon_id == intv2.amplicon_id:
+                    continue
+                old_id = intv2.amplicon_id
+                new_id = intv1.amplicon_id
+                logger.info(
+                    f"Merging amplicons {old_id} and {new_id} due to "
+                    f"connecting breakpoint {bp}."
+                )
+                for intv in self.amplicon_intervals:
+                    if intv.amplicon_id == old_id:
+                        intv.amplicon_id = new_id
+                changed = True
+
     def find_amplicon_intervals(self) -> None:
         # Reset seed intervals
         logger.debug("Widening seed amplicon intervals based on CN segments.")
@@ -484,6 +535,10 @@ class LongReadBamToBreakpointMetadata:
         # Merge amplicon intervals
         logger.info("Begin merging adjacent intervals.")
         self.merge_amplicon_intervals()
+
+        # Merge amplicons connected by BFS-discovered breakpoints
+        logger.info("Begin merging amplicons connected by breakpoints.")
+        self.merge_connected_amplicons()
 
         logger.info(
             f"There are {len(self.amplicon_intervals)} amplicon intervals after"
@@ -923,7 +978,7 @@ class LongReadBamToBreakpointMetadata:
                 logger.exception(f"Unable to parse {bp=}")
 
         return sorted(same_chr_segs), sorted(
-            diff_chr_segs, key=lambda item: (CHR_TAG_TO_IDX[item[0]], item[1:])
+            diff_chr_segs, key=lambda item: (core_types.chr_sort_key(item[0]), item[1:])
         )
 
     def find_interval_i(self, ai: int, ccid: int) -> None:
@@ -984,7 +1039,7 @@ class LongReadBamToBreakpointMetadata:
 
             for chr_, cni_to_reads in sorted(
                 chr_to_cni_to_reads.items(),
-                key=lambda item: CHR_TAG_TO_IDX[item[0]],
+                key=lambda item: core_types.chr_sort_key(item[0]),
             ):
                 # Verify if there are any CN segments on this chr
                 if len(cni_to_reads) == 0:
@@ -1316,7 +1371,13 @@ class LongReadBamToBreakpointMetadata:
             assert io1 is not None and io2 is not None
             intv1 = self.amplicon_intervals[io1]
             intv2 = self.amplicon_intervals[io2]
-            assert intv1.amplicon_id == intv2.amplicon_id
+            if intv1.amplicon_id != intv2.amplicon_id:
+                logger.error(
+                    f"Breakpoint {bp} connects intervals in different "
+                    f"amplicons ({intv1.amplicon_id} vs "
+                    f"{intv2.amplicon_id}); skipping."
+                )
+                continue
 
             amplicon_idx = self.ccid2id[intv1.amplicon_id] - 1
             if intv1.amplicon_id != bp_ccid:

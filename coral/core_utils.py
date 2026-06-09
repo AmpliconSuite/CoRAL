@@ -6,12 +6,13 @@ import pathlib
 import re
 import tempfile
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, NamedTuple, ParamSpec, TypeVar
-from collections import defaultdict
 
 import colorama
 import memray
+import pysam
 
 from coral import datatypes, global_state
 
@@ -23,6 +24,39 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+
+
+_STD_CHR_PATTERN = re.compile(r"^(chr)?([1-9][0-9]?|X|Y|M|MT)$")
+
+
+def build_chr_sizes_from_bam(
+    bam_path: str | pathlib.Path,
+    extra_contigs_path: str | pathlib.Path | None = None,
+) -> dict[str, int]:
+    """Build a chromosome-name-to-length dict from a BAM file header.
+
+    Standard chromosomes (chr1-22, chrX, chrY, chrM/chrMT, with or without
+    the 'chr' prefix) are always included. Additional contigs can be added via
+    a plain-text file with one contig name per line (only the first
+    whitespace-delimited column is used; lines starting with '#' are ignored).
+    """
+    extra_contigs: set[str] = set()
+    if extra_contigs_path is not None:
+        with open(extra_contigs_path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                extra_contigs.add(line.split()[0])
+
+    chr_sizes: dict[str, int] = {}
+    with pysam.AlignmentFile(str(bam_path), "rb") as samfile:
+        for sq in samfile.header.to_dict().get("SQ", []):
+            name: str = sq["SN"]
+            length: int = sq["LN"]
+            if _STD_CHR_PATTERN.match(name) or name in extra_contigs:
+                chr_sizes[name] = length
+    return chr_sizes
 
 
 def path_to_edge_count(

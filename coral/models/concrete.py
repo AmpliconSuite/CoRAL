@@ -320,43 +320,43 @@ def initialize_post_processing_solver(
         None - modifies the input model object directly with the provided
         solution's values for each variable.
     """
-    for i in range(len(init_sol.walks[0])):
+    for i in range(len(init_sol.walks.cycles)):
         model.z[i] = 1
-        model.w[i] = init_sol.walk_weights[0][i]
-        for edge_id in init_sol.walks[0][i]:
+        model.w[i] = init_sol.walk_weights.cycles[i]
+        for edge_id in init_sol.walks.cycles[i]:
             var_name, var_idx = edge_id
             if var_name == "x":
-                model.x[var_idx, i] = init_sol.walks[0][i][edge_id]
+                model.x[var_idx, i] = init_sol.walks.cycles[i][edge_id]
             elif var_name == "c":
-                model.c[var_idx, i] = init_sol.walks[0][i][edge_id]
+                model.c[var_idx, i] = init_sol.walks.cycles[i][edge_id]
             elif var_name == "d":
-                model.d[var_idx, i] = init_sol.walks[0][i][edge_id]
+                model.d[var_idx, i] = init_sol.walks.cycles[i][edge_id]
             elif var_name == "y1":
-                model.y1[var_idx, i] = init_sol.walks[0][i][edge_id]
+                model.y1[var_idx, i] = init_sol.walks.cycles[i][edge_id]
             elif var_name == "y2":
-                model.y2[var_idx, i] = init_sol.walks[0][i][edge_id]
-    for i in range(len(init_sol.walks[1])):
-        i_ = i + len(init_sol.walks[0])
+                model.y2[var_idx, i] = init_sol.walks.cycles[i][edge_id]
+    for i in range(len(init_sol.walks.paths)):
+        i_ = i + len(init_sol.walks.cycles)
         model.z[i_] = 1
-        model.w[i_] = init_sol.walk_weights[1][i]
-        for edge_id in init_sol.walks[1][i]:
+        model.w[i_] = init_sol.walk_weights.paths[i]
+        for edge_id in init_sol.walks.paths[i]:
             v, vi = edge_id
             if v == "x":
-                model.x[vi, i_] = init_sol.walks[1][i][edge_id]
+                model.x[vi, i_] = init_sol.walks.paths[i][edge_id]
             elif v == "c":
-                model.c[vi, i_] = init_sol.walks[1][i][edge_id]
+                model.c[vi, i_] = init_sol.walks.paths[i][edge_id]
             elif v == "d":
-                model.d[vi, i_] = init_sol.walks[1][i][edge_id]
+                model.d[vi, i_] = init_sol.walks.paths[i][edge_id]
             elif v == "y1":
-                model.y1[vi, i_] = init_sol.walks[1][i][edge_id]
+                model.y1[vi, i_] = init_sol.walks.paths[i][edge_id]
             elif v == "y2":
-                model.y2[vi, i_] = init_sol.walks[1][i][edge_id]
-    for i in range(len(init_sol.satisfied_pc[0])):
-        for pi in init_sol.satisfied_pc[0][i]:
+                model.y2[vi, i_] = init_sol.walks.paths[i][edge_id]
+    for i in range(len(init_sol.satisfied_pc.cycles)):
+        for pi in init_sol.satisfied_pc.cycles[i]:
             model.r[pi, i] = 1
             model.R[pi] = 1
-    for i in range(len(init_sol.satisfied_pc[1])):
-        i_ = i + len(init_sol.satisfied_pc[0])
-        for pi in init_sol.satisfied_pc[1][i]:
+    for i in range(len(init_sol.satisfied_pc.paths)):
+        i_ = i + len(init_sol.satisfied_pc.cycles)
+        for pi in init_sol.satisfied_pc.paths[i]:
             model.r[pi, i_] = 1
             model.R[pi] = 1

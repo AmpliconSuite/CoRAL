@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import logging
 import os
 import pathlib
-from typing import Annotated
+from typing import Annotated, Optional
 
 import colorama
 import typer
@@ -27,6 +25,7 @@ from coral.breakpoint.parse_graph import (
 )
 from coral.cnv_seed import run_seeding
 from coral.core_utils import (
+    build_chr_sizes_from_bam,
     get_reconstruction_paths_from_shared_dir,
 )
 from coral.datatypes import CycleDecompOptions, OutputPCOptions, Solver
@@ -38,6 +37,7 @@ coral_app = typer.Typer(
     help="Long-read amplicon reconstruction pipeline and associated utilities.",
     pretty_exceptions_show_locals=False,  # Prints all local variables in the
     # error traceback, which is typically kind of insane with WGS data
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
 
 # Note: typer.Arguments are required, typer.Options are optional
 BamArg = Annotated[
-    pathlib.Path | None,
+    Optional[pathlib.Path],
     typer.Option(help="Sorted indexed (long read) bam file."),
 ]
 CnvSeedArg = Annotated[
@@ -68,7 +68,7 @@ CnSegArg = Annotated[
 ]
 OutputPrefixArg = Annotated[str, typer.Option(help="Prefix of output files.")]
 ReconstructLogArg = Annotated[
-    pathlib.Path | None,
+    Optional[pathlib.Path],
     typer.Option(
         help="Name of the main *.log file, which can be used to trace the status "
         "of reconstruct run(s)."
@@ -128,6 +128,18 @@ ReferenceGenomeArg = Annotated[
     core_types.ReferenceGenome,
     typer.Option(help="Reference genome."),
 ]
+ExtraContigsArg = Annotated[
+    Optional[pathlib.Path],
+    typer.Option(
+        help="Text file of additional contig names (one per line, first column) "
+        "to include alongside standard chromosomes when reading chr sizes from "
+        "the BAM header."
+    ),
+]
+CentromereFileArg = Annotated[
+    pathlib.Path,
+    typer.Option(help="Centromere BED file (chr, start, end). See docs for format."),
+]
 
 
 @coral_app.command(help="Filter and merge amplified intervals.")
@@ -135,6 +147,8 @@ def seed(
     ctx: typer.Context,
     cn_seg: CnSegArg,
     output_prefix: OutputPrefixArg,
+    lr_bam: BamArg,
+    centromere_file: CentromereFileArg,
     gain: Annotated[
         float,
         typer.Option(
@@ -153,6 +167,7 @@ def seed(
             help="Maximum gap size (in bp) to merge two proximal intervals."
         ),
     ] = 300000,
+    extra_contigs: ExtraContigsArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -161,7 +176,8 @@ def seed(
     )
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
-    run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap)
+    chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
+    run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap, centromere_file, chr_sizes)
 
 
 @coral_app.command(help="Reconstruct focal amplifications")
@@ -468,12 +484,15 @@ def hsr_mode(
         int,
         typer.Option(help="Crude breakpoint matching cutoff for clustering."),
     ] = 2000,
+    extra_contigs: ExtraContigsArg = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
         f"Performing HSR mode with options: {ctx.params}"
         f"{colorama.Style.RESET_ALL}"
     )
+    if lr_bam:
+        global_state.STATE_PROVIDER.chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
     hsr.locate_hsrs(
         lr_bam,
         cycles,
@@ -494,21 +513,21 @@ def plot_mode(
     ref: ReferenceGenomeArg,
     output_prefix: OutputPrefixArg,
     graph: Annotated[
-        typer.FileText | None,
+        Optional[typer.FileText],
         typer.Option(help="AmpliconSuite-formatted graph file (*_graph.txt)."),
     ] = None,
     bam: BamArg = None,
     cycles: Annotated[
-        typer.FileText | None,
+        Optional[typer.FileText],
         typer.Option(
             help="AmpliconSuite-formatted cycles file (*_cycles.txt)."
         ),
     ] = None,
     num_cycles: Annotated[
-        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
     ] = None,
     region: Annotated[
-        str | None,
+        Optional[str],
         typer.Option(
             help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
         ),
@@ -546,6 +565,15 @@ def plot_mode(
             help="Reduce gene set to the Bushman cancer-related gene set."
         ),
     ] = False,
+    refgene_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            help="Custom refGene-format file for the gene track. "
+            "If provided, overrides the bundled gene file for the selected "
+            "reference genome. Required when --ref other. "
+            "See coral/supplemental_data/refGene_hg38.txt for the expected format."
+        ),
+    ] = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -580,6 +608,7 @@ def plot_mode(
         should_hide_genes=hide_genes,
         should_restrict_to_bushman_genes=bushman_genes,
         should_plot_only_cyclic_walks=only_cyclic_paths,
+        refgene_file=refgene_file,
     )
 
 
@@ -592,15 +621,15 @@ def plot_all_mode(
     ref: ReferenceGenomeArg,
     output_prefix: OutputPrefixArg,
     reconstruction_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Reconstruction directory."),
     ] = None,
     cycles_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Cycle directory."),
     ] = None,
     graph_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Graph directory."),
     ] = None,
     bam: BamArg = None,
@@ -608,7 +637,7 @@ def plot_all_mode(
         bool, typer.Option(help="Only plot cyclic paths from cycles file.")
     ] = False,
     num_cycles: Annotated[
-        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
     ] = None,
     max_coverage: Annotated[
         float,
@@ -623,7 +652,7 @@ def plot_all_mode(
         ),
     ] = 0.0,
     region: Annotated[
-        str | None,
+        Optional[str],
         typer.Option(
             help="Specifically visualize only this region, argument formatted as 'chr1:pos1-pos2'."
         ),
@@ -649,6 +678,15 @@ def plot_all_mode(
     profile: Annotated[
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
+    refgene_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            help="Custom refGene-format file for the gene track. "
+            "If provided, overrides the bundled gene file for the selected "
+            "reference genome. Required when --ref other. "
+            "See coral/supplemental_data/refGene_hg38.txt for the expected format."
+        ),
+    ] = None,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -699,6 +737,7 @@ def plot_all_mode(
                     should_hide_genes=hide_genes,
                     should_restrict_to_bushman_genes=bushman_genes,
                     should_plot_only_cyclic_walks=only_cyclic_paths,
+                    refgene_file=refgene_file,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -726,6 +765,7 @@ def plot_all_mode(
                         should_hide_genes=hide_genes,
                         should_restrict_to_bushman_genes=bushman_genes,
                         should_plot_only_cyclic_walks=only_cyclic_paths,
+                        refgene_file=refgene_file,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):
@@ -750,6 +790,7 @@ def plot_all_mode(
                         should_hide_genes=hide_genes,
                         should_restrict_to_bushman_genes=bushman_genes,
                         should_plot_only_cyclic_walks=only_cyclic_paths,
+                        refgene_file=refgene_file,
                     )
 
 
@@ -766,7 +807,7 @@ def cycle2bed_mode(
     ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
     num_cycles: Annotated[
-        int | None, typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
     ] = None,
     rotate_to_min: Annotated[
         bool,
@@ -819,14 +860,14 @@ def score_mode(
         pathlib.Path, typer.Option(help="Reconstruction directory.")
     ],
     cycles_dir: Annotated[
-        pathlib.Path | None,
+        Optional[pathlib.Path],
         typer.Option(help="Cycle directory."),
     ] = None,
     tolerance: Annotated[
         int, typer.Option(help="Breakpoint matching tolerance.")
     ] = 100,
     to_skip: Annotated[
-        list[str] | None, typer.Option(help="List of datasets to skip.")
+        Optional[list[str]], typer.Option(help="List of datasets to skip.")
     ] = None,
 ) -> None:
     print(
