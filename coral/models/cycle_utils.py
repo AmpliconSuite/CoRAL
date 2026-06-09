@@ -326,8 +326,6 @@ def get_solver(
         raw_solver.options["timelimit"] = solver_time_limit
     elif solver_type == datatypes.Solver.SCIP:
         raw_solver.options["limits/time"] = solver_time_limit
-        raw_solver.options["display/freq"] = 1
-        raw_solver.options["display/lpinfo"] = True
 
         # Threads are only respected when using "Fiber-SCIP" executable
         # raw_solver.options["lp/threads"] = solver_options.num_threads
