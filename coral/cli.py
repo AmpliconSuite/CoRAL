@@ -553,6 +553,13 @@ def plot_mode(
             help="List of genes to visualize (will show all by default)."
         ),
     ] = [],
+    gene_subset_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            help="Text or CSV file containing gene names to visualize "
+            "(will show all by default)."
+        ),
+    ] = None,
     hide_genes: Annotated[
         bool, typer.Option(help="Do not show gene track.")
     ] = False,
@@ -609,6 +616,7 @@ def plot_mode(
         should_restrict_to_bushman_genes=bushman_genes,
         should_plot_only_cyclic_walks=only_cyclic_paths,
         refgene_file=refgene_file,
+        gene_subset_file=gene_subset_file,
     )
 
 
@@ -663,6 +671,13 @@ def plot_all_mode(
             help="List of genes to visualize (will show all by default)."
         ),
     ] = [],
+    gene_subset_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            help="Text or CSV file containing gene names to visualize "
+            "(will show all by default)."
+        ),
+    ] = None,
     hide_genes: Annotated[
         bool, typer.Option(help="Do not show gene track.")
     ] = False,
@@ -738,6 +753,7 @@ def plot_all_mode(
                     should_restrict_to_bushman_genes=bushman_genes,
                     should_plot_only_cyclic_walks=only_cyclic_paths,
                     refgene_file=refgene_file,
+                    gene_subset_file=gene_subset_file,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -766,6 +782,7 @@ def plot_all_mode(
                         should_restrict_to_bushman_genes=bushman_genes,
                         should_plot_only_cyclic_walks=only_cyclic_paths,
                         refgene_file=refgene_file,
+                        gene_subset_file=gene_subset_file,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):
@@ -791,6 +808,7 @@ def plot_all_mode(
                         should_restrict_to_bushman_genes=bushman_genes,
                         should_plot_only_cyclic_walks=only_cyclic_paths,
                         refgene_file=refgene_file,
+                        gene_subset_file=gene_subset_file,
                     )
 
 
