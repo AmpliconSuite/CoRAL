@@ -705,10 +705,17 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
                 f"{ce.node2.chr}:{ce.node2.pos}{ce.node2.strand}\t"
                 f"{ce.cn}\t{ce.lr_count}\n"
             )
-        for de in sorted(g.discordant_edges):
+        # Write each SV with the lower-coordinate end first (earlier chromosome
+        # first if inter-chromosomal) so the directionality matches the AA
+        # convention; internally node1/node2 are ordered by detection, not
+        # coordinate. Sort the lines by that same canonical first endpoint.
+        for de in sorted(
+            g.discordant_edges, key=lambda e: e.ordered_nodes[0].sort_key
+        ):
+            first, second = de.ordered_nodes
             fp.write(
-                f"discordant\t{de.node1.chr}:{de.node1.pos}{de.node1.strand}->"
-                f"{de.node2.chr}:{de.node2.pos}{de.node2.strand}\t"
+                f"discordant\t{first.chr}:{first.pos}{first.strand}->"
+                f"{second.chr}:{second.pos}{second.strand}\t"
                 f"{de.cn}\t{de.lr_count}\n"
             )
         # Only output the longest path constraints (post subpath filtering)

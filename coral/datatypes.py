@@ -135,6 +135,17 @@ class Node(NamedTuple):
     def __repr__(self) -> str:
         return self.__str__()
 
+    @property
+    def sort_key(self) -> tuple[tuple[int, int, str], int, int]:
+        """Genomic ordering key: earlier chromosome, then lower position, then
+        reverse strand before forward (matching AmpliconArchitect's
+        ``absPos + 0.4 * strand`` vertex ordering)."""
+        return (
+            core_types.chr_sort_key(self.chr),
+            self.pos,
+            0 if self.strand == Strand.REVERSE else 1,
+        )
+
 
 @dataclass
 class SplitInterval:
@@ -709,6 +720,16 @@ class BreakpointEdge:
 
     lr_count: int  # Long read count
     cn: float = 0.0  # Edge Copy Number
+
+    @property
+    def ordered_nodes(self) -> tuple[Node, Node]:
+        """The two endpoints ordered so the lower genomic coordinate (or earlier
+        chromosome, if inter-chromosomal) comes first. Used when writing the SV
+        to the graph file so its directionality matches the AmpliconArchitect
+        convention regardless of the order the breakpoint ends were detected."""
+        if self.node1.sort_key <= self.node2.sort_key:
+            return self.node1, self.node2
+        return self.node2, self.node1
 
     def __lt__(self, other: BreakpointEdge) -> bool:
         return (
