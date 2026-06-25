@@ -15,7 +15,7 @@ from coral.breakpoint.breakpoint_utilities import (
     interval2bp,
     interval_overlap_l,
 )
-from coral.constants import CHR_TAG_TO_IDX
+from coral.core_types import is_canonical_chr
 from coral.datatypes import BPAlignments, Interval
 from coral.global_state import STATE_PROVIDER
 
@@ -139,7 +139,12 @@ def locate_hsrs(
     for r in chimeric_alignments:
         cycle_flag = False
         cas = chimeric_alignments[r]
-        cas = [ca for ca in cas if ca.ref_interval.chr in CHR_TAG_TO_IDX]
+        # Keep only alignments on primary chromosomes, dropping decoy/alt/
+        # unplaced contigs. Genome-agnostic replacement for the former hardcoded
+        # hg38 CHR_TAG_TO_IDX membership test. Deliberately independent of the
+        # CN-seg file so HSR integration sites on otherwise-normal chromosomes
+        # are retained even when the CN input is sparse (e.g. a .bed of calls).
+        cas = [ca for ca in cas if is_canonical_chr(ca.ref_interval.chr)]
         ref_intvs = [ca.ref_interval for ca in cas]
         for interval in ecdna_intervals:
             i = interval_overlap_l(interval, ref_intvs)

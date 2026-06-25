@@ -29,6 +29,18 @@ def chr_sort_key(name: str) -> tuple[int, int, str]:
     except ValueError:
         return (1, 2, stem)
 
+
+def is_canonical_chr(name: str) -> bool:
+    """Whether `name` is a primary chromosome (autosome, X, Y, or MT).
+
+    Genome-agnostic replacement for the former hardcoded hg38 ``CHR_TAG_TO_IDX``
+    membership test: returns True for chr1..chrN, chrX, chrY, chrM/chrMT (with
+    or without the ``chr`` prefix), and False for decoy/alt/unplaced contigs
+    (e.g. ``chrUn_*``, ``*_random``, ``*_alt``, ``HLA-*``, ``chrEBV``).
+    """
+    stem = name.removeprefix("chr")
+    return stem.isdigit() or stem in ("X", "Y", "M", "MT")
+
 ChrTag = str  # Chromosome identifier, in the form `chr<name>`
 CNSIdx = int
 ReadName = str
