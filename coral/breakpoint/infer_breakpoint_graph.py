@@ -8,7 +8,6 @@ import io
 import logging
 import pathlib
 import pickle
-import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -165,11 +164,10 @@ class LongReadBamToBreakpointMetadata:
         self.set_raw_cns_data(CNSSegData.from_file(cns_file))
 
         logger.info(f"Total num LR CN segments:{len(self.log2_cn)}.")
-        _sex_chr = re.compile(r"^(chr)?[XY]$", re.IGNORECASE)
         autosome_idx = [
             i
             for i, intv in enumerate(self.cns_intervals)
-            if not _sex_chr.match(intv.chr)
+            if core_types.chr_sort_key(intv.chr)[0] == 0
         ]
         autosome_intervals = [self.cns_intervals[i] for i in autosome_idx]
         autosome_log2_cn = np.array([self.log2_cn[i] for i in autosome_idx])

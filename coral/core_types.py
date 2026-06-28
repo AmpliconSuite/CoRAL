@@ -17,12 +17,12 @@ def chr_sort_key(name: str) -> tuple[int, int, str]:
     chromosomes (X, Y), then mitochondrial (M/MT), then any other contig
     lexicographically. Handles both 'chr'-prefixed and bare names.
     """
-    stem = name.removeprefix("chr")
-    if stem in ("M", "MT"):
+    stem = name[3:] if name[:3].lower() == "chr" else name
+    if stem.upper() in ("M", "MT"):
         return (2, 0, "")
-    if stem == "X":
+    if stem.upper() == "X":
         return (1, 0, "")
-    if stem == "Y":
+    if stem.upper() == "Y":
         return (1, 1, "")
     try:
         return (0, int(stem), "")
@@ -38,8 +38,8 @@ def is_canonical_chr(name: str) -> bool:
     or without the ``chr`` prefix), and False for decoy/alt/unplaced contigs
     (e.g. ``chrUn_*``, ``*_random``, ``*_alt``, ``HLA-*``, ``chrEBV``).
     """
-    stem = name.removeprefix("chr")
-    return stem.isdigit() or stem in ("X", "Y", "M", "MT")
+    return chr_sort_key(name)[:2] != (1, 2)
+
 
 ChrTag = str  # Chromosome identifier, in the form `chr<name>`
 CNSIdx = int
