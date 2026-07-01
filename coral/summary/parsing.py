@@ -261,7 +261,7 @@ def get_full_summaries_from_directory(
 ) -> dict[str, FullProfileSummary]:
     summary_stats_by_dataset = {}
     for dataset_path in directory.iterdir():
-        summary_path = dataset_path / "amplicon_summary.txt"
+        summary_path = dataset_path / "summary.txt"
         if summary_path.exists():
             try:
                 summary_stats = parse_full_summary(summary_path)

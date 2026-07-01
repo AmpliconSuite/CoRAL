@@ -79,11 +79,11 @@ def score_reconstruction(
     try:
         if cycle_dir is not None:
             curr_summary = summary_parsing.parse_full_summary(
-                cycle_dir / "amplicon_summary.txt"
+                cycle_dir / "summary.txt"
             )
         else:
             curr_summary = summary_parsing.parse_full_summary(
-                reconstruction_dir / "amplicon_summary.txt"
+                reconstruction_dir / "summary.txt"
             )
     except Exception as e:
         print(f"Error parsing summary for {reconstruction_dir}: {e}")
