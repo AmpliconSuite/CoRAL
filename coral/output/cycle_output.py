@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import importlib.metadata
 import io
 import logging
 import pathlib
 
-from coral import core_types, core_utils
+from coral import core_types, core_utils, text_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
-from coral.datatypes import FinalizedPathConstraint, OutputPCOptions, Walk
+from coral.datatypes import (
+    FinalizedPathConstraint,
+    ModelType,
+    OutputPCOptions,
+    Walk,
+)
 from coral.output.utils import (
     get_single_cycle_str,
     get_single_path_str,
@@ -27,6 +33,20 @@ def output_amplicon_walks(
     logger.info(f"Output cycles for amplicon {amplicon_idx+1}.")
     cycle_path = pathlib.Path(output_prefix + f"_amplicon{amplicon_idx + 1}_cycles.txt")
     fp = cycle_path.open("w")
+
+    method = "min_cycles"  # ModelType.DEFAULT
+    if (
+        bp_graph.model_metadata
+        and bp_graph.model_metadata.model_type == ModelType.GREEDY
+    ):
+        method = "greedy"
+    fp.write(
+        text_utils.CYCLES_HEADER_TEMPLATE.format(
+            method=method,
+            version=importlib.metadata.version("coral"),
+        )
+        + "\n"
+    )
 
     interval_num = 1
     ai_amplicon = sorted(

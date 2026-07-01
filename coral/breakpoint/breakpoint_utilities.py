@@ -4,6 +4,7 @@ Utilities for breakpoint graph inference.
 
 from __future__ import annotations
 
+import importlib.metadata
 import io
 import logging
 from collections import Counter, defaultdict
@@ -21,7 +22,14 @@ from typing import (
 import numpy as np
 import pysam
 
-from coral import bam_types, cigar_parsing, core_types, core_utils, datatypes
+from coral import (
+    bam_types,
+    cigar_parsing,
+    core_types,
+    core_utils,
+    datatypes,
+    text_utils,
+)
 from coral.datatypes import (
     AmpliconInterval,
     BPAlignments,
@@ -682,6 +690,12 @@ def enumerate_partitions(
 def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: OutputPCOptions) -> None:
     """Write a breakpoint graph to file in AA graph format with only long read information"""
     with open(ogfile, "w") as fp:
+        fp.write(
+            text_utils.GRAPH_HEADER_TEMPLATE.format(
+                version=importlib.metadata.version("coral")
+            )
+            + "\n"
+        )
         fp.write(
             "SequenceEdge: StartPosition, EndPosition, PredictedCN, "
             "AverageCoverage, Size, NumberOfLongReads\n",
