@@ -7,12 +7,12 @@ AMPLICON_SEPARATOR = "-----------------------------------------------"
 ## Summary shared patterns
 
 # Header patterns
-VERSION_TEMPLATE = "CoRAL v{version}"
-VERSION_PATTERN = re.compile(r"CoRAL v(\d+\.\d+\.\d+)")
+VERSION_TEMPLATE = "CoRAL {version}"
+VERSION_PATTERN = re.compile(r"CoRAL (\d+\.\d+\.\d+)")
 
 # File header patterns (leading line of *_graph.txt / *_cycles.txt)
-GRAPH_HEADER_TEMPLATE = "#CoRAL v{version}"
-CYCLES_HEADER_TEMPLATE = "#CoRAL-{method} v{version}"
+GRAPH_HEADER_TEMPLATE = "#CoRAL {version}"
+CYCLES_HEADER_TEMPLATE = "#CoRAL-{method} {version}"
 PROFILE_ENABLED_TEMPLATE = "Profiling Enabled: {enabled}"
 PROFILE_ENABLED_PATTERN = re.compile(r"Profiling Enabled: (True|False)")
 
