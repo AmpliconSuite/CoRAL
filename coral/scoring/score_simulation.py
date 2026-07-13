@@ -112,7 +112,7 @@ def score_reconstruction(
 
         mip_gap = None
         # TODO: remove below line once latest batch of summaries produced
-        model_used = datatypes.ModelType.GREEDY
+        model_used = datatypes.CycleDecompOptions.MAX_WEIGHT
 
         if (
             curr_summary is not None

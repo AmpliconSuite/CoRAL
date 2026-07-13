@@ -844,16 +844,9 @@ class FnCall(NamedTuple):
     call_ctr: int | None
 
 
-class ModelType(str, enum.Enum):
-    """Enum for specifying the type of model to use for cycle decomposition."""
-
-    DEFAULT = "default"  # Minimize # of cycles within a single model
-    GREEDY = "greedy"  # Maximize weights for a single cycle, iteratively
-
-
 # Use NamedTuple for easier parsing/validation with Pandas + Pandera
 class ModelMetadata(NamedTuple):
-    model_type: ModelType
+    model_type: CycleDecompOptions
     k: int | None = None
     alpha: float | None = None
     total_weights: float | None = None
@@ -863,7 +856,7 @@ class ModelMetadata(NamedTuple):
 
     def to_output_str(self) -> str:
         return text_utils.MODEL_METADATA_TEMPLATE.format(
-            model_type=self.model_type.name,
+            model_type=self.model_type.value,
             k=self.k,
             alpha=self.alpha,
             total_weights=self.total_weights,

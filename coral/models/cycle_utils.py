@@ -118,7 +118,7 @@ def parse_solver_output(
     k: int,
     pc_list: List,
     total_weights: float,
-    model_type: datatypes.ModelType,
+    model_type: datatypes.CycleDecompOptions,
     remaining_cn: EdgeToCN | None = None,
     resolution: float = 0.0,
     is_pc_unsatisfied: List[bool] | None = None,

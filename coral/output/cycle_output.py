@@ -9,7 +9,7 @@ from coral import core_types, core_utils, text_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.datatypes import (
     FinalizedPathConstraint,
-    ModelType,
+    CycleDecompOptions,
     OutputPCOptions,
     Walk,
 )
@@ -34,12 +34,11 @@ def output_amplicon_walks(
     cycle_path = pathlib.Path(output_prefix + f"_amplicon{amplicon_idx + 1}_cycles.txt")
     fp = cycle_path.open("w")
 
-    method = "min_cycles"  # ModelType.DEFAULT
-    if (
-        bp_graph.model_metadata
-        and bp_graph.model_metadata.model_type == ModelType.GREEDY
-    ):
-        method = "max_weight"
+    method = (
+        bp_graph.model_metadata.model_type.value
+        if bp_graph.model_metadata
+        else CycleDecompOptions.MIN_CYCLES.value
+    )
     fp.write(
         text_utils.CYCLES_HEADER_TEMPLATE.format(
             method=method,

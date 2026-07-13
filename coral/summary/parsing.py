@@ -200,7 +200,7 @@ def parse_amplicon_summary(summary_str: str) -> AmpliconSummary:
                 2:
             ]
             amplicon_summary.model_metadata = datatypes.ModelMetadata(
-                model_type=datatypes.ModelType[match.group(1)],
+                model_type=datatypes.CycleDecompOptions(match.group(1)),
                 k=int(match.group(2)),
                 alpha=float(alpha) if alpha != "None" else None,
                 total_weights=float(weights) if weights != "None" else None,
@@ -211,7 +211,7 @@ def parse_amplicon_summary(summary_str: str) -> AmpliconSummary:
         if match := text_utils.MODEL_METADATA_PATTERN_V2_1.search(line):
             alpha, weights, resolution = match.groups()[2:]
             amplicon_summary.model_metadata = datatypes.ModelMetadata(
-                model_type=datatypes.ModelType[match.group(1)],
+                model_type=datatypes.CycleDecompOptions(match.group(1)),
                 k=int(match.group(2)),
                 alpha=float(alpha) if alpha != "None" else None,
                 total_weights=float(weights) if weights != "None" else None,
@@ -333,7 +333,7 @@ def get_amplicon_summary_df(
     ].apply(
         lambda x: x.model_type
         if x is not None
-        else datatypes.ModelType.GREEDY  # Remove this default once latest batch of summaries produced
+        else datatypes.CycleDecompOptions.MAX_WEIGHT  # Remove this default once latest batch of summaries produced
     )
     return AmpliconSummaryModel.validate(default_per_amplicon)
 
