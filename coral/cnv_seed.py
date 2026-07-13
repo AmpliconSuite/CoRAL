@@ -139,6 +139,8 @@ def run_seeding(
     chr_arms = parse_centromere_arms(centromere_file, chr_sizes)
     cnv_seeds: list[list[CNInterval]] = []
     cur_seed: list[CNInterval] = []
+    # All whole-genome CN calls, with CN transformed to absolute copy number.
+    cnv_calls: list[CNInterval] = []
     for line in cn_seg_file:
         s = line.strip().split()
         if s[0] != "chromosome":
@@ -154,6 +156,7 @@ def run_seeding(
                 raise SystemExit("Invalid cn_seg file format!\n")
             # Require absolute CN >= max(gain, cn_cutoff_chrarm)
             cn_intv = CNInterval(chr_tag, start, end, cn)
+            cnv_calls.append(cn_intv)
             # Exclude segments overlapping the centromere; if no centromere is
             # defined for this contig, all segments are eligible.
             if cn >= gain and (
@@ -188,8 +191,17 @@ def run_seeding(
 
     if output_prefix:
         output_filename = f"{output_prefix}_CNV_SEEDS.bed"
+        calls_filename = f"{output_prefix}_CNV_CALLS.bed"
     else:
         output_filename = cn_seg_file.name.replace(".cns", "CNV_SEEDS.bed")
+        calls_filename = cn_seg_file.name.replace(".cns", "CNV_CALLS.bed")
+
+    # Write a BED copy of all whole-genome calls with absolute copy numbers.
+    # For .cns input this transforms the log2 ratios to absolute CN; for .bed
+    # input the CN column is already absolute and is copied through.
+    with open(calls_filename, "w") as fp:
+        for cns in cnv_calls:
+            fp.write(f"{cns.chr}\t{cns.start}\t{cns.end}\t{cns.cn:.6g}\n")
 
     with open(output_filename, "w") as fp:
         for seed_intvs in cnv_seeds:
@@ -235,4 +247,5 @@ def run_seeding(
 
     if not cnv_seeds:
         print(f"No seed intervals found with CN>={gain}.")
+    print("Created " + calls_filename)
     print("Created " + output_filename)
