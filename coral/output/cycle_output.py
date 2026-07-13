@@ -39,7 +39,7 @@ def output_amplicon_walks(
         bp_graph.model_metadata
         and bp_graph.model_metadata.model_type == ModelType.GREEDY
     ):
-        method = "greedy"
+        method = "max_weight"
     fp.write(
         text_utils.CYCLES_HEADER_TEMPLATE.format(
             method=method,
