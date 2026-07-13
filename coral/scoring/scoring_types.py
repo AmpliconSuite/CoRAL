@@ -31,7 +31,7 @@ class TrueAmpliconStats:
 
     # Pulled from the reconstructed amplicon that best matches the true amplicon
     matched_amplicon: str | None = None
-    model_used: datatypes.ModelType | None = None
+    model_used: datatypes.CycleDecompOptions | None = None
     mip_gap: float | None = None
 
 
@@ -49,7 +49,7 @@ class ReconstructedAmpliconStats:
     overall_max_lcs: float = 0
     overall_max_normalized_lcs: float = 0
     has_cycle_match: bool = False
-    model_used: datatypes.ModelType | None = None
+    model_used: datatypes.CycleDecompOptions | None = None
     mip_gap: float | None = None
 
 

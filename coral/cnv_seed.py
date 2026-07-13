@@ -120,6 +120,11 @@ def run_seeding(
     method produces these intervals using the given parameters as heuristic
     cutoffs.
 
+    Added since v3.0.2: Along with the seeds it also emits *_CNV_CALLS.bed, the
+    full set of whole genome CN segments with copy number converted to absolute CN. 
+    This file will be used by Amplicon Repository to render sample-level copy
+    number plots.
+
     Args:
         cn_seg_file: File containing long-read segmented whole genome CN calls.
         output_prefix: Prefix for output file.

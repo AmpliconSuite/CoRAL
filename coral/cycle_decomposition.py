@@ -131,7 +131,7 @@ def minimize_cycles(
         k,
         bp_graph.longest_path_constraints,
         total_weights,
-        model_type=datatypes.ModelType.DEFAULT,
+        model_type=datatypes.CycleDecompOptions.MIN_CYCLES,
     )
 
 
@@ -246,7 +246,7 @@ def minimize_cycles_post(
         k,
         pc_list,
         total_weights,
-        model_type=datatypes.ModelType.DEFAULT,
+        model_type=datatypes.CycleDecompOptions.MIN_CYCLES,
     )
 
 
@@ -404,7 +404,7 @@ def maximize_weights_greedy(
             1,
             pc_list,
             total_weights,
-            model_type=datatypes.ModelType.GREEDY,
+            model_type=datatypes.CycleDecompOptions.MAX_WEIGHT,
             remaining_cn=remaining_cn,
             resolution=resolution,
             is_pc_unsatisfied=is_pc_unsatisfied,
@@ -460,7 +460,7 @@ def maximize_weights_greedy(
             )
             break
     full_solution.model_metadata = datatypes.ModelMetadata(
-        model_type=datatypes.ModelType.GREEDY,
+        model_type=datatypes.CycleDecompOptions.MAX_WEIGHT,
         k=cycle_id,
         alpha=alpha,
         total_weights=total_weights,
