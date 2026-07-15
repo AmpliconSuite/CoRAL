@@ -32,8 +32,8 @@ class GlobalStateProvider:
     @property
     def summary_filepath(self) -> pathlib.Path:
         if self.output_prefix == str(pathlib.Path.cwd()):
-            return pathlib.Path(self.output_prefix) / "amplicon_summary.txt"
-        return pathlib.Path(self.output_prefix + "_amplicon_summary.txt")
+            return pathlib.Path(self.output_prefix) / "summary.txt"
+        return pathlib.Path(self.output_prefix + "_summary.txt")
 
     @property
     def remaining_time_s(self) -> float:

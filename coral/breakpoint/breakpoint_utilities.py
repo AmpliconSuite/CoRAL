@@ -4,6 +4,7 @@ Utilities for breakpoint graph inference.
 
 from __future__ import annotations
 
+import importlib.metadata
 import io
 import logging
 from collections import Counter, defaultdict
@@ -21,7 +22,14 @@ from typing import (
 import numpy as np
 import pysam
 
-from coral import bam_types, cigar_parsing, core_types, core_utils, datatypes
+from coral import (
+    bam_types,
+    cigar_parsing,
+    core_types,
+    core_utils,
+    datatypes,
+    text_utils,
+)
 from coral.datatypes import (
     AmpliconInterval,
     BPAlignments,
@@ -683,6 +691,12 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
     """Write a breakpoint graph to file in AA graph format with only long read information"""
     with open(ogfile, "w") as fp:
         fp.write(
+            text_utils.GRAPH_HEADER_TEMPLATE.format(
+                version=importlib.metadata.version("coral")
+            )
+            + "\n"
+        )
+        fp.write(
             "SequenceEdge: StartPosition, EndPosition, PredictedCN, "
             "AverageCoverage, Size, NumberOfLongReads\n",
         )
@@ -710,7 +724,7 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
         # convention; internally node1/node2 are ordered by detection, not
         # coordinate. Sort the lines by that same canonical first endpoint.
         for de in sorted(
-            g.discordant_edges, key=lambda e: e.ordered_nodes[0].sort_key
+            g.discordant_edges, key=lambda e: (e.ordered_nodes[0].sort_key, e.ordered_nodes[1].sort_key)
         ):
             first, second = de.ordered_nodes
             fp.write(
@@ -743,10 +757,11 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
         #    fp.write(f"interval\t{ai.chr}\t{ai.start}\t{ai.end}\n")
 
 
+"""
 def output_breakpoint_info_lr(
     g: BreakpointGraph, filename: str, bp_stats: BreakpointStats
 ) -> None:
-    """Write the list of breakpoints to file"""
+    #Write the list of breakpoints to file
     with open(filename, "w") as fp:
         fp.write(
             "chr1\tpos1\tchr2\tpos2\torientation\tlr_support\t"
@@ -758,6 +773,7 @@ def output_breakpoint_info_lr(
                 f"{de.node2.chr}\t{de.node2.pos}\t{de.node1.chr}\t{de.node1.pos}\t"
                 f"{de.node2.strand}{de.node1.strand}\t{de.lr_count}\t{bp_stats[di]}\n"
             )
+"""
 
 
 # TODO: further modularize the utilities in this file

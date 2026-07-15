@@ -5,7 +5,7 @@ CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as
 **CoRAL only works on long-read whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted sequencing!**
 
 ## Installation
-CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.10 is required.
+CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.10 is required. Python 3.12 is recommended to reduce compatibility issues with some scientific dependencies.
 
 1. Clone the repository
     ```bash
@@ -20,11 +20,20 @@ CoRAL can be installed and run on most modern Unix-like operating systems (e.g. 
    ```
    `pipx` installs Poetry in its own isolated environment, preventing conflicts with system Python packages. Do not use `pip install poetry` directly on a system Python.
 
+   On macOS with a Homebrew-managed Python, `pip install --user pipx` will be rejected as an externally-managed environment (PEP 668). Use Homebrew instead:
+   ```bash
+   brew install pipx
+   pipx ensurepath
+   ```
+   Either way, if `poetry` (or `pipx`-installed tools generally) isn't found on `PATH` afterward, run `pipx ensurepath` and restart your terminal (or `source` your shell config, e.g. `~/.zshrc` or `~/.bashrc`) to pick up the updated `PATH`.
+
 3. Install CoRAL dependencies
    ```bash
    poetry install
    ```
    Poetry creates an isolated virtual environment automatically. If `pysam` fails to build, install `htslib` first (`sudo apt install libhtslib-dev` on Debian/Ubuntu, or `brew install htslib` on macOS), then re-run `poetry install`.
+
+   `cvxopt` may fall back to a source build that fails with `fatal error: 'umfpack.h' file not found`. This means it needs SuiteSparse, which provides UMFPACK. Install it first (`sudo apt install libsuitesparse-dev` on Debian/Ubuntu, or `brew install suite-sparse` on macOS), then re-run `poetry install`.
 
 4. Activate the environment and verify the installation
    ```bash
