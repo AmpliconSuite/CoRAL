@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import pathlib
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -31,7 +32,8 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 import pysam
 from matplotlib import gridspec, ticker
-from matplotlib.patches import Arc, Rectangle
+from matplotlib.lines import Line2D
+from matplotlib.patches import Arc, Patch, Rectangle
 from pylab import rcParams  # type: ignore[import-untyped]
 
 from coral import (
@@ -45,6 +47,50 @@ rcParams["pdf.fonttype"] = 42
 
 
 logger = logging.getLogger(__name__)
+
+
+def parse_gene_subset_file(gene_subset_file: pathlib.Path) -> list[str]:
+    """Parse newline-, whitespace-, or comma-delimited gene names."""
+    genes: list[str] = []
+    with gene_subset_file.open() as infile:
+        for line in infile:
+            for gene_name in re.split(r"[\s,]+", line.strip()):
+                if gene_name:
+                    genes.append(gene_name)
+    return genes
+
+
+def merge_gene_subsets(
+    gene_subset_list: list[str],
+    gene_subset_file: pathlib.Path | None,
+) -> list[str]:
+    genes = list(gene_subset_list)
+    if gene_subset_file is not None:
+        file_genes = parse_gene_subset_file(gene_subset_file)
+        if not file_genes:
+            typer.secho(
+                "Warning: gene subset file "
+                f"{gene_subset_file} is empty; plotting all genes unless "
+                "--gene-subset-list was also provided.",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+        genes.extend(file_genes)
+
+    deduped_genes = []
+    seen_genes = set()
+    for gene_name in genes:
+        if gene_name in seen_genes:
+            continue
+        seen_genes.add(gene_name)
+        deduped_genes.append(gene_name)
+    return deduped_genes
+
+
+def get_discordant_edge_linewidth(edge_cn: float, average_cn: float) -> float:
+    if average_cn <= 0:
+        return 1.0
+    return min(3 * (max(edge_cn, 0.0) / average_cn), 3)
 
 
 # makes a gene object from parsed refGene data
@@ -355,6 +401,7 @@ class GraphViz:
             self.graph_amplified_intervals.keys()
         )
         amplified_intervals_start = {}
+        sequence_edge_plot_positions = {}
         ymax = 0
         ylim_params = [0, 0]
         x = margin_between_intervals
@@ -373,6 +420,7 @@ class GraphViz:
                 x1 = x
                 x += (seq.end - seq.start) * 100.0 / total_len_amp
                 x2 = x
+                sequence_edge_plot_positions[id(seq)] = (x1, x2)
                 if self.plot_bounds:
                     if chrom != self.plot_bounds[0]:
                         continue  # Skip if chromosome doesn't match plot bounds
@@ -428,8 +476,8 @@ class GraphViz:
             "interchromosomal": "blue",
         }
         assert self.graph
-        avg_bp_rc = (
-            sum([bp.lr_count for bp in self.graph.discordant_edges])
+        avg_bp_cn = (
+            sum([bp.cn for bp in self.graph.discordant_edges])
             * 1.0
             / max(len(self.graph.discordant_edges), 1)
         )
@@ -480,7 +528,7 @@ class GraphViz:
                     theta1=0,
                     theta2=180,
                     color=colorcode[ort],
-                    lw=min(3 * (bp.lr_count / avg_bp_rc), 3),
+                    lw=get_discordant_edge_linewidth(bp.cn, avg_bp_cn),
                     zorder=3,
                 )
                 ax2.add_patch(arc)
@@ -495,81 +543,145 @@ class GraphViz:
 
         # Draw coverage within amplified intervals
         max_cov = 0
-        for chrom in sorted_chrs:
-            for inti in range(len(self.graph_amplified_intervals[chrom])):
-                graph_intv = self.graph_amplified_intervals[chrom][inti]
-                if self.plot_bounds:
-                    if chrom != self.plot_bounds[0]:
-                        continue  # Skip if chromosome doesn't match plot bounds
+        if self.bam is not None:
+            coverage_label = "BAM coverage"
+            for chrom in sorted_chrs:
+                for inti in range(len(self.graph_amplified_intervals[chrom])):
+                    graph_intv = self.graph_amplified_intervals[chrom][inti]
+                    if self.plot_bounds:
+                        if chrom != self.plot_bounds[0]:
+                            continue  # Skip if chromosome doesn't match plot bounds
 
-                    if not (
-                        graph_intv.end >= self.plot_bounds[1]
-                        and graph_intv.start <= self.plot_bounds[2]
-                    ):
-                        continue  # Skip if interval doesn't overlap with plot bounds
+                        if not (
+                            graph_intv.end >= self.plot_bounds[1]
+                            and graph_intv.start <= self.plot_bounds[2]
+                        ):
+                            continue  # Skip if interval doesn't overlap with plot bounds
 
-                window_size = 150
-                ival_len = graph_intv.end - graph_intv.start
-                if self.plot_bounds:
-                    ival_len = self.plot_bounds[2] - self.plot_bounds[1]
+                    window_size = 150
+                    ival_len = graph_intv.end - graph_intv.start
+                    if self.plot_bounds:
+                        ival_len = self.plot_bounds[2] - self.plot_bounds[1]
 
-                if ival_len >= 1_000_000:
-                    window_size = 10_000
-                elif ival_len >= 100_000:
-                    window_size = 1_000
+                    if ival_len >= 1_000_000:
+                        window_size = 10_000
+                    elif ival_len >= 100_000:
+                        window_size = 1_000
 
-                for w in range(graph_intv.start, graph_intv.end, window_size):
-                    intv = Interval(chrom, w, w + window_size)
-                    cov = (
-                        self.bam.count_raw_coverage(  # type: ignore
-                            intv,
-                            quality_threshold=0,
-                            read_callback_type="nofilter",
+                    for w in range(graph_intv.start, graph_intv.end, window_size):
+                        intv = Interval(chrom, w, w + window_size)
+                        cov = (
+                            self.bam.count_raw_coverage(
+                                intv,
+                                quality_threshold=quality_threshold,
+                                read_callback_type="nofilter",
+                            )
+                            / window_size
                         )
-                        / window_size
+                        max_cov = max(cov, max_cov)
+                        x = (
+                            amplified_intervals_start[chrom][inti]
+                            + (w - graph_intv.start) * 100.0 / total_len_amp
+                        )
+                        rect = Rectangle(
+                            (x, 0),
+                            window_size * 100.0 / total_len_amp,
+                            cov,
+                            color="silver",
+                            zorder=1,
+                        )
+                        ax.add_patch(rect)
+                    w = graph_intv.end - (
+                        (graph_intv.end - graph_intv.start + 1) % window_size
                     )
-                    max_cov = max(cov, max_cov)
-                    x = (
-                        amplified_intervals_start[chrom][inti]
-                        + (w - graph_intv.start) * 100.0 / total_len_amp
-                    )
+                    if w < graph_intv.end:
+                        cov = (
+                            self.bam.count_raw_coverage(
+                                Interval(chrom, w, w + window_size),
+                                quality_threshold=quality_threshold,
+                                read_callback_type="nofilter",
+                            )
+                            * 1.0
+                            / window_size
+                        )
+                        max_cov = max(cov, max_cov)
+                        x = (
+                            amplified_intervals_start[chrom][inti]
+                            + (w - graph_intv.start) * 100.0 / total_len_amp
+                        )
+                        rect = Rectangle(
+                            (x, 0),
+                            window_size * 100.0 / total_len_amp,
+                            cov,
+                            color="silver",
+                            zorder=1,
+                        )
+                        ax.add_patch(rect)
+        else:
+            coverage_label = "Graph average coverage"
+            for chrom in sorted_chrs:
+                for seq in self.sequence_edges_by_chr[chrom]:
+                    if self.plot_bounds:
+                        if chrom != self.plot_bounds[0]:
+                            continue  # Skip if chromosome doesn't match plot bounds
+
+                        if not (
+                            seq.end >= self.plot_bounds[1]
+                            and seq.start <= self.plot_bounds[2]
+                        ):
+                            continue  # Skip if interval doesn't overlap with plot bounds
+
+                    x1, x2 = sequence_edge_plot_positions[id(seq)]
+                    max_cov = max(seq.lr_nc, max_cov)
                     rect = Rectangle(
-                        (x, 0),
-                        window_size * 100.0 / total_len_amp,
-                        cov,
+                        (x1, 0),
+                        x2 - x1,
+                        seq.lr_nc,
                         color="silver",
                         zorder=1,
                     )
                     ax.add_patch(rect)
-                w = graph_intv.end - (
-                    (graph_intv.end - graph_intv.start + 1) % window_size
-                )
-                if w < graph_intv.end:
-                    cov = (
-                        self.bam.count_raw_coverage(
-                            Interval(chrom, w, w + window_size)
-                        )
-                        * 1.0
-                        / window_size
-                    )
-                    max_cov = max(cov, max_cov)
-                    x = (
-                        amplified_intervals_start[chrom][inti]
-                        + (w - graph_intv.start) * 100.0 / total_len_amp
-                    )
-                    rect = Rectangle(
-                        (x, 0),
-                        window_size * 100.0 / total_len_amp,
-                        cov,
-                        color="silver",
-                        zorder=1,
-                    )
-                    ax.add_patch(rect)
-        ylim_params[1] /= max_cov
-        ax2.set_ylim(0, ylim_params[0] / ylim_params[1])
+        if max_cov > 0 and ylim_params[1] > 0:
+            ylim_params[1] /= max_cov
+            ax2.set_ylim(0, ylim_params[0] / ylim_params[1])
+        else:
+            ax2.set_ylim(0, max(1.25 * ymax, 1.0))
         ax.set_ylabel("Coverage", fontsize=fontsize)
-        ax.set_ylim(0, min(1.25 * max_cov, max_cov_cutoff))
+        coverage_ymax = min(1.25 * max_cov, max_cov_cutoff)
+        ax.set_ylim(0, coverage_ymax if coverage_ymax > 0 else 1.0)
         ax.tick_params(axis="y", labelsize=fontsize)
+
+        legend_handles = [
+            Patch(facecolor="silver", edgecolor="none", label=coverage_label),
+            Line2D(
+                [0],
+                [0],
+                color="black",
+                lw=6,
+                label="Predicted segment CN",
+            ),
+        ]
+        for orientation, color in colorcode.items():
+            legend_handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    lw=2,
+                    label=f"Discordant edge {orientation}",
+                )
+            )
+        ax.legend(
+            handles=legend_handles,
+            loc="upper right",
+            frameon=True,
+            facecolor="white",
+            framealpha=1.0,
+            edgecolor="none",
+            fontsize=max(fontsize - 10, 6),
+            title="Edge width = discordant CN",
+            title_fontsize=max(fontsize - 10, 6),
+        )
 
         # draw genes below plot
         if not hide_genes:
@@ -1786,13 +1898,11 @@ def plot_amplicon(
     should_restrict_to_bushman_genes: bool,
     should_plot_only_cyclic_walks: bool,
     refgene_file: pathlib.Path | None = None,
+    gene_subset_file: pathlib.Path | None = None,
 ) -> None:
     if should_plot_graph:
         if not graph_file:
             print("Please specify the breakpoint graph file to plot.")
-            sys.exit(1)
-        if not bam_path:
-            print("Please specify the bam file to plot.")
             sys.exit(1)
 
     if should_plot_cycles and not cycle_file:
@@ -1800,10 +1910,17 @@ def plot_amplicon(
         sys.exit(1)
 
     g = GraphViz()
-    g.parse_genes(ref, set(gene_subset_list), should_restrict_to_bushman_genes, refgene_file)
+    merged_gene_subset = merge_gene_subsets(gene_subset_list, gene_subset_file)
+    g.parse_genes(
+        ref,
+        set(merged_gene_subset),
+        should_restrict_to_bushman_genes,
+        refgene_file,
+    )
     if should_plot_graph:
         bp_graph = parse_breakpoint_graph(graph_file)  # type: ignore[arg-type]
-        g.open_bam(bam_path)
+        if bam_path:
+            g.open_bam(bam_path)
         g.graph = bp_graph
         if region:
             pchrom = region.split(":")[0]

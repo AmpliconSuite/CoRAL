@@ -248,16 +248,37 @@ At least one of `--graph` or `--cycles` must also be provided.
 |--------------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | `--graph <file>`                           |                                  | AA-formatted `_graph.txt` file                                                                                                            |
 | `--cycles <file>`                          |                                  | AA-formatted `_cycles.txt` file                                                                                                           |
-| `--bam <file>`                             |                                  | Sorted indexed BAM file (required for coverage track in graph plot)                                                                       |
+| `--bam <file>`                             |                                  | Optional sorted indexed BAM file. If provided, graph plots draw gray coverage bars from BAM alignments; otherwise they use average coverage already recorded in the graph file. |
 | `--only-cyclic-paths`                      |                                  | Only visualize the cyclic paths in the cycles file                                                                                        |
 | `--num-cycles <int>`                       | `[all]`                          | Only plot the first `[arg]` cycles from the cycles file                                                                                   |
 | `--max-coverage <float>`                   | `[1.25x max coverage in region]` | Do not extend coverage plot in graph sashimi plot above `[arg]` value                                                                     |
 | `--min-mapq <int>`                         | 15                               | Do not use alignment in coverage plot with MAPQ value below `[arg]`                                                                       |
 | `--gene-subset-list <str> <str> <str> ...` | `[all]`                          | Only indicate positions of the gene names in this list                                                                                    |
+| `--gene-subset-file <file>`                | `[all]`                          | Text or CSV file of gene names to indicate in the plot. Gene names may be newline-, whitespace-, or comma-delimited. Empty files emit a warning and fall back to plotting all genes unless `--gene-subset-list` is also provided. |
 | `--hide-genes`                             |                                  | Do not plot positions of genes                                                                                                            |
 | `--gene-fontsize <float>`                  | 12                               | Adjust fontsize of gene names                                                                                                             
 | `--bushman-genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
+
+Graph plots can be generated from a graph file alone:
+
+```bash
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --output-prefix sample_graph
+```
+
+In this mode, CoRAL uses the predicted CN and average coverage columns already present in `_graph.txt`. If a BAM is provided, CoRAL preserves the existing behavior of extracting the gray coverage bars directly from alignments:
+
+```bash
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --bam sample.bam --output-prefix sample_graph_bam
+```
+
+Plot styling remains the same as the existing graph plot except that the graph legend now documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with predicted discordant-edge CN.
+
+Gene subsets may be supplied directly or through a file:
+
+```bash
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --gene-subset-file genes.csv --output-prefix sample_graph_genes
+```
 
 
 ## 5. ```hsr```
