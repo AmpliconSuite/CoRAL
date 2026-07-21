@@ -263,7 +263,7 @@ In this mode, CoRAL uses the predicted CN and average coverage columns already p
 coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --bam sample.bam --output-prefix sample_graph_bam
 ```
 
-Plot styling remains the same as the existing graph plot except that the graph legend now documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with predicted discordant-edge CN.
+Graph plots write a separate legend figure next to the requested output prefix. The legend documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with discordant read count.
 
 Gene subsets may be supplied directly or through a file:
 
