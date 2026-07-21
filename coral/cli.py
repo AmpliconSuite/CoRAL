@@ -754,6 +754,7 @@ def plot_all_mode(
                     should_plot_only_cyclic_walks=only_cyclic_paths,
                     refgene_file=refgene_file,
                     gene_subset_file=gene_subset_file,
+                    legend_output_prefix=output_prefix,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -783,6 +784,7 @@ def plot_all_mode(
                         should_plot_only_cyclic_walks=only_cyclic_paths,
                         refgene_file=refgene_file,
                         gene_subset_file=gene_subset_file,
+                        legend_output_prefix=output_prefix,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):

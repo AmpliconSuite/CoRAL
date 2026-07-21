@@ -48,6 +48,15 @@ rcParams["pdf.fonttype"] = 42
 
 logger = logging.getLogger(__name__)
 
+DISCORDANT_EDGE_COLORS = {
+    "+-": "red",
+    "++": "magenta",
+    "-+": (139 / 256.0, 69 / 256.0, 19 / 256.0),
+    "--": "teal",
+    "interchromosomal": "blue",
+}
+AA_DISCORDANT_EDGE_MIN_MAX_READ_COUNT = 4.0
+
 
 def parse_gene_subset_file(gene_subset_file: pathlib.Path) -> list[str]:
     """Parse newline-, whitespace-, or comma-delimited gene names."""
@@ -87,10 +96,99 @@ def merge_gene_subsets(
     return deduped_genes
 
 
-def get_discordant_edge_linewidth(edge_cn: float, average_cn: float) -> float:
-    if average_cn <= 0:
+def get_discordant_edge_linewidth(
+    edge_read_count: float,
+    max_read_count: float,
+) -> float:
+    if max_read_count <= 0:
         return 1.0
-    return min(3 * (max(edge_cn, 0.0) / average_cn), 3)
+    aa_max_read_count = max(
+        max_read_count, AA_DISCORDANT_EDGE_MIN_MAX_READ_COUNT
+    )
+    return 4.0 * min(1.0, max(edge_read_count, 0.0) / aa_max_read_count)
+
+
+def get_discordant_edge_arc_height(
+    plot_distance: float,
+    plot_width: float,
+    max_segment_cn: float,
+) -> float:
+    normalized_distance = min(
+        max(plot_distance, 0.0) / max(plot_width, 1.0), 1.0
+    )
+    return 1.5 * max(max_segment_cn, 1.0) * (1.0 + normalized_distance)
+
+
+def get_discordant_edge_arc_base(_max_segment_cn: float) -> float:
+    return 0.0
+
+
+def get_graph_coverage_label(bam_path: pathlib.Path | None) -> str:
+    if bam_path is None:
+        return "Graph average coverage"
+    return "BAM coverage"
+
+
+def get_graph_legend_output_prefix(output_prefix: str) -> pathlib.Path:
+    return pathlib.Path(f"{output_prefix}_legend")
+
+
+def get_graph_legend_handles(coverage_label: str) -> list[Patch | Line2D]:
+    legend_handles: list[Patch | Line2D] = [
+        Patch(facecolor="silver", edgecolor="none", label=coverage_label),
+        Line2D(
+            [0],
+            [0],
+            color="black",
+            lw=6,
+            label="Predicted segment CN",
+        ),
+    ]
+    for orientation, color in DISCORDANT_EDGE_COLORS.items():
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                lw=2,
+                label=f"Discordant edge {orientation}",
+            )
+        )
+    return legend_handles
+
+
+def write_graph_legend(
+    output_prefix: str,
+    coverage_label: str,
+    *,
+    fontsize: float = 10.0,
+    dpi: int = 300,
+) -> None:
+    legend_output_prefix = get_graph_legend_output_prefix(output_prefix)
+    legend_output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    png_path = legend_output_prefix.with_suffix(".png")
+    pdf_path = legend_output_prefix.with_suffix(".pdf")
+    if png_path.exists() and pdf_path.exists():
+        return
+
+    fig = plt.figure(figsize=(6.4, 2.6))
+    fig.legend(
+        handles=get_graph_legend_handles(coverage_label),
+        loc="center",
+        frameon=True,
+        facecolor="white",
+        framealpha=1.0,
+        edgecolor="none",
+        fontsize=fontsize,
+        title="Discordant edge width = read count",
+        title_fontsize=fontsize,
+        ncol=2,
+    )
+    if not png_path.exists():
+        fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
+    if not pdf_path.exists():
+        fig.savefig(pdf_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 # makes a gene object from parsed refGene data
@@ -120,9 +218,9 @@ class GraphViz:
     bam: Optional[bam_types.BAMWrapper] = None
     graph: datatypes.BreakpointGraph | None = None
 
-    graph_amplified_intervals: dict[core_types.ChrTag, list[datatypes.Interval]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    graph_amplified_intervals: dict[
+        core_types.ChrTag, list[datatypes.Interval]
+    ] = field(default_factory=lambda: defaultdict(list))
     num_amplified_intervals: int = 0
     cycle_amplified_intervals: dict[
         core_types.ChrTag, list[datatypes.Interval]
@@ -194,10 +292,15 @@ class GraphViz:
                 if not (fields := line.rstrip().rsplit()):
                     continue
                 curr_chrom: str = fields[2]
-                if not use_custom and ref_genome in {
-                    core_types.ReferenceGenome.hg19,
-                    core_types.ReferenceGenome.hg38,
-                } and not curr_chrom.startswith("chr"):
+                if (
+                    not use_custom
+                    and ref_genome
+                    in {
+                        core_types.ReferenceGenome.hg19,
+                        core_types.ReferenceGenome.hg38,
+                    }
+                    and not curr_chrom.startswith("chr")
+                ):
                     curr_chrom = "chr" + curr_chrom
 
                 tstart = int(fields[4])
@@ -205,10 +308,8 @@ class GraphViz:
                 gname = fields[-4]
                 is_other_feature = gname.startswith(("LOC", "LINC", "MIR"))
                 if (
-                    (restrict_to_bushman
-                    and gname not in bushman_set)
-                    or (gene_subset_list
-                    and gname not in gene_subset_list)
+                    (restrict_to_bushman and gname not in bushman_set)
+                    or (gene_subset_list and gname not in gene_subset_list)
                 ):
                     continue
 
@@ -283,7 +384,9 @@ class GraphViz:
         if graph_given:  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
                 for cycle_seg in self.cycles[cycle_id].segments:
-                    for graph_intv in self.graph_amplified_intervals[cycle_seg.chr]:
+                    for graph_intv in self.graph_amplified_intervals[
+                        cycle_seg.chr
+                    ]:
                         if not graph_intv.encompasses(cycle_seg):
                             continue
 
@@ -375,6 +478,10 @@ class GraphViz:
         )
         ax.set_title(title, fontsize=fontsize)
         ax2 = ax.twinx()
+        ax.set_zorder(1)
+        ax2.set_zorder(2)
+        ax.patch.set_visible(False)
+        ax2.patch.set_visible(False)
         ax3 = fig.add_subplot(gs[1, 0], sharex=ax)
         # ax.yaxis.set_label_coords(-0.05, 0.25)
         # ax2.yaxis.set_label_coords(1.05, 0.33)
@@ -389,17 +496,20 @@ class GraphViz:
         total_len_amp = 0  # Total length of amplified intervals
         for chrom in self.graph_amplified_intervals:
             total_len_amp += sum(
-                [len(graph_intv) for graph_intv in self.graph_amplified_intervals[chrom]],
+                [
+                    len(graph_intv)
+                    for graph_intv in self.graph_amplified_intervals[chrom]
+                ],
             )
+        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+            self.graph_amplified_intervals.keys()
+        )
         # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         zoom_factor = 1.0
         if self.plot_bounds:
             zoom_factor = (
                 float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
             )
-        sorted_chrs = breakpoint_utilities.sort_chrom_names(
-            self.graph_amplified_intervals.keys()
-        )
         amplified_intervals_start = {}
         sequence_edge_plot_positions = {}
         ymax = 0
@@ -411,7 +521,8 @@ class GraphViz:
             for seq in self.sequence_edges_by_chr[chrom]:
                 if chrom not in self.graph_amplified_intervals or (
                     interval_idx >= len(self.graph_amplified_intervals[chrom])
-                    or seq.start > self.graph_amplified_intervals[chrom][interval_idx].end
+                    or seq.start
+                    > self.graph_amplified_intervals[chrom][interval_idx].end
                 ):
                     # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
@@ -432,8 +543,8 @@ class GraphViz:
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 y = seq.cn
-                ylim_params[0] += (seq.cn ** 2)
-                ylim_params[1] += (seq.cn * seq.lr_nc / 1.25)
+                ylim_params[0] += seq.cn**2
+                ylim_params[1] += seq.cn * seq.lr_nc / 1.25
                 ymax = max(y, ymax)
 
                 ax2.hlines(y, x1, x2, color="black", lw=6, zorder=2)
@@ -468,19 +579,21 @@ class GraphViz:
                     )
 
         # Draw discordant edges
-        colorcode = {
-            "+-": "red",
-            "++": "magenta",
-            "-+": (139 / 256.0, 69 / 256.0, 19 / 256.0),
-            "--": "teal",
-            "interchromosomal": "blue",
-        }
         assert self.graph
-        avg_bp_cn = (
-            sum([bp.cn for bp in self.graph.discordant_edges])
-            * 1.0
-            / max(len(self.graph.discordant_edges), 1)
+        max_bp_read_count = max(
+            [bp.lr_count for bp in self.graph.discordant_edges],
+            default=0,
         )
+        plot_width = (
+            100 + (self.num_amplified_intervals + 1) * margin_between_intervals
+        )
+        if self.plot_bounds:
+            plot_width = (
+                (self.plot_bounds[2] - self.plot_bounds[1])
+                * 100.0
+                / total_len_amp
+            )
+        discordant_edge_plots = []
         for bp in self.graph.discordant_edges:
             chr1 = bp.node1.chr
             pos1 = bp.node1.pos
@@ -489,7 +602,10 @@ class GraphViz:
             int1 = 0
             int2 = 0
             ort = f"{bp.node1.strand}{bp.node2.strand}"
-            if chr1 in self.graph_amplified_intervals and chr2 in self.graph_amplified_intervals:
+            if (
+                chr1 in self.graph_amplified_intervals
+                and chr2 in self.graph_amplified_intervals
+            ):
                 while pos1 > self.graph_amplified_intervals[chr1][int1].end:
                     int1 += 1
                 bp_x1 = (
@@ -521,30 +637,43 @@ class GraphViz:
                     if not hit1 and not hit2:
                         continue
 
-                arc = Arc(
-                    ((bp_x1 + bp_x2) * 0.5, 0),
-                    bp_x1 - bp_x2,
-                    2 * ymax,
-                    theta1=0,
-                    theta2=180,
-                    color=colorcode[ort],
-                    lw=get_discordant_edge_linewidth(bp.cn, avg_bp_cn),
-                    zorder=3,
-                )
-                ax2.add_patch(arc)
+                discordant_edge_plots.append((bp, bp_x1, bp_x2, ort))
 
             else:
                 print("Could not place " + str(bp))
                 continue
 
-        #ax2.set_ylim(0, 1.4 * ymax)
+        arc_base_y = get_discordant_edge_arc_base(ymax)
+        max_arc_top_y = 0.0
+        for bp, bp_x1, bp_x2, ort in discordant_edge_plots:
+            arc_height = get_discordant_edge_arc_height(
+                abs(bp_x2 - bp_x1),
+                plot_width,
+                ymax,
+            )
+            max_arc_top_y = max(max_arc_top_y, arc_base_y + arc_height)
+            arc = Arc(
+                ((bp_x1 + bp_x2) * 0.5, arc_base_y),
+                abs(bp_x2 - bp_x1),
+                2 * arc_height,
+                theta1=0,
+                theta2=180,
+                color=DISCORDANT_EDGE_COLORS[ort],
+                lw=get_discordant_edge_linewidth(
+                    bp.lr_count,
+                    max_bp_read_count,
+                ),
+                zorder=5,
+            )
+            ax2.add_patch(arc)
+
+        # ax2.set_ylim(0, 1.4 * ymax)
         ax2.set_ylabel("CN", fontsize=fontsize)
         ax2.tick_params(axis="y", labelsize=fontsize)
 
         # Draw coverage within amplified intervals
         max_cov = 0
         if self.bam is not None:
-            coverage_label = "BAM coverage"
             for chrom in sorted_chrs:
                 for inti in range(len(self.graph_amplified_intervals[chrom])):
                     graph_intv = self.graph_amplified_intervals[chrom][inti]
@@ -568,7 +697,9 @@ class GraphViz:
                     elif ival_len >= 100_000:
                         window_size = 1_000
 
-                    for w in range(graph_intv.start, graph_intv.end, window_size):
+                    for w in range(
+                        graph_intv.start, graph_intv.end, window_size
+                    ):
                         intv = Interval(chrom, w, w + window_size)
                         cov = (
                             self.bam.count_raw_coverage(
@@ -618,7 +749,6 @@ class GraphViz:
                         )
                         ax.add_patch(rect)
         else:
-            coverage_label = "Graph average coverage"
             for chrom in sorted_chrs:
                 for seq in self.sequence_edges_by_chr[chrom]:
                     if self.plot_bounds:
@@ -643,45 +773,17 @@ class GraphViz:
                     ax.add_patch(rect)
         if max_cov > 0 and ylim_params[1] > 0:
             ylim_params[1] /= max_cov
-            ax2.set_ylim(0, ylim_params[0] / ylim_params[1])
+            cn_ymax = ylim_params[0] / ylim_params[1]
         else:
-            ax2.set_ylim(0, max(1.25 * ymax, 1.0))
+            cn_ymax = max(1.25 * ymax, 1.0)
+        if max_arc_top_y > 0:
+            cn_ymax = max(cn_ymax, max_arc_top_y * 1.05)
+        ax2.set_ylim(0, cn_ymax)
         ax.set_ylabel("Coverage", fontsize=fontsize)
-        coverage_ymax = min(1.25 * max_cov, max_cov_cutoff)
+        coverage_headroom_scale = 3.0 if discordant_edge_plots else 1.25
+        coverage_ymax = min(coverage_headroom_scale * max_cov, max_cov_cutoff)
         ax.set_ylim(0, coverage_ymax if coverage_ymax > 0 else 1.0)
         ax.tick_params(axis="y", labelsize=fontsize)
-
-        legend_handles = [
-            Patch(facecolor="silver", edgecolor="none", label=coverage_label),
-            Line2D(
-                [0],
-                [0],
-                color="black",
-                lw=6,
-                label="Predicted segment CN",
-            ),
-        ]
-        for orientation, color in colorcode.items():
-            legend_handles.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=color,
-                    lw=2,
-                    label=f"Discordant edge {orientation}",
-                )
-            )
-        ax.legend(
-            handles=legend_handles,
-            loc="upper right",
-            frameon=True,
-            facecolor="white",
-            framealpha=1.0,
-            edgecolor="none",
-            fontsize=max(fontsize - 10, 6),
-            title="Edge width = discordant CN",
-            title_fontsize=max(fontsize - 10, 6),
-        )
 
         # draw genes below plot
         if not hide_genes:
@@ -1039,10 +1141,10 @@ class GraphViz:
                     for int_ in self.cycle_amplified_intervals[chrom]
                 ],
             )
-        # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         sorted_chrs = breakpoint_utilities.sort_chrom_names(
             self.cycle_amplified_intervals.keys()
         )
+        # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         amplified_intervals_start = {}
         x: float = margin_between_intervals
         for chrom in sorted_chrs:
@@ -1899,6 +2001,7 @@ def plot_amplicon(
     should_plot_only_cyclic_walks: bool,
     refgene_file: pathlib.Path | None = None,
     gene_subset_file: pathlib.Path | None = None,
+    legend_output_prefix: str | None = None,
 ) -> None:
     if should_plot_graph:
         if not graph_file:
@@ -1937,6 +2040,12 @@ def plot_amplicon(
             quality_threshold=min_mapq,
             hide_genes=should_hide_genes,
             gene_font_size=gene_fontsize,
+        )
+        write_graph_legend(
+            output_prefix
+            if legend_output_prefix is None
+            else legend_output_prefix,
+            get_graph_coverage_label(bam_path),
         )
 
     if should_plot_cycles:
