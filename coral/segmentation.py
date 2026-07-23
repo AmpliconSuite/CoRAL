@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Segment CNVkit .cnr files and write .cns output with Python CBS.
 
-The preferred backend is the pure-Python ``pycbs`` implementation from the
-CNVkit rebuild project. When that backend is not importable, this script falls
-back to a self-contained weighted binary-segmentation CBS approximation.
+The preferred backend is a full pure-Python ``pycbs`` reconstruction of the
+DNAcopy CBS algorithm. This script first uses a CNVkit installation that already
+registers ``method="pycbs"``; if that is unavailable, it uses the bundled CoRAL
+``coral.pycbs`` module in this branch. A simple weighted binary-segmentation
+fallback remains available for emergency use only.
 """
 
 from __future__ import annotations
@@ -91,14 +93,9 @@ def run_cnvkit_pycbs(
     processes: int,
 ) -> bool:
     try:
-        from cnvlib.segmentation import SEGMENT_METHODS, do_segmentation
         from skgenome import tabio
     except Exception as exc:
-        LOGGER.info("CNVkit pycbs backend is not importable: %s", exc)
-        return False
-
-    if "pycbs" not in SEGMENT_METHODS:
-        LOGGER.info("CNVkit installation does not expose method 'pycbs'")
+        LOGGER.info("CNVkit tab I/O is not importable: %s", exc)
         return False
 
     cnarr = tabio.read(str(cnr_path), "tab")
@@ -106,12 +103,34 @@ def run_cnvkit_pycbs(
         cnarr.sample_id = cnr_path.stem
     except AttributeError:
         pass
-    segarr = do_segmentation(
-        cnarr,
-        method="pycbs",
-        threshold=alpha,
-        processes=processes,
-    )
+
+    try:
+        from cnvlib.segmentation import SEGMENT_METHODS, do_segmentation
+
+        if "pycbs" in SEGMENT_METHODS:
+            segarr = do_segmentation(
+                cnarr,
+                method="pycbs",
+                threshold=alpha,
+                processes=processes,
+            )
+            tabio.write(segarr, str(output_path), "tab", verbose=False)
+            return True
+        LOGGER.info("CNVkit installation does not expose method 'pycbs'")
+    except Exception as exc:
+        LOGGER.info("CNVkit registered pycbs backend is not usable: %s", exc)
+
+    try:
+        try:
+            from coral import pycbs as bundled_pycbs
+        except Exception:
+            import pycbs as bundled_pycbs  # type: ignore[no-redef]
+
+        segarr = bundled_pycbs.segment_pycbs(cnarr, alpha)
+    except Exception as exc:
+        LOGGER.info("Bundled CoRAL pycbs backend is not usable: %s", exc)
+        return False
+
     tabio.write(segarr, str(output_path), "tab", verbose=False)
     return True
 
