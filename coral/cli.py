@@ -564,8 +564,19 @@ def plot_mode(
         bool, typer.Option(help="Do not show gene track.")
     ] = False,
     gene_fontsize: Annotated[
-        float, typer.Option(help="Change size of gene font.")
-    ] = 12.0,
+        float,
+        typer.Option(
+            min=0,
+            help="Base point size for gene names (legacy absolute-size option).",
+        ),
+    ] = plot_amplicons.DEFAULT_GENE_FONT_SIZE,
+    font_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            help="Multiplier for gene-name text size only; 0 hides gene names.",
+        ),
+    ] = 1.0,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -615,6 +626,7 @@ def plot_mode(
         should_hide_genes=hide_genes,
         should_restrict_to_bushman_genes=bushman_genes,
         should_plot_only_cyclic_walks=only_cyclic_paths,
+        font_size_multiplier=font_size,
         refgene_file=refgene_file,
         gene_subset_file=gene_subset_file,
     )
@@ -682,8 +694,19 @@ def plot_all_mode(
         bool, typer.Option(help="Do not show gene track.")
     ] = False,
     gene_fontsize: Annotated[
-        float, typer.Option(help="Change size of gene font.")
-    ] = 12.0,
+        float,
+        typer.Option(
+            min=0,
+            help="Base point size for gene names (legacy absolute-size option).",
+        ),
+    ] = plot_amplicons.DEFAULT_GENE_FONT_SIZE,
+    font_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            help="Multiplier for gene-name text size only; 0 hides gene names.",
+        ),
+    ] = 1.0,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -746,6 +769,7 @@ def plot_all_mode(
                     min_mapq=min_mapq,
                     gene_subset_list=gene_subset_list,
                     gene_fontsize=gene_fontsize,
+                    font_size_multiplier=font_size,
                     region=region,
                     should_plot_graph=True,
                     should_plot_cycles=True if cycle_file is not None else False,
@@ -754,6 +778,7 @@ def plot_all_mode(
                     should_plot_only_cyclic_walks=only_cyclic_paths,
                     refgene_file=refgene_file,
                     gene_subset_file=gene_subset_file,
+                    legend_output_prefix=output_prefix,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -775,6 +800,7 @@ def plot_all_mode(
                         min_mapq=min_mapq,
                         gene_subset_list=gene_subset_list,
                         gene_fontsize=gene_fontsize,
+                        font_size_multiplier=font_size,
                         region=region,
                         should_plot_graph=True,
                         should_plot_cycles=False,
@@ -783,6 +809,7 @@ def plot_all_mode(
                         should_plot_only_cyclic_walks=only_cyclic_paths,
                         refgene_file=refgene_file,
                         gene_subset_file=gene_subset_file,
+                        legend_output_prefix=output_prefix,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):
@@ -801,6 +828,7 @@ def plot_all_mode(
                         min_mapq=min_mapq,
                         gene_subset_list=gene_subset_list,
                         gene_fontsize=gene_fontsize,
+                        font_size_multiplier=font_size,
                         region=region,
                         should_plot_graph=False,
                         should_plot_cycles=True,

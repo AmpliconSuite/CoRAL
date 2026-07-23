@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import math
 import pathlib
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from coral import cli, core_types, plot_amplicons
+from coral import core_types, datatypes, plot_amplicons
 
 
-def test_parse_gene_subset_file_accepts_text_and_csv(tmp_path: pathlib.Path) -> None:
+def test_parse_gene_subset_file_accepts_text_and_csv(
+    tmp_path: pathlib.Path,
+) -> None:
     gene_file = tmp_path / "genes.csv"
     gene_file.write_text("EGFR\nMYC,MDM2\n  CDK4  CDKN2A\n")
 
@@ -45,11 +48,62 @@ def test_empty_gene_subset_file_warns_and_defaults_to_all(
     assert "empty; plotting all genes" in capsys.readouterr().err
 
 
-def test_discordant_edge_linewidth_scales_with_cn() -> None:
-    assert plot_amplicons.get_discordant_edge_linewidth(1.0, 2.0) == 1.5
-    assert plot_amplicons.get_discordant_edge_linewidth(2.0, 2.0) == 3.0
-    assert plot_amplicons.get_discordant_edge_linewidth(4.0, 2.0) == 3.0
+def test_discordant_edge_linewidth_scales_with_read_count() -> None:
+    assert plot_amplicons.get_discordant_edge_linewidth(1.0, 4.0) == 1.0
+    assert plot_amplicons.get_discordant_edge_linewidth(2.0, 4.0) == 2.0
+    assert plot_amplicons.get_discordant_edge_linewidth(4.0, 4.0) == 4.0
+    assert plot_amplicons.get_discordant_edge_linewidth(10.0, 10.0) == 4.0
     assert plot_amplicons.get_discordant_edge_linewidth(4.0, 0.0) == 1.0
+
+
+def test_discordant_edge_arcs_follow_aa_plotted_distance_convention() -> None:
+    max_segment_cn = 4.0
+
+    assert plot_amplicons.get_discordant_edge_arc_base(max_segment_cn) == 0.0
+    short_arc = plot_amplicons.get_discordant_edge_arc_height(
+        10.0,
+        1000.0,
+        max_segment_cn,
+    )
+    long_arc = plot_amplicons.get_discordant_edge_arc_height(
+        900.0,
+        1000.0,
+        max_segment_cn,
+    )
+
+    assert math.isclose(short_arc, 1.5 * max_segment_cn * 1.01)
+    assert short_arc < long_arc
+    assert math.isclose(long_arc, 1.5 * max_segment_cn * 1.9)
+
+
+def test_gene_heights_use_current_coral_lane_positions() -> None:
+    genes = [
+        SimpleNamespace(gname="A", gstart=0, gend=100, height=0.0),
+        SimpleNamespace(gname="B", gstart=10, gend=90, height=0.0),
+    ]
+
+    plot_amplicons.GraphViz().set_gene_heights(genes)
+
+    heights = sorted(gene.height for gene in genes)
+    assert math.isclose(heights[0], 0.15)
+    assert math.isclose(heights[1], 0.75)
+
+
+def test_gene_font_size_multiplier() -> None:
+    assert plot_amplicons.get_gene_font_size(2.0) == 24.0
+    assert plot_amplicons.get_gene_font_size(0.5) == 6.0
+    assert plot_amplicons.get_gene_font_size(0.0) == 0.0
+    assert plot_amplicons.get_gene_font_size(2.0, 10.0) == 20.0
+
+
+def test_gene_font_size_multiplier_rejects_invalid_values() -> None:
+    for invalid_value in (-0.1, math.inf, -math.inf, math.nan):
+        try:
+            plot_amplicons.get_gene_font_size(invalid_value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted invalid multiplier: {invalid_value}")
 
 
 def test_graph_plot_does_not_require_bam(
@@ -78,8 +132,12 @@ def test_graph_plot_does_not_require_bam(
         records["discordant_edges"] = len(self.graph.discordant_edges)
 
     monkeypatch.setattr(plot_amplicons.GraphViz, "open_bam", fail_open_bam)
-    monkeypatch.setattr(plot_amplicons.GraphViz, "parse_genes", noop_parse_genes)
-    monkeypatch.setattr(plot_amplicons.GraphViz, "plot_graph", record_plot_graph)
+    monkeypatch.setattr(
+        plot_amplicons.GraphViz, "parse_genes", noop_parse_genes
+    )
+    monkeypatch.setattr(
+        plot_amplicons.GraphViz, "plot_graph", record_plot_graph
+    )
 
     graph_path = pathlib.Path("sample_data/test4/amplicon1_graph.txt")
     with graph_path.open() as graph_file:
@@ -137,8 +195,12 @@ def test_graph_plot_uses_bam_when_provided(
         records["plot_called"] = True
 
     monkeypatch.setattr(plot_amplicons.GraphViz, "open_bam", record_open_bam)
-    monkeypatch.setattr(plot_amplicons.GraphViz, "parse_genes", noop_parse_genes)
-    monkeypatch.setattr(plot_amplicons.GraphViz, "plot_graph", record_plot_graph)
+    monkeypatch.setattr(
+        plot_amplicons.GraphViz, "parse_genes", noop_parse_genes
+    )
+    monkeypatch.setattr(
+        plot_amplicons.GraphViz, "plot_graph", record_plot_graph
+    )
 
     graph_path = pathlib.Path("sample_data/test4/amplicon1_graph.txt")
     with graph_path.open() as graph_file:
@@ -167,10 +229,45 @@ def test_graph_plot_uses_bam_when_provided(
     }
 
 
+def test_graph_legend_output_prefix_uses_sample_prefix() -> None:
+    legend_prefix = plot_amplicons.get_graph_legend_output_prefix("skbr3/out")
+    assert legend_prefix == pathlib.Path("skbr3/out_legend")
+
+
+def test_discordant_edge_orientation_uses_graph_order() -> None:
+    edge = datatypes.DiscordantEdge(
+        datatypes.Node("chr7", 200, datatypes.Strand.REVERSE),
+        datatypes.Node("chr7", 100, datatypes.Strand.FORWARD),
+        lr_count=3,
+    )
+    first, second, orientation = (
+        plot_amplicons.get_discordant_edge_orientation(edge)
+    )
+    assert first.pos == 100
+    assert second.pos == 200
+    assert orientation == "+-"
+
+
+def test_interchromosomal_edge_uses_blue_color_key() -> None:
+    edge = datatypes.DiscordantEdge(
+        datatypes.Node("chr5", 100, datatypes.Strand.FORWARD),
+        datatypes.Node("chr2", 900, datatypes.Strand.REVERSE),
+        lr_count=3,
+    )
+    first, second, orientation = (
+        plot_amplicons.get_discordant_edge_orientation(edge)
+    )
+    assert first.chr == "chr2"
+    assert second.chr == "chr5"
+    assert orientation == "interchromosomal"
+
+
 def test_plot_cli_passes_gene_subset_file(
     monkeypatch: object,
     tmp_path: pathlib.Path,
 ) -> None:
+    from coral import cli
+
     gene_file = tmp_path / "genes.csv"
     gene_file.write_text("EGFR,MYC\n")
     records = {}
@@ -178,7 +275,9 @@ def test_plot_cli_passes_gene_subset_file(
     def record_plot_amplicon(*_args: object, **kwargs: object) -> None:
         records["gene_subset_file"] = kwargs["gene_subset_file"]
 
-    monkeypatch.setattr(cli.plot_amplicons, "plot_amplicon", record_plot_amplicon)
+    monkeypatch.setattr(
+        cli.plot_amplicons, "plot_amplicon", record_plot_amplicon
+    )
 
     result = CliRunner().invoke(
         cli.coral_app,
@@ -199,10 +298,46 @@ def test_plot_cli_passes_gene_subset_file(
     assert records["gene_subset_file"] == gene_file
 
 
+def test_plot_cli_passes_font_size_multiplier(
+    monkeypatch: object,
+    tmp_path: pathlib.Path,
+) -> None:
+    from coral import cli
+
+    records = {}
+
+    def record_plot_amplicon(*_args: object, **kwargs: object) -> None:
+        records["font_size_multiplier"] = kwargs["font_size_multiplier"]
+
+    monkeypatch.setattr(
+        cli.plot_amplicons, "plot_amplicon", record_plot_amplicon
+    )
+
+    result = CliRunner().invoke(
+        cli.coral_app,
+        [
+            "plot",
+            "--ref",
+            "hg38",
+            "--graph",
+            "sample_data/test4/amplicon1_graph.txt",
+            "--output-prefix",
+            str(tmp_path / "plot" / "out"),
+            "--font-size",
+            "0.5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert records["font_size_multiplier"] == 0.5
+
+
 def test_plot_all_cli_passes_gene_subset_file(
     monkeypatch: object,
     tmp_path: pathlib.Path,
 ) -> None:
+    from coral import cli
+
     gene_file = tmp_path / "genes.csv"
     gene_file.write_text("EGFR,MYC\n")
     records = []
@@ -210,7 +345,9 @@ def test_plot_all_cli_passes_gene_subset_file(
     def record_plot_amplicon(*_args: object, **kwargs: object) -> None:
         records.append(kwargs["gene_subset_file"])
 
-    monkeypatch.setattr(cli.plot_amplicons, "plot_amplicon", record_plot_amplicon)
+    monkeypatch.setattr(
+        cli.plot_amplicons, "plot_amplicon", record_plot_amplicon
+    )
 
     result = CliRunner().invoke(
         cli.coral_app,
@@ -230,3 +367,37 @@ def test_plot_all_cli_passes_gene_subset_file(
     assert result.exit_code == 0, result.output
     assert records
     assert all(record == gene_file for record in records)
+
+
+def test_plot_all_cli_passes_shared_legend_prefix(
+    monkeypatch: object,
+    tmp_path: pathlib.Path,
+) -> None:
+    from coral import cli
+
+    output_prefix = str(tmp_path / "plot_all" / "out")
+    records = []
+
+    def record_plot_amplicon(*_args: object, **kwargs: object) -> None:
+        records.append(kwargs["legend_output_prefix"])
+
+    monkeypatch.setattr(
+        cli.plot_amplicons, "plot_amplicon", record_plot_amplicon
+    )
+
+    result = CliRunner().invoke(
+        cli.coral_app,
+        [
+            "plot_all",
+            "--ref",
+            "hg38",
+            "--graph-dir",
+            "sample_data/test4",
+            "--output-prefix",
+            output_prefix,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert records
+    assert all(record == output_prefix for record in records)
