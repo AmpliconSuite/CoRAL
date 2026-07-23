@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from coral import core_types, plot_amplicons
+from coral import core_types, datatypes, plot_amplicons
 
 
 def test_parse_gene_subset_file_accepts_text_and_csv(
@@ -87,6 +87,23 @@ def test_gene_heights_use_current_coral_lane_positions() -> None:
     heights = sorted(gene.height for gene in genes)
     assert math.isclose(heights[0], 0.15)
     assert math.isclose(heights[1], 0.75)
+
+
+def test_gene_font_size_multiplier() -> None:
+    assert plot_amplicons.get_gene_font_size(2.0) == 24.0
+    assert plot_amplicons.get_gene_font_size(0.5) == 6.0
+    assert plot_amplicons.get_gene_font_size(0.0) == 0.0
+    assert plot_amplicons.get_gene_font_size(2.0, 10.0) == 20.0
+
+
+def test_gene_font_size_multiplier_rejects_invalid_values() -> None:
+    for invalid_value in (-0.1, math.inf, -math.inf, math.nan):
+        try:
+            plot_amplicons.get_gene_font_size(invalid_value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted invalid multiplier: {invalid_value}")
 
 
 def test_graph_plot_does_not_require_bam(
@@ -217,6 +234,34 @@ def test_graph_legend_output_prefix_uses_sample_prefix() -> None:
     assert legend_prefix == pathlib.Path("skbr3/out_legend")
 
 
+def test_discordant_edge_orientation_uses_graph_order() -> None:
+    edge = datatypes.DiscordantEdge(
+        datatypes.Node("chr7", 200, datatypes.Strand.REVERSE),
+        datatypes.Node("chr7", 100, datatypes.Strand.FORWARD),
+        lr_count=3,
+    )
+    first, second, orientation = (
+        plot_amplicons.get_discordant_edge_orientation(edge)
+    )
+    assert first.pos == 100
+    assert second.pos == 200
+    assert orientation == "+-"
+
+
+def test_interchromosomal_edge_uses_blue_color_key() -> None:
+    edge = datatypes.DiscordantEdge(
+        datatypes.Node("chr5", 100, datatypes.Strand.FORWARD),
+        datatypes.Node("chr2", 900, datatypes.Strand.REVERSE),
+        lr_count=3,
+    )
+    first, second, orientation = (
+        plot_amplicons.get_discordant_edge_orientation(edge)
+    )
+    assert first.chr == "chr2"
+    assert second.chr == "chr5"
+    assert orientation == "interchromosomal"
+
+
 def test_plot_cli_passes_gene_subset_file(
     monkeypatch: object,
     tmp_path: pathlib.Path,
@@ -251,6 +296,40 @@ def test_plot_cli_passes_gene_subset_file(
 
     assert result.exit_code == 0, result.output
     assert records["gene_subset_file"] == gene_file
+
+
+def test_plot_cli_passes_font_size_multiplier(
+    monkeypatch: object,
+    tmp_path: pathlib.Path,
+) -> None:
+    from coral import cli
+
+    records = {}
+
+    def record_plot_amplicon(*_args: object, **kwargs: object) -> None:
+        records["font_size_multiplier"] = kwargs["font_size_multiplier"]
+
+    monkeypatch.setattr(
+        cli.plot_amplicons, "plot_amplicon", record_plot_amplicon
+    )
+
+    result = CliRunner().invoke(
+        cli.coral_app,
+        [
+            "plot",
+            "--ref",
+            "hg38",
+            "--graph",
+            "sample_data/test4/amplicon1_graph.txt",
+            "--output-prefix",
+            str(tmp_path / "plot" / "out"),
+            "--font-size",
+            "0.5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert records["font_size_multiplier"] == 0.5
 
 
 def test_plot_all_cli_passes_gene_subset_file(

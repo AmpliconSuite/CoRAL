@@ -5,6 +5,7 @@ import functools
 import importlib.resources
 import io
 import logging
+import math
 import os
 import pathlib
 import re
@@ -32,8 +33,9 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 import pysam
 from matplotlib import gridspec, ticker
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
-from matplotlib.patches import Arc, Patch, Rectangle
+from matplotlib.patches import Arc, FancyArrowPatch, Patch, Rectangle
 from pylab import rcParams  # type: ignore[import-untyped]
 
 from coral import (
@@ -56,6 +58,21 @@ DISCORDANT_EDGE_COLORS = {
     "interchromosomal": "blue",
 }
 AA_DISCORDANT_EDGE_MIN_MAX_READ_COUNT = 4.0
+DEFAULT_GENE_FONT_SIZE = 12.0
+
+
+def get_gene_font_size(
+    font_size_multiplier: float,
+    base_font_size: float = DEFAULT_GENE_FONT_SIZE,
+) -> float:
+    """Return the gene-label point size after applying a CLI multiplier."""
+    if not math.isfinite(font_size_multiplier) or font_size_multiplier < 0:
+        raise ValueError(
+            "font size multiplier must be a finite, non-negative number"
+        )
+    if not math.isfinite(base_font_size) or base_font_size < 0:
+        raise ValueError("gene font size must be a finite, non-negative number")
+    return base_font_size * font_size_multiplier
 
 
 def parse_gene_subset_file(gene_subset_file: pathlib.Path) -> list[str]:
@@ -157,6 +174,91 @@ def get_graph_legend_handles(coverage_label: str) -> list[Patch | Line2D]:
     return legend_handles
 
 
+def get_discordant_edge_orientation(
+    edge: datatypes.DiscordantEdge,
+) -> tuple[datatypes.Node, datatypes.Node, str]:
+    """Return canonically ordered endpoints and their plotting color key."""
+    first, second = edge.ordered_nodes
+    orientation = (
+        "interchromosomal"
+        if first.chr != second.chr
+        else f"{first.strand}{second.strand}"
+    )
+    return first, second, orientation
+
+
+def _draw_endpoint_stub(
+    ax: Axes,
+    x: float,
+    y: float,
+    strand: str,
+    *,
+    length: float = 0.13,
+    color: str = "black",
+    linewidth: float = 4.0,
+) -> None:
+    """Draw the genomic segment incident on a breakpoint endpoint."""
+    segment_end = x - length if strand == "+" else x + length
+    ax.plot(
+        [x, segment_end],
+        [y, y],
+        color=color,
+        lw=linewidth,
+        solid_capstyle="butt",
+        clip_on=False,
+    )
+    ax.plot(
+        [x],
+        [y],
+        marker="o",
+        markersize=4.5,
+        color=color,
+        clip_on=False,
+    )
+
+
+def _draw_orientation_example(
+    ax: Axes,
+    orientation: str,
+    color: str | tuple[float, float, float],
+) -> None:
+    """Draw one miniature discordant-edge junction."""
+    left_strand, right_strand = orientation
+    left_x, right_x, y = 0.28, 0.72, 0.34
+    _draw_endpoint_stub(ax, left_x, y, left_strand)
+    _draw_endpoint_stub(ax, right_x, y, right_strand)
+    arc = Arc(
+        ((left_x + right_x) / 2, y),
+        right_x - left_x,
+        0.48,
+        theta1=0,
+        theta2=180,
+        color=color,
+        lw=3,
+    )
+    ax.add_patch(arc)
+    ax.text(left_x, 0.42, left_strand, ha="center", va="bottom", weight="bold")
+    ax.text(
+        right_x,
+        0.42,
+        right_strand,
+        ha="center",
+        va="bottom",
+        weight="bold",
+    )
+    ax.text(
+        0.5,
+        0.82,
+        orientation,
+        ha="center",
+        va="center",
+        weight="bold",
+    )
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+
 def write_graph_legend(
     output_prefix: str,
     coverage_label: str,
@@ -171,19 +273,88 @@ def write_graph_legend(
     if png_path.exists() and pdf_path.exists():
         return
 
-    fig = plt.figure(figsize=(6.4, 2.6))
-    fig.legend(
+    fig = plt.figure(figsize=(8.8, 7.0), facecolor="white")
+    layout = fig.add_gridspec(
+        4,
+        2,
+        height_ratios=(1.35, 1.05, 1.0, 1.0),
+        hspace=0.25,
+        wspace=0.18,
+    )
+
+    summary_ax = fig.add_subplot(layout[0, :])
+    summary_ax.axis("off")
+    summary_ax.set_title(
+        "Legend",
+        fontsize=fontsize + 4,
+        weight="bold",
+        pad=4,
+    )
+    summary_ax.legend(
         handles=get_graph_legend_handles(coverage_label),
         loc="center",
-        frameon=True,
-        facecolor="white",
-        framealpha=1.0,
-        edgecolor="none",
+        frameon=False,
         fontsize=fontsize,
-        title="Discordant edge width = read count",
+        title="Discordant edge width ∝ read count",
         title_fontsize=fontsize,
         ncol=2,
+        columnspacing=2.2,
+        handlelength=3.0,
     )
+
+    endpoint_ax = fig.add_subplot(layout[1, :])
+    endpoint_ax.set_xlim(0, 1)
+    endpoint_ax.set_ylim(0, 1)
+    endpoint_ax.axis("off")
+    endpoint_ax.add_patch(
+        FancyArrowPatch(
+            (0.27, 0.78),
+            (0.73, 0.78),
+            arrowstyle="-|>",
+            mutation_scale=11,
+            lw=1.2,
+            color="dimgray",
+        )
+    )
+    endpoint_ax.text(
+        0.5,
+        0.81,
+        "reference coordinate increases",
+        ha="center",
+        va="bottom",
+        fontsize=fontsize - 1,
+        color="dimgray",
+    )
+    _draw_endpoint_stub(endpoint_ax, 0.25, 0.32, "-", length=0.16)
+    _draw_endpoint_stub(endpoint_ax, 0.75, 0.32, "+", length=0.16)
+    endpoint_ax.text(
+        0.25,
+        0.47,
+        "-  lower-coordinate / left end",
+        ha="center",
+        fontsize=fontsize,
+        weight="bold",
+    )
+    endpoint_ax.text(
+        0.75,
+        0.47,
+        "+  higher-coordinate / right end",
+        ha="center",
+        fontsize=fontsize,
+        weight="bold",
+    )
+    for grid_cell, orientation in zip(
+        (layout[2, 0], layout[2, 1], layout[3, 0], layout[3, 1]),
+        ("+-", "++", "-+", "--"),
+    ):
+        example_ax = fig.add_subplot(grid_cell)
+        _draw_orientation_example(
+            example_ax,
+            orientation,
+            DISCORDANT_EDGE_COLORS[orientation],
+        )
+
+    fig.subplots_adjust(left=0.04, right=0.96, top=0.97, bottom=0.04)
     if not png_path.exists():
         fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
     if not pdf_path.exists():
@@ -483,6 +654,8 @@ class GraphViz:
         ax.patch.set_visible(False)
         ax2.patch.set_visible(False)
         ax3 = fig.add_subplot(gs[1, 0], sharex=ax)
+        ax3.set_zorder(3)
+        ax3.patch.set_visible(False)
         # ax.yaxis.set_label_coords(-0.05, 0.25)
         # ax2.yaxis.set_label_coords(1.05, 0.33)
         ax.xaxis.set_visible(False)
@@ -595,13 +768,13 @@ class GraphViz:
             )
         discordant_edge_plots = []
         for bp in self.graph.discordant_edges:
-            chr1 = bp.node1.chr
-            pos1 = bp.node1.pos
-            chr2 = bp.node2.chr
-            pos2 = bp.node2.pos
+            node1, node2, ort = get_discordant_edge_orientation(bp)
+            chr1 = node1.chr
+            pos1 = node1.pos
+            chr2 = node2.chr
+            pos2 = node2.pos
             int1 = 0
             int2 = 0
-            ort = f"{bp.node1.strand}{bp.node2.strand}"
             if (
                 chr1 in self.graph_amplified_intervals
                 and chr2 in self.graph_amplified_intervals
@@ -858,15 +1031,18 @@ class GraphViz:
                                 / total_len_amp
                             )
 
-                        ax3.text(
-                            (gene_start + gene_end) / 2,
-                            height + 0.05,
-                            gene_obj.gname,
-                            ha="center",
-                            va="bottom",
-                            fontsize=gene_font_size,
-                            style="italic",
-                        )
+                        if gene_font_size > 0:
+                            ax3.text(
+                                (gene_start + gene_end) / 2,
+                                height + 0.05,
+                                gene_obj.gname,
+                                ha="center",
+                                va="bottom",
+                                fontsize=gene_font_size,
+                                style="italic",
+                                clip_on=False,
+                                zorder=10,
+                            )
 
                         if gene_obj.strand == "+":
                             ax3.plot(
@@ -1127,6 +1303,8 @@ class GraphViz:
         ax.set_title(title, fontsize=fontsize)
         ax.xaxis.set_visible(False)
         ax3 = fig.add_subplot(gs[1, 0], sharex=ax)
+        ax3.set_zorder(3)
+        ax3.patch.set_visible(False)
         ax3.yaxis.set_visible(False)
         ax3.spines["left"].set_visible(False)
         ax3.spines["right"].set_visible(False)
@@ -1818,15 +1996,18 @@ class GraphViz:
                             color="cornflowerblue",
                             lw=4.5,
                         )  # Draw horizontal bars for genes
-                        ax3.text(
-                            (gene_start + gene_end) / 2,
-                            height + 0.05,
-                            gene_obj.gname,
-                            ha="center",
-                            va="bottom",
-                            fontsize=gene_font_size,
-                            style="italic",
-                        )
+                        if gene_font_size > 0:
+                            ax3.text(
+                                (gene_start + gene_end) / 2,
+                                height + 0.05,
+                                gene_obj.gname,
+                                ha="center",
+                                va="bottom",
+                                fontsize=gene_font_size,
+                                style="italic",
+                                clip_on=False,
+                                zorder=10,
+                            )
 
                         if gene_obj.strand == "+":
                             ax3.plot(
@@ -1991,7 +2172,7 @@ def plot_amplicon(
     max_coverage: float,
     min_mapq: float,
     gene_subset_list: list[str],
-    gene_fontsize: int,
+    gene_fontsize: float,
     region: str | None,
     *,
     should_plot_graph: bool,
@@ -1999,6 +2180,7 @@ def plot_amplicon(
     should_hide_genes: bool,
     should_restrict_to_bushman_genes: bool,
     should_plot_only_cyclic_walks: bool,
+    font_size_multiplier: float = 1.0,
     refgene_file: pathlib.Path | None = None,
     gene_subset_file: pathlib.Path | None = None,
     legend_output_prefix: str | None = None,
@@ -2013,6 +2195,9 @@ def plot_amplicon(
         sys.exit(1)
 
     g = GraphViz()
+    effective_gene_font_size = get_gene_font_size(
+        font_size_multiplier, gene_fontsize
+    )
     merged_gene_subset = merge_gene_subsets(gene_subset_list, gene_subset_file)
     g.parse_genes(
         ref,
@@ -2039,7 +2224,7 @@ def plot_amplicon(
             max_cov_cutoff=max_coverage,
             quality_threshold=min_mapq,
             hide_genes=should_hide_genes,
-            gene_font_size=gene_fontsize,
+            gene_font_size=effective_gene_font_size,
         )
         write_graph_legend(
             output_prefix
@@ -2074,7 +2259,7 @@ def plot_amplicon(
             num_cycles=num_cycles,
             cycle_only=should_plot_only_cyclic_walks,
             hide_genes=should_hide_genes,
-            gene_font_size=gene_fontsize,
+            gene_font_size=effective_gene_font_size,
         )
     g.close_bam()
     if graph_file:
