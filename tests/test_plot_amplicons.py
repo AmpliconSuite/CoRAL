@@ -217,6 +217,22 @@ def test_graph_legend_output_prefix_uses_sample_prefix() -> None:
     assert legend_prefix == pathlib.Path("skbr3/out_legend")
 
 
+def test_write_graph_legend_creates_visual_explainer(
+    tmp_path: pathlib.Path,
+) -> None:
+    output_prefix = str(tmp_path / "sample")
+
+    plot_amplicons.write_graph_legend(
+        output_prefix,
+        "Graph average coverage",
+        dpi=72,
+    )
+
+    legend_prefix = plot_amplicons.get_graph_legend_output_prefix(output_prefix)
+    assert legend_prefix.with_suffix(".png").is_file()
+    assert legend_prefix.with_suffix(".pdf").is_file()
+
+
 def test_plot_cli_passes_gene_subset_file(
     monkeypatch: object,
     tmp_path: pathlib.Path,
