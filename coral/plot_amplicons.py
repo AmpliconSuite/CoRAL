@@ -5,13 +5,14 @@ import functools
 import importlib.resources
 import io
 import logging
+import math
 import os
 import pathlib
 import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, DefaultDict, Optional
+from typing import Any, DefaultDict, Literal, Optional
 
 import colorama
 import intervaltree
@@ -33,8 +34,10 @@ import matplotlib.pyplot as plt
 import pysam
 from matplotlib import gridspec, ticker
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Arc, FancyArrowPatch, Patch, Rectangle
+from matplotlib.text import Text
 from pylab import rcParams  # type: ignore[import-untyped]
 
 from coral import (
@@ -57,6 +60,95 @@ DISCORDANT_EDGE_COLORS = {
     "interchromosomal": "blue",
 }
 AA_DISCORDANT_EDGE_MIN_MAX_READ_COUNT = 4.0
+DEFAULT_COVERAGE_HEADROOM = 1.25
+DEFAULT_ARC_TOP_PADDING = 0.05
+MIN_ARC_APEX_CN_SCALE = 1.25
+DEFAULT_GENE_FONT_SIZE = 12.0
+DEFAULT_PLOT_FONT_SIZE = 18.0
+DEFAULT_LEGEND_FONT_SIZE = 10.0
+MAX_TEXT_LAYOUT_SCALE = 2.0
+
+
+@dataclass(frozen=True)
+class GraphAxisLimits:
+    """Final limits for the overlaid coverage and CN axes."""
+
+    coverage_ymax: float
+    cn_ymax: float
+    expansion_factor: float
+
+
+def get_gene_font_size(
+    font_size_multiplier: float,
+    base_font_size: float = DEFAULT_GENE_FONT_SIZE,
+) -> float:
+    """Return a base point size after applying the plot-wide multiplier."""
+    if not math.isfinite(font_size_multiplier) or font_size_multiplier < 0:
+        raise ValueError(
+            "font size multiplier must be a finite, non-negative number"
+        )
+    if not math.isfinite(base_font_size) or base_font_size < 0:
+        raise ValueError("base font size must be a finite, non-negative number")
+    scaled_font_size = base_font_size * font_size_multiplier
+    if not math.isfinite(scaled_font_size):
+        raise ValueError("scaled font size must be finite")
+    return scaled_font_size
+
+
+def scale_axis_elements(ax: Axes, font_size_multiplier: float) -> None:
+    """Scale axis tick marks and spines with the plot-wide multiplier."""
+    get_gene_font_size(font_size_multiplier)
+    axis_names: tuple[Literal["x"], Literal["y"]] = ("x", "y")
+    for axis_name in axis_names:
+        for tick_kind in ("major", "minor"):
+            ax.tick_params(
+                axis=axis_name,
+                which=tick_kind,
+                length=rcParams[
+                    f"{axis_name}tick.{tick_kind}.size"
+                ]
+                * font_size_multiplier,
+                width=rcParams[
+                    f"{axis_name}tick.{tick_kind}.width"
+                ]
+                * font_size_multiplier,
+            )
+    for spine in ax.spines.values():
+        spine.set_linewidth(
+            rcParams["axes.linewidth"] * font_size_multiplier
+        )
+
+
+def hide_figure_text_if_zero(
+    fig: Figure,
+    font_size_multiplier: float,
+) -> None:
+    """Fully suppress text instead of relying on zero-point rasterization."""
+    if font_size_multiplier == 0:
+        for text_artist in fig.findobj(match=Text):
+            text_artist.set_visible(False)
+
+
+def save_plot_figure(fig: Figure, output_fn: str, dpi: int) -> None:
+    """Save a plot in both supported formats and always release its figure."""
+    try:
+        fig.savefig(
+            output_fn + ".png",
+            dpi=dpi,
+            bbox_inches="tight",
+        )
+        fig.savefig(output_fn + ".pdf", bbox_inches="tight")
+    finally:
+        plt.close(fig)
+
+
+def get_text_layout_scale(font_size_multiplier: float) -> float:
+    """Return bounded canvas expansion for layouts with dense text."""
+    get_gene_font_size(font_size_multiplier)
+    return min(
+        max(1.0, font_size_multiplier),
+        MAX_TEXT_LAYOUT_SCALE,
+    )
 
 
 def parse_gene_subset_file(gene_subset_file: pathlib.Path) -> list[str]:
@@ -114,14 +206,67 @@ def get_discordant_edge_arc_height(
     plot_width: float,
     max_segment_cn: float,
 ) -> float:
+    """Return an arc apex between 1.25x and 2x the largest segment CN."""
     normalized_distance = min(
         max(plot_distance, 0.0) / max(plot_width, 1.0), 1.0
     )
-    return 1.5 * max(max_segment_cn, 1.0) * (1.0 + normalized_distance)
+    apex_scale = (
+        MIN_ARC_APEX_CN_SCALE
+        + (2.0 - MIN_ARC_APEX_CN_SCALE) * normalized_distance
+    )
+    return max(max_segment_cn, 1.0) * apex_scale
 
 
 def get_discordant_edge_arc_base(_max_segment_cn: float) -> float:
     return 0.0
+
+
+def get_graph_axis_limits(
+    *,
+    max_coverage: float,
+    max_segment_cn: float,
+    cn_sum_squares: float,
+    cn_coverage_cross_product: float,
+    max_arc_apex: float,
+    max_coverage_cutoff: float = float("inf"),
+    coverage_headroom: float = DEFAULT_COVERAGE_HEADROOM,
+    arc_top_padding: float = DEFAULT_ARC_TOP_PADDING,
+) -> GraphAxisLimits:
+    """Fit the twin axes, then expand both proportionally to contain arcs.
+
+    CoRAL's zero-intercept least-squares fit models coverage as
+    ``coverage_per_cn * CN``. The initial axis-limit ratio is set to that
+    fitted slope. If an arc needs additional CN headroom, both limits are
+    multiplied by the same factor so the visual CN/coverage alignment is
+    unchanged.
+    """
+    natural_coverage_ymax = coverage_headroom * max(max_coverage, 0.0)
+    if math.isfinite(max_coverage_cutoff):
+        natural_coverage_ymax = min(
+            natural_coverage_ymax,
+            max(max_coverage_cutoff, 0.0),
+        )
+    fitted_coverage_ymax = max(natural_coverage_ymax, 1.0)
+
+    if cn_sum_squares > 0 and cn_coverage_cross_product > 0:
+        coverage_per_cn = cn_coverage_cross_product / cn_sum_squares
+        fitted_cn_ymax = fitted_coverage_ymax / coverage_per_cn
+    else:
+        fitted_cn_ymax = max(
+            coverage_headroom * max(max_segment_cn, 0.0),
+            1.0,
+        )
+
+    required_cn_ymax = max(
+        fitted_cn_ymax,
+        max(max_arc_apex, 0.0) * (1.0 + arc_top_padding),
+    )
+    expansion_factor = required_cn_ymax / fitted_cn_ymax
+    return GraphAxisLimits(
+        coverage_ymax=fitted_coverage_ymax * expansion_factor,
+        cn_ymax=required_cn_ymax,
+        expansion_factor=expansion_factor,
+    )
 
 
 def get_graph_coverage_label(bam_path: pathlib.Path | None) -> str:
@@ -192,6 +337,7 @@ def _draw_orientation_example(
     ax: Axes,
     orientation: str,
     color: str | tuple[float, float, float],
+    font_size_multiplier: float,
 ) -> None:
     """Draw one miniature discordant-edge junction."""
     left_strand, right_strand = orientation
@@ -208,7 +354,19 @@ def _draw_orientation_example(
         lw=3,
     )
     ax.add_patch(arc)
-    ax.text(left_x, 0.42, left_strand, ha="center", va="bottom", weight="bold")
+    label_font_size = get_gene_font_size(
+        font_size_multiplier,
+        DEFAULT_LEGEND_FONT_SIZE,
+    )
+    ax.text(
+        left_x,
+        0.42,
+        left_strand,
+        ha="center",
+        va="bottom",
+        weight="bold",
+        fontsize=label_font_size,
+    )
     ax.text(
         right_x,
         0.42,
@@ -216,6 +374,7 @@ def _draw_orientation_example(
         ha="center",
         va="bottom",
         weight="bold",
+        fontsize=label_font_size,
     )
     ax.text(
         0.5,
@@ -224,6 +383,7 @@ def _draw_orientation_example(
         ha="center",
         va="center",
         weight="bold",
+        fontsize=label_font_size,
     )
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
@@ -234,17 +394,24 @@ def write_graph_legend(
     output_prefix: str,
     coverage_label: str,
     *,
-    fontsize: float = 10.0,
+    font_size_multiplier: float = 1.0,
     dpi: int = 300,
 ) -> None:
+    fontsize = get_gene_font_size(
+        font_size_multiplier,
+        DEFAULT_LEGEND_FONT_SIZE,
+    )
+    title_fontsize = get_gene_font_size(font_size_multiplier, 14.0)
+    small_fontsize = get_gene_font_size(font_size_multiplier, 9.0)
     legend_output_prefix = get_graph_legend_output_prefix(output_prefix)
     legend_output_prefix.parent.mkdir(parents=True, exist_ok=True)
     png_path = legend_output_prefix.with_suffix(".png")
     pdf_path = legend_output_prefix.with_suffix(".pdf")
-    if png_path.exists() and pdf_path.exists():
-        return
-
-    fig = plt.figure(figsize=(8.8, 7.0), facecolor="white")
+    layout_scale = get_text_layout_scale(font_size_multiplier)
+    fig = plt.figure(
+        figsize=(8.8 * layout_scale, 7.0 * layout_scale),
+        facecolor="white",
+    )
     layout = fig.add_gridspec(
         4,
         2,
@@ -257,7 +424,7 @@ def write_graph_legend(
     summary_ax.axis("off")
     summary_ax.set_title(
         "Legend",
-        fontsize=fontsize + 4,
+        fontsize=title_fontsize,
         weight="bold",
         pad=4,
     )
@@ -293,7 +460,7 @@ def write_graph_legend(
         "reference coordinate increases",
         ha="center",
         va="bottom",
-        fontsize=fontsize - 1,
+        fontsize=small_fontsize,
         color="dimgray",
     )
     _draw_endpoint_stub(endpoint_ax, 0.25, 0.32, "-", length=0.16)
@@ -323,14 +490,16 @@ def write_graph_legend(
             example_ax,
             orientation,
             DISCORDANT_EDGE_COLORS[orientation],
+            font_size_multiplier,
         )
 
     fig.subplots_adjust(left=0.04, right=0.96, top=0.97, bottom=0.04)
-    if not png_path.exists():
+    hide_figure_text_if_zero(fig, font_size_multiplier)
+    try:
         fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
-    if not pdf_path.exists():
         fig.savefig(pdf_path, bbox_inches="tight")
-    plt.close(fig)
+    finally:
+        plt.close(fig)
 
 
 # makes a gene object from parsed refGene data
@@ -360,9 +529,9 @@ class GraphViz:
     bam: Optional[bam_types.BAMWrapper] = None
     graph: datatypes.BreakpointGraph | None = None
 
-    graph_amplified_intervals: dict[
-        core_types.ChrTag, list[datatypes.Interval]
-    ] = field(default_factory=lambda: defaultdict(list))
+    graph_amplified_intervals: dict[core_types.ChrTag, list[datatypes.Interval]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
     num_amplified_intervals: int = 0
     cycle_amplified_intervals: dict[
         core_types.ChrTag, list[datatypes.Interval]
@@ -434,15 +603,10 @@ class GraphViz:
                 if not (fields := line.rstrip().rsplit()):
                     continue
                 curr_chrom: str = fields[2]
-                if (
-                    not use_custom
-                    and ref_genome
-                    in {
-                        core_types.ReferenceGenome.hg19,
-                        core_types.ReferenceGenome.hg38,
-                    }
-                    and not curr_chrom.startswith("chr")
-                ):
+                if not use_custom and ref_genome in {
+                    core_types.ReferenceGenome.hg19,
+                    core_types.ReferenceGenome.hg38,
+                } and not curr_chrom.startswith("chr"):
                     curr_chrom = "chr" + curr_chrom
 
                 tstart = int(fields[4])
@@ -450,8 +614,10 @@ class GraphViz:
                 gname = fields[-4]
                 is_other_feature = gname.startswith(("LOC", "LINC", "MIR"))
                 if (
-                    (restrict_to_bushman and gname not in bushman_set)
-                    or (gene_subset_list and gname not in gene_subset_list)
+                    (restrict_to_bushman
+                    and gname not in bushman_set)
+                    or (gene_subset_list
+                    and gname not in gene_subset_list)
                 ):
                     continue
 
@@ -526,9 +692,7 @@ class GraphViz:
         if graph_given:  # if the graph file is given, use this to set the amplified intervals
             for cycle_id in cycle_ids:
                 for cycle_seg in self.cycles[cycle_id].segments:
-                    for graph_intv in self.graph_amplified_intervals[
-                        cycle_seg.chr
-                    ]:
+                    for graph_intv in self.graph_amplified_intervals[cycle_seg.chr]:
                         if not graph_intv.encompasses(cycle_seg):
                             continue
 
@@ -592,13 +756,14 @@ class GraphViz:
         output_fn: str,
         margin_between_intervals: float = 2,
         height: float = 7.5,
-        fontsize: float = 18,
+        fontsize: float = DEFAULT_PLOT_FONT_SIZE,
         dpi: int = 300,
         max_cov_cutoff: float = float("inf"),
         quality_threshold: float = 0,
-        gene_font_size: float = 12,
+        gene_font_size: float = DEFAULT_GENE_FONT_SIZE,
         *,
         hide_genes: bool = False,
+        font_size_multiplier: float = 1.0,
     ) -> None:
         """Plot discordant edges and coverage on sequence edges in breakpoint
         graph."""
@@ -625,6 +790,10 @@ class GraphViz:
         ax.patch.set_visible(False)
         ax2.patch.set_visible(False)
         ax3 = fig.add_subplot(gs[1, 0], sharex=ax)
+        ax3.set_zorder(3)
+        ax3.patch.set_visible(False)
+        for plot_axis in (ax, ax2, ax3):
+            scale_axis_elements(plot_axis, font_size_multiplier)
         # ax.yaxis.set_label_coords(-0.05, 0.25)
         # ax2.yaxis.set_label_coords(1.05, 0.33)
         ax.xaxis.set_visible(False)
@@ -638,24 +807,22 @@ class GraphViz:
         total_len_amp = 0  # Total length of amplified intervals
         for chrom in self.graph_amplified_intervals:
             total_len_amp += sum(
-                [
-                    len(graph_intv)
-                    for graph_intv in self.graph_amplified_intervals[chrom]
-                ],
+                [len(graph_intv) for graph_intv in self.graph_amplified_intervals[chrom]],
             )
-        sorted_chrs = breakpoint_utilities.sort_chrom_names(
-            self.graph_amplified_intervals.keys()
-        )
         # sorted_chrs = sorted(self.intervals_from_graph.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         zoom_factor = 1.0
         if self.plot_bounds:
             zoom_factor = (
                 float(self.plot_bounds[2] - self.plot_bounds[1]) / total_len_amp
             )
+        sorted_chrs = breakpoint_utilities.sort_chrom_names(
+            self.graph_amplified_intervals.keys()
+        )
         amplified_intervals_start = {}
         sequence_edge_plot_positions = {}
         ymax = 0
-        ylim_params = [0, 0]
+        cn_sum_squares = 0.0
+        cn_coverage_cross_product = 0.0
         x = margin_between_intervals
         for chrom in sorted_chrs:
             interval_idx = 0
@@ -663,8 +830,7 @@ class GraphViz:
             for seq in self.sequence_edges_by_chr[chrom]:
                 if chrom not in self.graph_amplified_intervals or (
                     interval_idx >= len(self.graph_amplified_intervals[chrom])
-                    or seq.start
-                    > self.graph_amplified_intervals[chrom][interval_idx].end
+                    or seq.start > self.graph_amplified_intervals[chrom][interval_idx].end
                 ):
                     # int_ = self.intervals_from_graph[chrom][interval_idx]
                     x += margin_between_intervals
@@ -685,8 +851,8 @@ class GraphViz:
                         continue  # Skip if interval doesn't overlap with plot bounds
 
                 y = seq.cn
-                ylim_params[0] += seq.cn**2
-                ylim_params[1] += seq.cn * seq.lr_nc / 1.25
+                cn_sum_squares += seq.cn**2
+                cn_coverage_cross_product += seq.cn * seq.lr_nc
                 ymax = max(y, ymax)
 
                 ax2.hlines(y, x1, x2, color="black", lw=6, zorder=2)
@@ -744,10 +910,7 @@ class GraphViz:
             int1 = 0
             int2 = 0
             ort = f"{bp.node1.strand}{bp.node2.strand}"
-            if (
-                chr1 in self.graph_amplified_intervals
-                and chr2 in self.graph_amplified_intervals
-            ):
+            if chr1 in self.graph_amplified_intervals and chr2 in self.graph_amplified_intervals:
                 while pos1 > self.graph_amplified_intervals[chr1][int1].end:
                     int1 += 1
                 bp_x1 = (
@@ -839,9 +1002,7 @@ class GraphViz:
                     elif ival_len >= 100_000:
                         window_size = 1_000
 
-                    for w in range(
-                        graph_intv.start, graph_intv.end, window_size
-                    ):
+                    for w in range(graph_intv.start, graph_intv.end, window_size):
                         intv = Interval(chrom, w, w + window_size)
                         cov = (
                             self.bam.count_raw_coverage(
@@ -913,18 +1074,28 @@ class GraphViz:
                         zorder=1,
                     )
                     ax.add_patch(rect)
-        if max_cov > 0 and ylim_params[1] > 0:
-            ylim_params[1] /= max_cov
-            cn_ymax = ylim_params[0] / ylim_params[1]
-        else:
-            cn_ymax = max(1.25 * ymax, 1.0)
-        if max_arc_top_y > 0:
-            cn_ymax = max(cn_ymax, max_arc_top_y * 1.05)
-        ax2.set_ylim(0, cn_ymax)
+        axis_limits = get_graph_axis_limits(
+            max_coverage=max_cov,
+            max_segment_cn=ymax,
+            cn_sum_squares=cn_sum_squares,
+            cn_coverage_cross_product=cn_coverage_cross_product,
+            max_arc_apex=max_arc_top_y,
+            max_coverage_cutoff=max_cov_cutoff,
+        )
+        if (
+            math.isfinite(max_cov_cutoff)
+            and axis_limits.coverage_ymax > max_cov_cutoff
+        ):
+            logger.warning(
+                "Expanded the coverage axis above --max-coverage %.3f "
+                "to %.3f so discordant-edge arcs remain visible while "
+                "preserving the fitted coverage/CN alignment.",
+                max_cov_cutoff,
+                axis_limits.coverage_ymax,
+            )
+        ax2.set_ylim(0, axis_limits.cn_ymax)
         ax.set_ylabel("Coverage", fontsize=fontsize)
-        coverage_headroom_scale = 3.0 if discordant_edge_plots else 1.25
-        coverage_ymax = min(coverage_headroom_scale * max_cov, max_cov_cutoff)
-        ax.set_ylim(0, coverage_ymax if coverage_ymax > 0 else 1.0)
+        ax.set_ylim(0, axis_limits.coverage_ymax)
         ax.tick_params(axis="y", labelsize=fontsize)
 
         # draw genes below plot
@@ -1000,15 +1171,18 @@ class GraphViz:
                                 / total_len_amp
                             )
 
-                        ax3.text(
-                            (gene_start + gene_end) / 2,
-                            height + 0.05,
-                            gene_obj.gname,
-                            ha="center",
-                            va="bottom",
-                            fontsize=gene_font_size,
-                            style="italic",
-                        )
+                        if gene_font_size > 0:
+                            ax3.text(
+                                (gene_start + gene_end) / 2,
+                                height + 0.05,
+                                gene_obj.gname,
+                                ha="center",
+                                va="bottom",
+                                fontsize=gene_font_size,
+                                style="italic",
+                                clip_on=False,
+                                zorder=10,
+                            )
 
                         if gene_obj.strand == "+":
                             ax3.plot(
@@ -1206,7 +1380,10 @@ class GraphViz:
                 xticklabels.append(pchrom + ":" + str(pstart))
                 xticklabels.append(pchrom + ":" + str(pend))
                 ax3.set_xticks(xtickpos)
-                ax3.set_xticklabels(xticklabels, size=fontsize - 4)
+                ax3.set_xticklabels(
+                    xticklabels,
+                    size=14.0 * font_size_multiplier,
+                )
 
                 ax.set_xlim(plot_start, plot_end)
                 ax2.set_xlim(plot_start, plot_end)
@@ -1215,8 +1392,8 @@ class GraphViz:
         ax3.yaxis.set_major_formatter(ticker.NullFormatter())
         ax3.set_ylim(0, 1)
         fig.subplots_adjust(hspace=0)
-        plt.savefig(output_fn + ".png", dpi=dpi)
-        plt.savefig(output_fn + ".pdf")
+        hide_figure_text_if_zero(fig, font_size_multiplier)
+        save_plot_figure(fig, output_fn, dpi)
 
     def close_bam(self):
         try:
@@ -1230,12 +1407,13 @@ class GraphViz:
         output_fn: str,
         num_cycles: int | None = None,
         margin_between_intervals: int = 2,
-        fontsize: int = 18,
+        fontsize: float = DEFAULT_PLOT_FONT_SIZE,
         dpi: int = 300,
-        gene_font_size: int = 12,
+        gene_font_size: float = DEFAULT_GENE_FONT_SIZE,
         *,
         cycle_only: bool = False,
         hide_genes: bool = False,
+        font_size_multiplier: float = 1.0,
     ) -> None:
         """Plot cycles & paths returned from cycle decomposition"""
         width = max(15, 2 * self.num_amplified_intervals)
@@ -1259,7 +1437,13 @@ class GraphViz:
                 for cycle_id in cycles_to_plot
             ]
         ) + 9 * (len(cycles_to_plot) - 1)
-        fig = plt.figure(figsize=(width, max(4, height * 0.25)))
+        layout_scale = get_text_layout_scale(font_size_multiplier)
+        fig = plt.figure(
+            figsize=(
+                width * layout_scale,
+                max(4, height * 0.25) * layout_scale,
+            )
+        )
         if not hide_genes:
             vrat = 50 / height
             gs = gridspec.GridSpec(2, 1, height_ratios=[8, vrat])
@@ -1269,6 +1453,10 @@ class GraphViz:
         ax.set_title(title, fontsize=fontsize)
         ax.xaxis.set_visible(False)
         ax3 = fig.add_subplot(gs[1, 0], sharex=ax)
+        ax3.set_zorder(3)
+        ax3.patch.set_visible(False)
+        for plot_axis in (ax, ax3):
+            scale_axis_elements(plot_axis, font_size_multiplier)
         ax3.yaxis.set_visible(False)
         ax3.spines["left"].set_visible(False)
         ax3.spines["right"].set_visible(False)
@@ -1283,10 +1471,10 @@ class GraphViz:
                     for int_ in self.cycle_amplified_intervals[chrom]
                 ],
             )
+        # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         sorted_chrs = breakpoint_utilities.sort_chrom_names(
             self.cycle_amplified_intervals.keys()
         )
-        # sorted_chrs = sorted(self.intervals_from_cycle.keys(), key = lambda chr: CHR_TAG_TO_IDX[chr])
         amplified_intervals_start = {}
         x: float = margin_between_intervals
         for chrom in sorted_chrs:
@@ -1960,15 +2148,18 @@ class GraphViz:
                             color="cornflowerblue",
                             lw=4.5,
                         )  # Draw horizontal bars for genes
-                        ax3.text(
-                            (gene_start + gene_end) / 2,
-                            height + 0.05,
-                            gene_obj.gname,
-                            ha="center",
-                            va="bottom",
-                            fontsize=gene_font_size,
-                            style="italic",
-                        )
+                        if gene_font_size > 0:
+                            ax3.text(
+                                (gene_start + gene_end) / 2,
+                                height + 0.05,
+                                gene_obj.gname,
+                                ha="center",
+                                va="bottom",
+                                fontsize=gene_font_size,
+                                style="italic",
+                                clip_on=False,
+                                zorder=10,
+                            )
 
                         if gene_obj.strand == "+":
                             ax3.plot(
@@ -2118,8 +2309,8 @@ class GraphViz:
         ax3.yaxis.set_major_formatter(ticker.NullFormatter())
         ax3.set_ylim(0, 1)
         fig.subplots_adjust(hspace=0)
-        plt.savefig(output_fn + ".png", dpi=dpi)
-        plt.savefig(output_fn + ".pdf")
+        hide_figure_text_if_zero(fig, font_size_multiplier)
+        save_plot_figure(fig, output_fn, dpi)
 
 
 @core_utils.profile_fn_with_call_counter
@@ -2133,7 +2324,7 @@ def plot_amplicon(
     max_coverage: float,
     min_mapq: float,
     gene_subset_list: list[str],
-    gene_fontsize: int,
+    gene_fontsize: float,
     region: str | None,
     *,
     should_plot_graph: bool,
@@ -2141,6 +2332,7 @@ def plot_amplicon(
     should_hide_genes: bool,
     should_restrict_to_bushman_genes: bool,
     should_plot_only_cyclic_walks: bool,
+    font_size_multiplier: float = 1.0,
     refgene_file: pathlib.Path | None = None,
     gene_subset_file: pathlib.Path | None = None,
     legend_output_prefix: str | None = None,
@@ -2155,6 +2347,14 @@ def plot_amplicon(
         sys.exit(1)
 
     g = GraphViz()
+    effective_gene_font_size = get_gene_font_size(
+        font_size_multiplier,
+        gene_fontsize,
+    )
+    effective_plot_font_size = get_gene_font_size(
+        font_size_multiplier,
+        DEFAULT_PLOT_FONT_SIZE,
+    )
     merged_gene_subset = merge_gene_subsets(gene_subset_list, gene_subset_file)
     g.parse_genes(
         ref,
@@ -2181,13 +2381,16 @@ def plot_amplicon(
             max_cov_cutoff=max_coverage,
             quality_threshold=min_mapq,
             hide_genes=should_hide_genes,
-            gene_font_size=gene_fontsize,
+            gene_font_size=effective_gene_font_size,
+            fontsize=effective_plot_font_size,
+            font_size_multiplier=font_size_multiplier,
         )
         write_graph_legend(
             output_prefix
             if legend_output_prefix is None
             else legend_output_prefix,
             get_graph_coverage_label(bam_path),
+            font_size_multiplier=font_size_multiplier,
         )
 
     if should_plot_cycles:
@@ -2216,7 +2419,9 @@ def plot_amplicon(
             num_cycles=num_cycles,
             cycle_only=should_plot_only_cyclic_walks,
             hide_genes=should_hide_genes,
-            gene_font_size=gene_fontsize,
+            gene_font_size=effective_gene_font_size,
+            fontsize=effective_plot_font_size,
+            font_size_multiplier=font_size_multiplier,
         )
     g.close_bam()
     if graph_file:

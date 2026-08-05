@@ -256,6 +256,7 @@ At least one of `--graph` or `--cycles` must also be provided.
 | `--gene-subset-list <str> <str> <str> ...` | `[all]`                          | Only indicate positions of the gene names in this list                                                                                    |
 | `--gene-subset-file <file>`                | `[all]`                          | Text or CSV file of gene names to indicate in the plot. Gene names may be newline, whitespace, or comma delimited. Empty files emit a warning and fall back to plotting all genes unless `--gene-subset-list` is also provided. |
 | `--hide-genes`                             |                                  | Do not plot positions of genes                                                                                                            |
+| `--font-size <float>`                      | 1                                | Multiply all plot text and axis styling by this non-negative value. This includes titles, axis labels, tick labels, tick marks, axis lines, legends, cycle labels, and gene names. A value of `0` hides all text and axis ticks while retaining plotted data and gene tracks. |
 | `--gene-fontsize <float>`                  | 12                               | Adjust fontsize of gene names                                                                                                             
 | `--bushman-genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
@@ -279,6 +280,21 @@ Gene subsets may be supplied directly or through a file:
 ```bash
 coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --gene-subset-file genes.csv --output-prefix sample_graph_genes
 ```
+
+All plot text and axis styling can be scaled together:
+
+```bash
+# Twice the default text, label, tick, and axis sizes.
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --font-size 2 --output-prefix sample_graph_large_text
+
+# Half the default text, label, tick, and axis sizes.
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --font-size 0.5 --output-prefix sample_graph_small_text
+
+# Keep plotted data and gene tracks, but omit all text and axis ticks.
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --font-size 0 --output-prefix sample_graph_no_text
+```
+
+`--font-size` is also accepted by `coral plot_all` and applies to every generated plot.
 
 
 ## 5. ```hsr```

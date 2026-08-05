@@ -42,6 +42,17 @@ coral_app = typer.Typer(
 logger = logging.getLogger(__name__)
 
 
+def validate_font_size_multiplier(value: float) -> float:
+    try:
+        plot_amplicons.get_gene_font_size(
+            value,
+            plot_amplicons.DEFAULT_PLOT_FONT_SIZE,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return value
+
+
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     cns_filename = cns_file.name
     if cns_filename.endswith((".bed", ".cns")):
@@ -566,6 +577,15 @@ def plot_mode(
     gene_fontsize: Annotated[
         float, typer.Option(help="Change size of gene font.")
     ] = 12.0,
+    font_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            callback=validate_font_size_multiplier,
+            help="Multiplier for all plot text and axis styling; 0 hides text "
+            "and axis ticks.",
+        ),
+    ] = 1.0,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -615,6 +635,7 @@ def plot_mode(
         should_hide_genes=hide_genes,
         should_restrict_to_bushman_genes=bushman_genes,
         should_plot_only_cyclic_walks=only_cyclic_paths,
+        font_size_multiplier=font_size,
         refgene_file=refgene_file,
         gene_subset_file=gene_subset_file,
     )
@@ -684,6 +705,15 @@ def plot_all_mode(
     gene_fontsize: Annotated[
         float, typer.Option(help="Change size of gene font.")
     ] = 12.0,
+    font_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            callback=validate_font_size_multiplier,
+            help="Multiplier for all plot text and axis styling; 0 hides text "
+            "and axis ticks.",
+        ),
+    ] = 1.0,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -746,6 +776,7 @@ def plot_all_mode(
                     min_mapq=min_mapq,
                     gene_subset_list=gene_subset_list,
                     gene_fontsize=gene_fontsize,
+                    font_size_multiplier=font_size,
                     region=region,
                     should_plot_graph=True,
                     should_plot_cycles=True if cycle_file is not None else False,
@@ -776,6 +807,7 @@ def plot_all_mode(
                         min_mapq=min_mapq,
                         gene_subset_list=gene_subset_list,
                         gene_fontsize=gene_fontsize,
+                        font_size_multiplier=font_size,
                         region=region,
                         should_plot_graph=True,
                         should_plot_cycles=False,
@@ -803,6 +835,7 @@ def plot_all_mode(
                         min_mapq=min_mapq,
                         gene_subset_list=gene_subset_list,
                         gene_fontsize=gene_fontsize,
+                        font_size_multiplier=font_size,
                         region=region,
                         should_plot_graph=False,
                         should_plot_cycles=True,
