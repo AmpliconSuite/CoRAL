@@ -42,6 +42,22 @@ coral_app = typer.Typer(
 logger = logging.getLogger(__name__)
 
 
+def setup_logging(log_filename: pathlib.Path, *, verbose: bool) -> None:
+    """Configure the single run log file.
+
+    At the default (non-verbose) level only INFO and above are written, which
+    keeps logs to a few MB. `--verbose` additionally emits the per-read and
+    per-edge DEBUG records, which are typically 10-50x larger but are what we
+    need to diagnose a bug report.
+    """
+    logging.basicConfig(
+        filename=log_filename,
+        filemode="w+",
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
+    )
+
+
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     cns_filename = cns_file.name
     if cns_filename.endswith((".bed", ".cns")):
@@ -72,6 +88,16 @@ ReconstructLogArg = Annotated[
     typer.Option(
         help="Name of the main *.log file, which can be used to trace the status "
         "of reconstruct run(s)."
+    ),
+]
+VerboseFlag = Annotated[
+    bool,
+    typer.Option(
+        "--verbose/--no-verbose",
+        "-v",
+        help="Emit full debug output to the log file. Greatly increases log "
+        "size (10-50x), but is useful when reporting an issue. Also retains "
+        "intermediate files that are otherwise not written.",
     ),
 ]
 OutputPCArg = Annotated[
@@ -212,6 +238,7 @@ def reconstruct(
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     log_file: ReconstructLogArg = None,
+    verbose: VerboseFlag = False,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -229,15 +256,10 @@ def reconstruct(
     )
     # validate_cycle_flags(ctx)
 
-    log_fn = f"{output_prefix}_reconstruct.log"
+    log_fn = pathlib.Path(f"{output_prefix}_reconstruct.log")
     if log_file:
         log_fn = log_file
-    logging.basicConfig(
-        filename=log_fn,
-        filemode="w+",
-        level=logging.DEBUG,
-        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
-    )
+    setup_logging(log_fn, verbose=verbose)
     logging.getLogger("pyomo").setLevel(logging.INFO)
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_prefix = output_prefix
@@ -250,6 +272,7 @@ def reconstruct(
         output_prefix,
         output_path_constraints,
         min_bp_support,
+        cache_chimeric_alignments=verbose,
     )
     solver_options = datatypes.SolverOptions(
         num_threads=solver_threads,
@@ -298,6 +321,7 @@ def cycle_decomposition_mode(
         bool, typer.Option(help="Profile resource usage.")
     ] = False,
     log_file: ReconstructLogArg = None,
+    verbose: VerboseFlag = False,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -316,15 +340,10 @@ def cycle_decomposition_mode(
         parents=True, exist_ok=True
     )
 
-    log_fn = f"{output_prefix}_cycle_decomposition.log"
+    log_fn = pathlib.Path(f"{output_prefix}_cycle_decomposition.log")
     if log_file:
         log_fn = log_file
-    logging.basicConfig(
-        filename=log_fn,
-        filemode="w+",
-        level=logging.DEBUG,
-        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
-    )
+    setup_logging(log_fn, verbose=verbose)
     logging.getLogger("pyomo").setLevel(logging.ERROR)
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_prefix = output_prefix
@@ -392,6 +411,7 @@ def cycle_decomposition_all_mode(
     ] = False,
     ignore_path_constraints: IgnorePathConstraintsFlag = False,
     log_file: ReconstructLogArg = None,
+    verbose: VerboseFlag = False,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -408,15 +428,10 @@ def cycle_decomposition_all_mode(
         parents=True, exist_ok=True
     )
 
-    log_fn = f"{output_prefix}_cycle_decomposition.log"
+    log_fn = pathlib.Path(f"{output_prefix}_cycle_decomposition.log")
     if log_file:
         log_fn = log_file
-    logging.basicConfig(
-        filename=log_fn,
-        filemode="w+",
-        level=logging.DEBUG,
-        format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
-    )
+    setup_logging(log_fn, verbose=verbose)
     logging.getLogger("pyomo").setLevel(logging.ERROR)
     logging.getLogger("gurobipy").setLevel(logging.ERROR)
 
