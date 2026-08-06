@@ -18,6 +18,11 @@ PROFILE_ENABLED_PATTERN = re.compile(r"Profiling Enabled: (True|False)")
 
 
 # Solver patterns
+# The solver settings and resource usage sections are only written when
+# profiling is enabled; their headers let the parser tell them apart from
+# amplicon sections.
+SOLVER_SETTINGS_HEADER = "Solver Settings:"
+RESOURCE_USAGE_HEADER = "Resource Usage Summary:"
 SOLVER_PATTERN = re.compile(r"Solver: (\S+)")
 THREADS_PATTERN = re.compile(r"Threads: (\d+)")
 TIME_LIMIT_PATTERN = re.compile(r"Time Limit: (\d+) s")
