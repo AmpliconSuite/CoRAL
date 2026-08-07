@@ -95,9 +95,12 @@ VerboseFlag = Annotated[
     typer.Option(
         "--verbose/--no-verbose",
         "-v",
-        help="Emit full debug output to the log file. Greatly increases log "
-        "size (10-50x), but is useful when reporting an issue. Also retains "
-        "intermediate files that are otherwise not written.",
+        help="Emit full debug output to the log file (10-50x larger), and "
+        "cache the reads fetched from the BAM to a *.pickle file next to the "
+        "other output, which can exceed 1GB. Intended "
+        "for diagnosing issues. A later --verbose run with the same "
+        "--output-prefix reuses that cache and skips the BAM scan; it is not "
+        "validated, so delete it if the BAM has changed.",
     ),
 ]
 OutputPCArg = Annotated[
