@@ -81,7 +81,7 @@ def test_graph_plot_does_not_require_bam(
     monkeypatch.setattr(plot_amplicons.GraphViz, "parse_genes", noop_parse_genes)
     monkeypatch.setattr(plot_amplicons.GraphViz, "plot_graph", record_plot_graph)
 
-    graph_path = pathlib.Path("sample_data/test4/amplicon1_graph.txt")
+    graph_path = pathlib.Path("tests/data/amplicon1_graph.txt")
     with graph_path.open() as graph_file:
         plot_amplicons.plot_amplicon(
             core_types.ReferenceGenome.hg38,
@@ -140,7 +140,7 @@ def test_graph_plot_uses_bam_when_provided(
     monkeypatch.setattr(plot_amplicons.GraphViz, "parse_genes", noop_parse_genes)
     monkeypatch.setattr(plot_amplicons.GraphViz, "plot_graph", record_plot_graph)
 
-    graph_path = pathlib.Path("sample_data/test4/amplicon1_graph.txt")
+    graph_path = pathlib.Path("tests/data/amplicon1_graph.txt")
     with graph_path.open() as graph_file:
         plot_amplicons.plot_amplicon(
             core_types.ReferenceGenome.hg38,
@@ -187,7 +187,7 @@ def test_plot_cli_passes_gene_subset_file(
             "--ref",
             "hg38",
             "--graph",
-            "sample_data/test4/amplicon1_graph.txt",
+            "tests/data/amplicon1_graph.txt",
             "--output-prefix",
             str(tmp_path / "plot" / "out"),
             "--gene-subset-file",
@@ -219,7 +219,7 @@ def test_plot_all_cli_passes_gene_subset_file(
             "--ref",
             "hg38",
             "--graph-dir",
-            "sample_data/test4",
+            "tests/data",
             "--output-prefix",
             str(tmp_path / "plot_all" / "out"),
             "--gene-subset-file",
