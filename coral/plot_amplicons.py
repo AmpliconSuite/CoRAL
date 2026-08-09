@@ -409,14 +409,14 @@ def write_graph_legend(
     pdf_path = legend_output_prefix.with_suffix(".pdf")
     layout_scale = get_text_layout_scale(font_size_multiplier)
     fig = plt.figure(
-        figsize=(8.8 * layout_scale, 7.0 * layout_scale),
+        figsize=(8.8 * layout_scale, 4.6 * layout_scale),
         facecolor="white",
     )
     layout = fig.add_gridspec(
         4,
         2,
-        height_ratios=(1.35, 1.05, 1.0, 1.0),
-        hspace=0.25,
+        height_ratios=(1.15, 0.22, 0.9, 0.9),
+        hspace=0.05,
         wspace=0.18,
     )
 
@@ -440,46 +440,28 @@ def write_graph_legend(
         handlelength=3.0,
     )
 
-    endpoint_ax = fig.add_subplot(layout[1, :])
-    endpoint_ax.set_xlim(0, 1)
-    endpoint_ax.set_ylim(0, 1)
-    endpoint_ax.axis("off")
-    endpoint_ax.add_patch(
+    coordinate_ax = fig.add_subplot(layout[1, :])
+    coordinate_ax.set_xlim(0, 1)
+    coordinate_ax.set_ylim(0, 1)
+    coordinate_ax.axis("off")
+    coordinate_ax.add_patch(
         FancyArrowPatch(
-            (0.27, 0.78),
-            (0.73, 0.78),
+            (0.27, 0.64),
+            (0.73, 0.64),
             arrowstyle="-|>",
             mutation_scale=11,
             lw=1.2,
             color="dimgray",
         )
     )
-    endpoint_ax.text(
+    coordinate_ax.text(
         0.5,
-        0.81,
+        0.74,
         "reference coordinate increases",
         ha="center",
         va="bottom",
         fontsize=small_fontsize,
         color="dimgray",
-    )
-    _draw_endpoint_stub(endpoint_ax, 0.25, 0.32, "-", length=0.16)
-    _draw_endpoint_stub(endpoint_ax, 0.75, 0.32, "+", length=0.16)
-    endpoint_ax.text(
-        0.25,
-        0.47,
-        "-  lower-coordinate / left end",
-        ha="center",
-        fontsize=fontsize,
-        weight="bold",
-    )
-    endpoint_ax.text(
-        0.75,
-        0.47,
-        "+  higher-coordinate / right end",
-        ha="center",
-        fontsize=fontsize,
-        weight="bold",
     )
     for grid_cell, orientation in zip(
         (layout[2, 0], layout[2, 1], layout[3, 0], layout[3, 1]),
@@ -493,7 +475,7 @@ def write_graph_legend(
             font_size_multiplier,
         )
 
-    fig.subplots_adjust(left=0.04, right=0.96, top=0.97, bottom=0.04)
+    fig.subplots_adjust(left=0.04, right=0.96, top=0.96, bottom=0.04)
     hide_figure_text_if_zero(fig, font_size_multiplier)
     try:
         fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
