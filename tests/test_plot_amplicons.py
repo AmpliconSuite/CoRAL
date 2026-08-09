@@ -560,6 +560,84 @@ def test_plot_cli_passes_font_size_multiplier(
     assert records["font_size_multiplier"] == 0.5
 
 
+def test_plot_cli_preserves_explicit_gene_fontsize_by_default(
+    monkeypatch: object,
+    tmp_path: pathlib.Path,
+) -> None:
+    from coral import cli
+
+    records = {}
+
+    def record_plot_amplicon(*args: object, **_kwargs: object) -> None:
+        records["gene_fontsize"] = args[9]
+
+    monkeypatch.setattr(
+        cli.plot_amplicons,
+        "plot_amplicon",
+        record_plot_amplicon,
+    )
+
+    result = CliRunner().invoke(
+        cli.coral_app,
+        [
+            "plot",
+            "--ref",
+            "hg38",
+            "--graph",
+            "sample_data/test4/amplicon1_graph.txt",
+            "--output-prefix",
+            str(tmp_path / "plot" / "out"),
+            "--gene-fontsize",
+            "20",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert records["gene_fontsize"] == 20.0
+    assert "--gene-fontsize will be ignored" not in result.output
+
+
+def test_plot_cli_explicit_global_fontsize_overrides_gene_fontsize(
+    monkeypatch: object,
+    tmp_path: pathlib.Path,
+) -> None:
+    from coral import cli
+
+    records = {}
+
+    def record_plot_amplicon(*args: object, **kwargs: object) -> None:
+        records["gene_fontsize"] = args[9]
+        records["font_size_multiplier"] = kwargs["font_size_multiplier"]
+
+    monkeypatch.setattr(
+        cli.plot_amplicons,
+        "plot_amplicon",
+        record_plot_amplicon,
+    )
+
+    result = CliRunner().invoke(
+        cli.coral_app,
+        [
+            "plot",
+            "--ref",
+            "hg38",
+            "--graph",
+            "sample_data/test4/amplicon1_graph.txt",
+            "--output-prefix",
+            str(tmp_path / "plot" / "out"),
+            "--gene-fontsize",
+            "20",
+            "--font-size",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert records["gene_fontsize"] == plot_amplicons.DEFAULT_GENE_FONT_SIZE
+    assert records["font_size_multiplier"] == 1.0
+    assert "--gene-fontsize will be ignored" in result.output
+
+
 def test_plot_cli_rejects_invalid_font_size_multipliers() -> None:
     from coral import cli
 
@@ -654,6 +732,49 @@ def test_plot_all_cli_passes_font_size_multiplier(
     assert result.exit_code == 0, result.output
     assert records
     assert all(record == 2.0 for record in records)
+
+
+def test_plot_all_cli_warns_once_when_global_fontsize_overrides_gene_fontsize(
+    monkeypatch: object,
+    tmp_path: pathlib.Path,
+) -> None:
+    from coral import cli
+
+    records = []
+
+    def record_plot_amplicon(*_args: object, **kwargs: object) -> None:
+        records.append(kwargs["gene_fontsize"])
+
+    monkeypatch.setattr(
+        cli.plot_amplicons,
+        "plot_amplicon",
+        record_plot_amplicon,
+    )
+
+    result = CliRunner().invoke(
+        cli.coral_app,
+        [
+            "plot_all",
+            "--ref",
+            "hg38",
+            "--graph-dir",
+            "sample_data/test4",
+            "--output-prefix",
+            str(tmp_path / "plot_all" / "out"),
+            "--gene-fontsize",
+            "20",
+            "--font-size",
+            "0.5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert records
+    assert all(
+        record == plot_amplicons.DEFAULT_GENE_FONT_SIZE
+        for record in records
+    )
+    assert result.output.count("--gene-fontsize will be ignored") == 1
 
 
 def test_plot_all_cli_passes_shared_legend_prefix(
