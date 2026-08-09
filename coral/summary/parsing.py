@@ -236,12 +236,21 @@ def parse_full_summary(path: pathlib.Path) -> FullProfileSummary:
     summary_chunks = path.read_text().split(text_utils.AMPLICON_SEPARATOR)
     full_profile_summary = parse_header(summary_chunks.pop(0))
 
+    # The solver settings and resource usage sections are appended only when
+    # profiling is enabled, and only once the run finishes. Summaries from
+    # unprofiled or interrupted runs hold amplicon sections alone, so consume
+    # each trailing section only if it is actually present.
     resource_summary = None
-    if full_profile_summary.profiling_enabled:
+    if summary_chunks and text_utils.RESOURCE_USAGE_HEADER in (
+        summary_chunks[-1]
+    ):
         resource_summary = summary_chunks.pop()
 
     # Update solver info in-place
-    parse_solver_summary(summary_chunks.pop(), full_profile_summary)
+    if summary_chunks and text_utils.SOLVER_SETTINGS_HEADER in (
+        summary_chunks[-1]
+    ):
+        parse_solver_summary(summary_chunks.pop(), full_profile_summary)
 
     amplicon_summaries = summary_chunks
     for i, amplicon_summary_str in enumerate(amplicon_summaries):

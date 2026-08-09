@@ -251,6 +251,14 @@ def reconstruct(
         output_path_constraints,
         min_bp_support,
     )
+    # Write the summary immediately after graph reconstruction, so that it
+    # always exists downstream (AmpliconClassifier uses it as a marker that
+    # reconstruction ran), including when no amplicons were found, when cycle
+    # decomposition is skipped, or if decomposition is later interrupted.
+    summary.output.output_summary_amplicon_stats(
+        {bp_graph.amplicon_idx: False for bp_graph in b2bn.lr_graph},
+        b2bn.lr_graph,
+    )
     solver_options = datatypes.SolverOptions(
         num_threads=solver_threads,
         time_limit_s=solver_time_limit,

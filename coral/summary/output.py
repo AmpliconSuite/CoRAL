@@ -85,7 +85,7 @@ def output_amplicon_info(
 def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
     with global_state.STATE_PROVIDER.summary_filepath.open("a") as fp:
         fp.write(text_utils.AMPLICON_SEPARATOR + "\n")
-        fp.write("Solver Settings: \n")
+        fp.write(f"{text_utils.SOLVER_SETTINGS_HEADER}\n")
         fp.write(f"Solver: {solver_options.solver.name}\n")
         threads_used = (
             solver_options.num_threads
@@ -95,7 +95,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
         fp.write(f"Threads: {threads_used}\n")
         fp.write(f"Time Limit: {solver_options.time_limit_s} s\n")
         fp.write(text_utils.AMPLICON_SEPARATOR + "\n")
-        fp.write("Resource Usage Summary:\n")
+        fp.write(f"{text_utils.RESOURCE_USAGE_HEADER}\n")
         for fn_call, profile in sorted(global_state.PROFILED_FN_CALLS.items()):
             fn_tag = (
                 f"{fn_call.fn_name}/{fn_call.call_ctr}"
@@ -133,5 +133,7 @@ def output_summary_amplicon_stats(
         fp.write(get_summary_header(was_amplicon_solved))
         for bp_graph in bp_graphs:
             output_amplicon_info(
-                bp_graph, fp, was_amplicon_solved[bp_graph.amplicon_idx]
+                bp_graph,
+                fp,
+                was_amplicon_solved.get(bp_graph.amplicon_idx, False),
             )
