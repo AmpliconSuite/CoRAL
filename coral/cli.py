@@ -95,12 +95,19 @@ VerboseFlag = Annotated[
     typer.Option(
         "--verbose/--no-verbose",
         "-v",
-        help="Emit full debug output to the log file (10-50x larger), and "
-        "cache the reads fetched from the BAM to a *.pickle file next to the "
-        "other output, which can exceed 1GB. Intended "
-        "for diagnosing issues. A later --verbose run with the same "
-        "--output-prefix reuses that cache and skips the BAM scan; it is not "
-        "validated, so delete it if the BAM has changed.",
+        help="Emit full debug output to the log file (10-50x larger). "
+        "Intended for diagnosing issues. ",
+    ),
+]
+CacheReadsFlag = Annotated[
+    bool,
+    typer.Option(
+        "--cache-reads",
+        help="Cache the chimeric reads fetched from the BAM to a *.pickle "
+        "file next to the other output, which can exceed 1GB. A later run "
+        "with the same --output-prefix and this flag reuses that cache and "
+        "skips the BAM scan; it is not validated, so delete it if the BAM "
+        "has changed.",
     ),
 ]
 OutputPCArg = Annotated[
@@ -242,6 +249,7 @@ def reconstruct(
     ] = False,
     log_file: ReconstructLogArg = None,
     verbose: VerboseFlag = False,
+    cache_reads: CacheReadsFlag = False,
 ) -> None:
     print(
         f"{colorama.Style.DIM}{colorama.Fore.LIGHTYELLOW_EX}"
@@ -275,7 +283,7 @@ def reconstruct(
         output_prefix,
         output_path_constraints,
         min_bp_support,
-        cache_chimeric_alignments=verbose,
+        cache_chimeric_alignments = cache_reads,
     )
     # Write the summary immediately after graph reconstruction, so that it
     # always exists downstream (AmpliconClassifier uses it as a marker that
