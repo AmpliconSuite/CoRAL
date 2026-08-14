@@ -1675,9 +1675,6 @@ def reconstruct_graphs(
                     f"Cache at {pickle_path} was built from a different BAM, "
                     "re-fetching."
                 )
-            logger.info(
-                f"Loaded cached chimeric alignments from {pickle_path}."
-            )
         except Exception as e:
             logger.warning(
                 f"Unable to load chimeric alignments: {e}, re-fetching."

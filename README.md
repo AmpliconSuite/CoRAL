@@ -144,7 +144,7 @@ Usage:
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
 *	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s).
 * ```--verbose```/```-v``` - Write full debug output to the ```*.log``` file, instead of only ```INFO```-level messages and above. This typically increases the size of the log by 10-50x, and is mainly useful for gathering detail when reporting an issue.
-* ```--cache-reads``` - Write a ```<output-prefix>_chimeric_alignments.pickle``` cache of the chimeric reads fetched from the ```*.BAM```, **which can exceed 1 GB on high-coverage samples**. If that cache file is already present, a subsequent run using the same ```--output-prefix``` will load it and skip re-scanning the BAM, which can substantially reduce runtime. ***The cache is keyed only on the output prefix and is not checked against the ```*.BAM``` - delete it if the input BAM has changed.***
+* ```--cache-reads``` - Write a ```<output-prefix>_chimeric_alignments.pickle``` cache of the chimeric reads fetched from the ```*.BAM```, **which can exceed 1 GB on high-coverage samples**. If that cache file is already present, a subsequent run using the same ```--output-prefix``` will load it and skip re-scanning the BAM, which can substantially reduce runtime. The cache records which BAM it was built from and is ignored automatically if that BAM changes.
 
 **2.3 Expected output:**
 
