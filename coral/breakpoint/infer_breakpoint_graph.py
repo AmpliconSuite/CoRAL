@@ -1655,17 +1655,32 @@ def reconstruct_graphs(
     # re-fetching them from the BAM on successive reconstructions. The cache can
     # be very large, so it is not written during a normal run.
     pickle_path = pathlib.Path(f"{output_prefix}_chimeric_alignments.pickle")
+    bam_info = (
+        str(lr_bam_filename.resolve()), # absolute path
+        lr_bam_filename.stat().st_size,
+        lr_bam_filename.stat().st_mtime,
+    )
     chimeric_alignments: dict[str, list[ChimericAlignment]] | None = None
     if pickle_path.exists():
         try:
             with pickle_path.open("rb") as file:
-                chimeric_alignments = pickle.load(file)
+                cached_bam_info, cached_alignments = pickle.load(file)
+            if cached_bam_info == bam_info:
+                chimeric_alignments = cached_alignments
+                logger.info(
+                    f"Loaded cached chimeric alignments from {pickle_path}."
+                )
+            else:
+                logger.warning(
+                    f"Cache at {pickle_path} was built from a different BAM, "
+                    "re-fetching."
+                )
             logger.info(
                 f"Loaded cached chimeric alignments from {pickle_path}."
             )
         except Exception as e:
             logger.warning(
-                f"Unable to load chimeric alignments: {e}, re-fetching"
+                f"Unable to load chimeric alignments: {e}, re-fetching."
             )
     if chimeric_alignments is None:
         start = time.time()
@@ -1675,7 +1690,7 @@ def reconstruct_graphs(
         logger.info(f"Time to fetch breakpoint reads: {time.time() - start}")
         if cache_chimeric_alignments:
             with pickle_path.open("wb") as file:
-                pickle.dump(chimeric_alignments, file)
+                pickle.dump((bam_info, chimeric_alignments), file)
     logger.info("Completed fetching reads containing breakpoints.")
 
     chimeric_alignments_by_read, chr_cns_to_chimeric_alignments = (
