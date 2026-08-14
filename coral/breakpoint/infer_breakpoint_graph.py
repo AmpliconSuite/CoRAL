@@ -1651,12 +1651,12 @@ def reconstruct_graphs(
     b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
 
-    # Under --verbose, cache chimeric alignments to a pickle file to avoid
+    # Under --cache-reads, cache chimeric alignments to a pickle file to avoid
     # re-fetching them from the BAM on successive reconstructions. The cache can
     # be very large, so it is not written during a normal run.
     pickle_path = pathlib.Path(f"{output_prefix}_chimeric_alignments.pickle")
     chimeric_alignments: dict[str, list[ChimericAlignment]] | None = None
-    if cache_chimeric_alignments and pickle_path.exists():
+    if pickle_path.exists():
         try:
             with pickle_path.open("rb") as file:
                 chimeric_alignments = pickle.load(file)
