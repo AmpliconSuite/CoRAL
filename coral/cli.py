@@ -290,7 +290,7 @@ def reconstruct(
     # reconstruction ran), including when no amplicons were found, when cycle
     # decomposition is skipped, or if decomposition is later interrupted.
     summary.output.output_summary_amplicon_stats(
-        {bp_graph.amplicon_idx: False for bp_graph in b2bn.lr_graph},
+        {bp_graph.amplicon_idx: None for bp_graph in b2bn.lr_graph},
         b2bn.lr_graph,
     )
     solver_options = datatypes.SolverOptions(

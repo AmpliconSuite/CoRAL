@@ -36,6 +36,7 @@ AMPLICON_BREAKPOINTS_PATTERN = re.compile(
 
 CYCLE_DECOMP_STATUS_TEMPLATE = "Cycle Decomposition Status: {status}"
 CYCLE_DECOMP_STATUS_PATTERN = re.compile(r"Cycle Decomposition Status: (\S+)")
+CYCLE_DECOMP_STATUS_UNPERFORMED = "UNPERFORMED"
 
 MODEL_METADATA_TEMPLATE_V2_1 = (
     "ModelMetadata: {model_type}, k={k}, alpha={alpha}, "

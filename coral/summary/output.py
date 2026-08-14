@@ -38,7 +38,7 @@ def output_amplicon_solution(
 
 
 def output_amplicon_info(
-    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool
+    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool | None
 ) -> None:
     output_file.write(text_utils.AMPLICON_SEPARATOR + "\n")
     output_file.write(f"AmpliconID = {bp_graph.amplicon_idx+1}\n")
@@ -74,6 +74,10 @@ def output_amplicon_info(
         if bp_graph.upper_bound is not None:
             output_file.write(f"\tUpper Bound: {bp_graph.upper_bound:.5f}\n")
         output_amplicon_solution(bp_graph, output_file)
+    elif was_solved is None:
+        output_file.write(
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status=text_utils.CYCLE_DECOMP_STATUS_UNPERFORMED)}\n"
+        )
     else:
         output_file.write(
             f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='FAILURE')}\n"
@@ -108,7 +112,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
             )
 
 
-def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
+def get_summary_header(was_amplicon_solved: dict[int, bool | None]) -> str:
     version_str = text_utils.VERSION_TEMPLATE.format(
         version=importlib.metadata.version("coral")
     )
@@ -116,7 +120,7 @@ def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
         enabled=global_state.STATE_PROVIDER.should_profile
     )
     header_str = f"{version_str}\n"
-    header_str += f"{sum(was_amplicon_solved.values())}/{len(was_amplicon_solved)} amplicons solved.\n"
+    header_str += f"{sum(1 for v in was_amplicon_solved.values() if v)}/{len(was_amplicon_solved)} amplicons solved.\n"
     header_str += f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
     header_str += f"{profile_str}\n"
 
@@ -135,5 +139,5 @@ def output_summary_amplicon_stats(
             output_amplicon_info(
                 bp_graph,
                 fp,
-                was_amplicon_solved.get(bp_graph.amplicon_idx, False),
+                was_amplicon_solved.get(bp_graph.amplicon_idx, None),
             )

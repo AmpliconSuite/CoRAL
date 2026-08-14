@@ -694,8 +694,8 @@ def cycle_decomposition_all_graphs(
     # Default all amplicons to unsolved, so that the summary file exists (and
     # reports the correct amplicon count) from the outset, even if no amplicons
     # were found or decomposition is interrupted partway through.
-    was_amplicon_solved: Dict[int, bool] = defaultdict(
-        bool, {bp_graph.amplicon_idx: False for bp_graph in bp_graphs}
+    was_amplicon_solved: Dict[int, bool | None] = defaultdict(
+        bool, {bp_graph.amplicon_idx: None for bp_graph in bp_graphs}
     )
     coral.summary.output.output_summary_amplicon_stats(
         was_amplicon_solved, bp_graphs

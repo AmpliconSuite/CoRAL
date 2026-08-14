@@ -39,11 +39,21 @@ def make_graphs(num_amplicons: int) -> list[BreakpointGraph]:
     return [BreakpointGraph(amplicon_idx=i) for i in range(num_amplicons)]
 
 
-def write_summary(bp_graphs: list[BreakpointGraph]) -> pathlib.Path:
+def write_summary(bp_graphs: list[BreakpointGraph], solved: bool | None = False) -> pathlib.Path:
     summary_output.output_summary_amplicon_stats(
         {bp_graph.amplicon_idx: False for bp_graph in bp_graphs}, bp_graphs
     )
     return global_state.STATE_PROVIDER.summary_filepath
+
+
+def test_unperformed_amplicons(
+    summary_prefix: pathlib.Path,
+) -> None:
+    text = write_summary(make_graphs(2), solved = None).read_text()
+
+    assert text.count("Cycle Decomposition Status: UNPERFORMED") == 2
+    assert "FAILURE" not in text
+    assert "0/2 amplicons solved." in text
 
 
 def add_resource_usage(output_dir: pathlib.Path) -> None:
