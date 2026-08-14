@@ -80,19 +80,23 @@ Before running CoRAL, you will need genome-wide copy number (CN) calls generated
 
    This will create a file called `[input].cns`, which you can feed to CoRAL for it's `--cn_segs` argument.
 
-## Command line arguments to run CoRAL
+## Running CoRAL
 
-CoRAL and its various run-modes can by used in the following manner
+CoRAL is run as a series of **stages**, each invoked as a separate mode:
 
 `coral [mode] [mode arguments]`
 
-The run modes are as follows:
-1. `seed`: Identify seed amplified intervals (copy number gain regions) with input genome-wide CN calls.
-2. `reconstruct`: **The main running mode of CoRAL**. Perform a complete reconstuction of breakpoint graph and cycle extraction from seed amplified intervals.
-3. `cycle`: Run cycle extraction on a previously generated breakpoint graph. NOTE: This requires the breakpoint graph to be generated with CoRAL v2.1.0 or later, as we require `path constraints` and `amplicon intervals` to be included in the provided `*_graph.txt` file.
-4. `plot`: Create plots of cycles/paths from cycle extraction and/or breakpoint graph sashimi plot.
-5. `hsr`: Identify candidate locations of chromosomal homogenously staining region (HSR) integration points for ecDNA.
-6. `cycle2bed`: Convert the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) style  `*_cycles.txt` file to extended `.bed` format. The AA format is also supported by CoRAL.
+A standard analysis is **stage 1 → stage 2**, since `reconstruct` requires the seed intervals produced by `seed`. Stages 3-5 are optional and operate on the outputs of stage 2.
+
+| Stage | Mode | Purpose |
+|-------|------|---------|
+| 1 | [`seed`](#1-seed) | Identify seed amplified intervals (copy number gain regions) from genome-wide CN calls. **Run first** - its output is a required input to `reconstruct`. |
+| 2 | [`reconstruct`](#2-reconstruct) | **The main running mode of CoRAL.** Build the breakpoint graph from the BAM and extract cycles, producing `*_graph.txt` and `*_cycles.txt`. |
+| 3 | [`cycle`](#3-cycle) | *Optional.* Re-run **only** cycle extraction on an existing breakpoint graph, without re-reading the BAM. |
+| 4 | [`plot`](#4-plot) | *Optional.* Visualize the reconstructed cycles/paths and/or the breakpoint graph. |
+| 5 | [`hsr`](#5-hsr) | *Optional, experimental.* Identify candidate chromosomal homogeneously staining region (HSR) integration points for ecDNA. |
+
+Once reconstruction is complete, the resulting amplicons can be classified by amplification type (ecDNA, BFB, etc.) with AmpliconClassifier - see [Amplicon classification](#6-amplicon-classification). Format-conversion helpers are described under [Optional utilities](#optional-utilities).
 
 
 ## 1. ```seed```
@@ -148,9 +152,23 @@ Usage:
 
 **2.3 Expected output:**
 
-CoRAL may identify and reconstruct a few distinct focal amplifications in the input ```*.BAM``` sample, each will be organized as an *amplicon*, which includes a connected component of amplified intervals and their connections by discordant edges. CoRAL writes the following files to the directory specified with ```--output_dir```.
+CoRAL may identify and reconstruct several distinct focal amplifications in the input ```*.BAM``` sample. Each is organized as an *amplicon* - a connected component of amplified intervals and their connections by discordant edges - and is numbered `amplicon1`, `amplicon2`, and so on.
 
-* Graph fil-e: For each amplicon, a tab-separated text file named ```output_dir/amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
+All output files are named using the value given to ```--output-prefix```, which includes the output directory (e.g. `--output-prefix results/GBM39` writes `results/GBM39_amplicon1_graph.txt`). The files written are:
+
+| File | Written per | Contents |
+|------|-------------|----------|
+| `<prefix>_amplicon<N>_graph.txt` | amplicon | **The breakpoint graph.** Sequence, concordant, and discordant edges with predicted copy number, plus path constraints and amplicon intervals. |
+| `<prefix>_amplicon<N>_cycles.txt` | amplicon | **The reconstructed cycles and paths** with their copy counts, and which path constraints each satisfies. Not written if ```--skip-cycle-decomp``` is given. |
+| `<prefix>_summary.txt` | run | Per-amplicon summary of the reconstruction (intervals, amplicon count, whether cycle extraction succeeded). Used by downstream tools to locate the run. |
+| `<prefix>_reconstruct.log` | run | Run log. See ```--log-file``` and ```--verbose``` above. |
+| `<prefix>_amplicon<N>_model.lp` / `.log` | amplicon | The integer program handed to the solver, in human-readable form, and the solver's own output. Diagnostic only. |
+
+The two files that matter for downstream analysis are `*_graph.txt` and `*_cycles.txt`. Both use the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) format and are interchangeable with AA's equivalents, which is what allows them to be passed directly to [`plot`](#4-plot), [`cycle`](#3-cycle), and [AmpliconClassifier](#6-amplicon-classification).
+
+The remainder of this section describes the two formats in detail.
+
+* Graph file: For each amplicon, a tab-separated text file named ```<prefix>_amplicon*_graph.txt``` describing the *sequence edges*, *concordant edges* and *discordant edges* in the graph and their predicted copy count. Note that the graph files outputted by CoRAL have the same format as those outputted by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect). Here is an example graph file from GBM39, a cell line with *EGFR* amplified on ecDNA.
    * As of version 2.1.0, CoRAL additionally includes `path constraints` and 
    `amplicon intervals` in the `*_graph.txt` file. This results in the graph
    being fully self-contained and able to be passed to cycle extraction without 
@@ -184,7 +202,7 @@ AmpliconIntervals: chr, start, end
 interval        chr7    54659673        56149664
 ```
 * Cycles file: 
-For each amplicon, a tab-separated text file named ```output_dir_amplicon*_cycles.txt``` describing the list of cycles and paths returned from cycle extraction. Note that the cycles files output by CoRAL have mostly the same format as those output by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect in most cases). Specifically a cycles file includes (i) the list of amplified intervals; (ii) the list of sequence edges; (iii) the list of cycles and paths, where an entry starts with ```0+``` and ends with ```0-``` in ```Segments``` indicates a path - these lines have the same format as AmpliconArchitect output. CoRAL's cycles files additionally include (iv) a list of longest (i.e., there are no paths that can form a sub/super-path to each other) path constraint indicated by long reads, and used in CoRAL's cycle extraction. Here is an example cycles file corresponding to the above graph file from GBM39.
+For each amplicon, a tab-separated text file named ```<prefix>_amplicon*_cycles.txt``` describing the list of cycles and paths returned from cycle extraction. Note that the cycles files output by CoRAL have mostly the same format as those output by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (and therefore the files can be used interchangeably with AmpliconArchitect in most cases). Specifically a cycles file includes (i) the list of amplified intervals; (ii) the list of sequence edges; (iii) the list of cycles and paths, where an entry starts with ```0+``` and ends with ```0-``` in ```Segments``` indicates a path - these lines have the same format as AmpliconArchitect output. CoRAL's cycles files additionally include (iv) a list of longest (i.e., there are no paths that can form a sub/super-path to each other) path constraint indicated by long reads, and used in CoRAL's cycle extraction. Here is an example cycles file corresponding to the above graph file from GBM39.
 ```
 Interval	1	chr7	54659673	56149664
 List of cycle segments
@@ -202,10 +220,18 @@ Cycle=1;Copy_count=82.34616279663038;Segments=2+,4+,6+;Path_constraints_satisfie
 Cycle=2;Copy_count=2.8436550275157644;Segments=0+,2+,3+,4+,5+,6+,0-;Path_constraints_satisfied=1,2
 ```
 Note that if ```--output-all-path-constraints``` is specified, then all path constraints given by long reads will be written to in ```*.cycles``` file.
-* Other outputs include the ```output_dir_amplicon*_model.lp``` file(s) and ```output_dir_amplicon*_model.log``` file(s) given by Gurobi (integer program solver), for each amplicon, respectively describing the quadratic (constrained) program in a human readable format, and the standard output produced by Gurobi.
 
 
 ## 3. ```cycle```
+
+`reconstruct` already performs cycle extraction, so **most users never need this mode.** It exists to re-run *only* the cycle extraction half of `reconstruct`, starting from a breakpoint graph that already exists. Because it reads the `*_graph.txt` file rather than the BAM, it skips the expensive alignment-scanning step entirely. Use it when you want to:
+
+- re-extract cycles under different parameters (e.g. a different ```--cycle-decomp-mode```, ```--alpha```, or a longer ```--solver-time-limit```) without rebuilding the graph;
+- resume a run that used ```--skip-cycle-decomp```;
+- extract cycles from a graph produced by [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) rather than by CoRAL.
+
+**NOTE:** a CoRAL-generated graph must come from CoRAL v2.1.0 or later, since the `path constraints` and `amplicon intervals` sections that this mode requires were only added to `*_graph.txt` in that release. Graphs from earlier versions must be regenerated with `reconstruct`.
+
 Usage: 
 - ```coral cycle <Required arguments> <Optional arguments>``` for cycle extraction from a single amplicon (breakpoint graph);
 - ```coral cycle_all <Required arguments> <Optional arguments>``` for cycle extraction from all amplicons in a directory.
@@ -265,13 +291,13 @@ At least one of `--graph` or `--cycles` must also be provided.
 Graph plots can be generated from a graph file alone:
 
 ```bash
-coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --output-prefix sample_graph
+coral plot --ref hg38 --graph results/GBM39_amplicon1_graph.txt --output-prefix sample_graph
 ```
 
 In this mode, CoRAL uses the predicted CN and average coverage columns already present in `_graph.txt`. If a BAM is provided, CoRAL preserves the existing behavior of extracting the gray coverage bars directly from alignments:
 
 ```bash
-coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --bam sample.bam --output-prefix sample_graph_bam
+coral plot --ref hg38 --graph results/GBM39_amplicon1_graph.txt --bam sample.bam --output-prefix sample_graph_bam
 ```
 
 Plot styling remains the same as the existing graph plot except that the graph legend now documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with predicted discordant-edge CN.
@@ -279,11 +305,16 @@ Plot styling remains the same as the existing graph plot except that the graph l
 Gene subsets may be supplied directly or through a file:
 
 ```bash
-coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --gene-subset-file genes.csv --output-prefix sample_graph_genes
+coral plot --ref hg38 --graph results/GBM39_amplicon1_graph.txt --gene-subset-file genes.csv --output-prefix sample_graph_genes
 ```
 
 
 ## 5. ```hsr```
+
+> **Experimental.** Treat the reported integration points as candidates for follow-up rather than as confident calls.
+
+Identifies candidate locations where an ecDNA may have integrated into a chromosome as a homogeneously staining region (HSR).
+
 Usage: 
 ```coral hsr <Required arguments> <Optional arguments>```
 
@@ -305,17 +336,86 @@ Usage:
 | `--extra-contigs <file>`          |         | Plain-text file of additional contig names (one per line) to include alongside standard chromosomes when reading chromosome sizes from the BAM header. |
 
 
-## 6. ```cycle2bed```
-CoRAL provides an option to convert its cycles output in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
+## 6. Amplicon classification
+
+CoRAL reconstructs amplicon structures but does not label them by mechanism. To determine whether a reconstructed amplicon is **ecDNA**, **BFB**, **complex non-cyclic**, or **linear**, pass its `*_graph.txt` and `*_cycles.txt` files to [AmpliconClassifier](https://github.com/AmpliconSuite/AmpliconClassifier) (AC).
+
+**CoRAL outputs are supported by AC v2.0.0 and later.** Earlier AC releases predate CoRAL support and should not be used.
+
+**6.1 Installing AmpliconClassifier**
+
+AC is a separate tool with its own environment:
+```bash
+conda create -n ampliconclassifier "python>=3.8"
+conda activate ampliconclassifier
+git clone https://github.com/AmpliconSuite/AmpliconClassifier.git
+cd AmpliconClassifier
+python -m pip install -e .
+```
+
+AC also needs the AA data repository, which supplies its reference annotations (gene models, oncogene list, mappability and centromere tracks):
+```bash
+echo 'export AA_DATA_REPO=~/data_repo/' >> ~/.bashrc
+source ~/.bashrc
+mkdir -p $AA_DATA_REPO
+
+ref=GRCh38   # or hg19, GRCh37, mm10, GRCh38_viral
+wget https://refs.ampliconrepository.org/data/module_support_files/AmpliconArchitect/${ref}.tar.gz -P $AA_DATA_REPO
+tar -xzf $AA_DATA_REPO/${ref}.tar.gz -C $AA_DATA_REPO
+rm $AA_DATA_REPO/${ref}.tar.gz
+```
+Use the plain build name (`GRCh38`), not the `_indexed` variant - the latter adds a BWA index that AC never uses. See the [AC README](https://github.com/AmpliconSuite/AmpliconClassifier#1-installation) for the full instructions, including optional dependencies.
+
+**6.2 Classifying CoRAL output**
+
+Point AC at the directory containing your CoRAL results; it will find the graph/cycles pairs itself and classify every amplicon:
+```bash
+conda activate ampliconclassifier
+amplicon_classifier.py --ref GRCh38 --AA_results /path/to/coral/output/ -o my_run > my_run_classifier.log
+```
+
+A few notes specific to CoRAL:
+* `--ref` takes an **AA** build name. A CoRAL run against `hg38` corresponds to `--ref GRCh38` (both use `chr`-prefixed names); `hg19` and `mm10` are passed through unchanged.
+* AC pairs each `*_cycles.txt` with the `*_graph.txt` sharing the same prefix, so keep both files together and leave them under the names CoRAL wrote. It also picks up CoRAL's `*_summary.txt`.
+* To classify a single amplicon instead of a whole directory, use `--cycles`/`--graph`:
+  ```bash
+  amplicon_classifier.py --ref GRCh38 \
+      --cycles results/GBM39_amplicon1_cycles.txt \
+      --graph  results/GBM39_amplicon1_graph.txt \
+      -o GBM39_amplicon1
+  ```
+
+The primary result is `my_run_amplicon_classification_profiles.tsv`, giving each amplicon an `amplicon_decomposition_class` along with `ecDNA+`, `BFB+`, and `FAN+` flags. AC also writes a gene list, per-feature property and complexity tables, and a summary results table. See the [AC README](https://github.com/AmpliconSuite/AmpliconClassifier#3-outputs) for the full description of each output.
+
+**6.3 Sharing results on AmpliconRepository**
+
+Classified results can be deposited in [AmpliconRepository.org](https://ampliconrepository.org), a public portal for browsing and sharing focal amplification calls. AC output is **required** - the repository uses AC's `*_result_table.tsv` to decide which samples to ingest, and recognizes CoRAL runs by their `*_summary.txt` files.
+
+Package the CoRAL and AC outputs together as a `.tar.gz` or `.zip`, excluding sequence and working files:
+```bash
+tar -czf my_study.tar.gz \
+    --exclude='*.bam*' --exclude='*.cram*' --exclude='*.fastq*' --exclude='*.fq*' \
+    --exclude='*.pickle' --exclude='*.cnn' --exclude='*.cnr' \
+    my_study/
+```
+Then log in, choose **New Project**, and upload. Full instructions are in the [AmpliconRepository getting-started guide](https://docs.ampliconrepository.org/en/latest/getting-started/).
+
+
+## Optional utilities
+
+These helpers are not part of the reconstruction pipeline and can be run at any time on existing output.
+
+### ```cycle2bed```
+Converts a cycles file in AmpliconArchitect format ```*_cycles.txt``` into ```*.bed``` format (similar to [Decoil](https://github.com/madagiurgiu25/decoil-pre)), which makes it easier for downstream analysis of these cycles.
 
 Usage: 
 ```coral cycle2bed <Required arguments> <Optional arguments>```
 
-**6.1 Required arguments:**
+**Required arguments:**
 * ```--cycle-file <file>``` - Input cycles file in AmpliconArchitect format.
 * ```--output-file <file>```  - Output cycles file in ```*.bed``` format.
 
-**6.2 Optional arguments:** 
+**Optional arguments:** 
 * ```--num-cycles <int>``` - If specified, only convert the first NUM_CYCLES cycles.
 
 Here is an example output of ```cycle2bed``` given by the above cycles file from GBM39.
