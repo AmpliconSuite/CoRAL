@@ -38,7 +38,7 @@ def output_amplicon_solution(
 
 
 def output_amplicon_info(
-    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool
+    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool | None
 ) -> None:
     output_file.write(text_utils.AMPLICON_SEPARATOR + "\n")
     output_file.write(f"AmpliconID = {bp_graph.amplicon_idx+1}\n")
@@ -74,6 +74,10 @@ def output_amplicon_info(
         if bp_graph.upper_bound is not None:
             output_file.write(f"\tUpper Bound: {bp_graph.upper_bound:.5f}\n")
         output_amplicon_solution(bp_graph, output_file)
+    elif was_solved is None:
+        output_file.write(
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status=text_utils.CYCLE_DECOMP_STATUS_UNPERFORMED)}\n"
+        )
     else:
         output_file.write(
             f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='FAILURE')}\n"
@@ -85,7 +89,7 @@ def output_amplicon_info(
 def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
     with global_state.STATE_PROVIDER.summary_filepath.open("a") as fp:
         fp.write(text_utils.AMPLICON_SEPARATOR + "\n")
-        fp.write("Solver Settings: \n")
+        fp.write(f"{text_utils.SOLVER_SETTINGS_HEADER}\n")
         fp.write(f"Solver: {solver_options.solver.name}\n")
         threads_used = (
             solver_options.num_threads
@@ -95,7 +99,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
         fp.write(f"Threads: {threads_used}\n")
         fp.write(f"Time Limit: {solver_options.time_limit_s} s\n")
         fp.write(text_utils.AMPLICON_SEPARATOR + "\n")
-        fp.write("Resource Usage Summary:\n")
+        fp.write(f"{text_utils.RESOURCE_USAGE_HEADER}\n")
         for fn_call, profile in sorted(global_state.PROFILED_FN_CALLS.items()):
             fn_tag = (
                 f"{fn_call.fn_name}/{fn_call.call_ctr}"
@@ -108,7 +112,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
             )
 
 
-def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
+def get_summary_header(was_amplicon_solved: dict[int, bool | None]) -> str:
     version_str = text_utils.VERSION_TEMPLATE.format(
         version=importlib.metadata.version("coral")
     )
@@ -116,7 +120,7 @@ def get_summary_header(was_amplicon_solved: dict[int, bool]) -> str:
         enabled=global_state.STATE_PROVIDER.should_profile
     )
     header_str = f"{version_str}\n"
-    header_str += f"{sum(was_amplicon_solved.values())}/{len(was_amplicon_solved)} amplicons solved.\n"
+    header_str += f"{sum(1 for v in was_amplicon_solved.values() if v)}/{len(was_amplicon_solved)} amplicons solved.\n"
     header_str += f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
     header_str += f"{profile_str}\n"
 
@@ -133,5 +137,7 @@ def output_summary_amplicon_stats(
         fp.write(get_summary_header(was_amplicon_solved))
         for bp_graph in bp_graphs:
             output_amplicon_info(
-                bp_graph, fp, was_amplicon_solved[bp_graph.amplicon_idx]
+                bp_graph,
+                fp,
+                was_amplicon_solved.get(bp_graph.amplicon_idx, None),
             )

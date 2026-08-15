@@ -8,8 +8,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from coral.breakpoint.infer_breakpoint_graph import LongReadBamToBreakpointMetadata
-from coral.core_types import Strand
-from coral.datatypes import AmpliconInterval, BPAlignments, Breakpoint, Node
+from coral.datatypes import (
+    AmpliconInterval,
+    BPAlignments,
+    Breakpoint,
+    Node,
+    Strand,
+)
 
 
 def make_metadata(

@@ -1628,6 +1628,8 @@ def reconstruct_graphs(
     output_prefix: str,
     output_path_constraints: OutputPCOptions,
     min_bp_support: float,
+    *,
+    cache_chimeric_alignments: bool = False,
 ) -> LongReadBamToBreakpointMetadata:
     seed_intervals = breakpoint_utilities.get_intervals_from_seed_file(
         cnv_seed_file
@@ -1649,30 +1651,43 @@ def reconstruct_graphs(
     b2bn.read_cns(cn_seg_file)
     logger.info("Completed parsing CN segment files.")
 
-    # Write chimeric alignments to pickle file to avoid re-fetching from BAM
-    # on successive reconstructions
+    # Under --cache-reads, cache chimeric alignments to a pickle file to avoid
+    # re-fetching them from the BAM on successive reconstructions. The cache can
+    # be very large, so it is not written during a normal run.
     pickle_path = pathlib.Path(f"{output_prefix}_chimeric_alignments.pickle")
+    bam_info = (
+        str(lr_bam_filename.resolve()), # absolute path
+        lr_bam_filename.stat().st_size,
+        lr_bam_filename.stat().st_mtime,
+    )
+    chimeric_alignments: dict[str, list[ChimericAlignment]] | None = None
     if pickle_path.exists():
         try:
             with pickle_path.open("rb") as file:
-                chimeric_alignments = pickle.load(file)
+                cached_bam_info, cached_alignments = pickle.load(file)
+            if cached_bam_info == bam_info:
+                chimeric_alignments = cached_alignments
+                logger.info(
+                    f"Loaded cached chimeric alignments from {pickle_path}."
+                )
+            else:
+                logger.warning(
+                    f"Cache at {pickle_path} was built from a different BAM, "
+                    "re-fetching."
+                )
         except Exception as e:
-            logger.error(
-                f"Unable to load chimeric alignments: {e}, re-fetching"
+            logger.warning(
+                f"Unable to load chimeric alignments: {e}, re-fetching."
             )
-            chimeric_alignments, edit_dist_stats = (
-                breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
-            )
-            with pickle_path.open("wb") as file:
-                pickle.dump(chimeric_alignments, file)
-    else:
+    if chimeric_alignments is None:
         start = time.time()
         chimeric_alignments, edit_dist_stats = (
             breakpoint_utilities.fetch_breakpoint_reads(b2bn.bam)
         )
-        with pickle_path.open("wb") as file:
-            pickle.dump(chimeric_alignments, file)
-        logger.error(f"Time to fetch breakpoint reads: {time.time() - start}")
+        logger.info(f"Time to fetch breakpoint reads: {time.time() - start}")
+        if cache_chimeric_alignments:
+            with pickle_path.open("wb") as file:
+                pickle.dump((bam_info, chimeric_alignments), file)
     logger.info("Completed fetching reads containing breakpoints.")
 
     chimeric_alignments_by_read, chr_cns_to_chimeric_alignments = (

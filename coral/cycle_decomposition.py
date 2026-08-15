@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import pathlib
-from collections import defaultdict
 from typing import Dict, List, Optional, cast
 
 import memray
@@ -691,7 +690,19 @@ def cycle_decomposition_all_graphs(
     ignore_path_constraints: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
-    was_amplicon_solved: Dict[int, bool] = defaultdict(bool)  # default false
+    # Mark all amplicons as "UNPERFORMED", so that the summary file exists (and
+    # reports the correct amplicon count) from the outset, even if no amplicons
+    # were found or decomposition is interrupted partway through. It is rewritten
+    # after each amplicon below, so if the run is interrupted the file on disk
+    # distinguishes amplicons that finished (SUCCESS/FAILURE) from those the
+    # loop never reached (UNPERFORMED).
+    was_amplicon_solved: Dict[int, bool | None] = {
+        bp_graph.amplicon_idx: None for bp_graph in bp_graphs
+    }
+    coral.summary.output.output_summary_amplicon_stats(
+        was_amplicon_solved, bp_graphs
+    )
+
     for bp_graph in bp_graphs:
         amplicon_idx = bp_graph.amplicon_idx
         cycle_decomposition_single_graph(
