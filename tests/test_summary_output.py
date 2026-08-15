@@ -41,7 +41,7 @@ def make_graphs(num_amplicons: int) -> list[BreakpointGraph]:
 
 def write_summary(bp_graphs: list[BreakpointGraph], solved: bool | None = False) -> pathlib.Path:
     summary_output.output_summary_amplicon_stats(
-        {bp_graph.amplicon_idx: False for bp_graph in bp_graphs}, bp_graphs
+        {bp_graph.amplicon_idx: solved for bp_graph in bp_graphs}, bp_graphs
     )
     return global_state.STATE_PROVIDER.summary_filepath
 
