@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 
 import colorama
 import typer
+from click.core import ParameterSource
 
 from coral import (
     core_types,
@@ -40,6 +41,42 @@ coral_app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 logger = logging.getLogger(__name__)
+
+
+def validate_font_size_multiplier(value: float) -> float:
+    try:
+        plot_amplicons.get_gene_font_size(
+            value,
+            plot_amplicons.DEFAULT_PLOT_FONT_SIZE,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return value
+
+
+def resolve_gene_fontsize(
+    ctx: typer.Context,
+    gene_fontsize: float,
+) -> float:
+    """Apply CLI precedence between global and gene-specific font options."""
+    font_size_was_provided = (
+        ctx.get_parameter_source("font_size") is ParameterSource.COMMANDLINE
+    )
+    gene_fontsize_was_provided = (
+        ctx.get_parameter_source("gene_fontsize")
+        is ParameterSource.COMMANDLINE
+    )
+    if not font_size_was_provided:
+        return gene_fontsize
+    if gene_fontsize_was_provided:
+        typer.secho(
+            "Warning: both --font-size and --gene-fontsize were provided. "
+            "--font-size controls all plot text, so --gene-fontsize will be "
+            "ignored.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+    return plot_amplicons.DEFAULT_GENE_FONT_SIZE
 
 
 def setup_logging(log_filename: pathlib.Path, *, verbose: bool) -> None:
@@ -598,8 +635,22 @@ def plot_mode(
         bool, typer.Option(help="Do not show gene track.")
     ] = False,
     gene_fontsize: Annotated[
-        float, typer.Option(help="Change size of gene font.")
+        float,
+        typer.Option(
+            help="Change size of gene font unless --font-size is explicitly "
+            "supplied."
+        ),
     ] = 12.0,
+    font_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            callback=validate_font_size_multiplier,
+            help="Multiplier for all plot text and axis styling; 0 hides text "
+            "and axis ticks. When explicitly supplied, overrides "
+            "--gene-fontsize.",
+        ),
+    ] = 1.0,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -632,6 +683,7 @@ def plot_mode(
         plot_cycles = True
     if not graph and not cycles:
         raise typer.BadParameter("Must input graph or cycles file to plot.")
+    effective_gene_fontsize = resolve_gene_fontsize(ctx, gene_fontsize)
     plot_amplicons.plot_amplicon(
         ref,
         bam,
@@ -642,13 +694,14 @@ def plot_mode(
         max_coverage,
         min_mapq,
         gene_subset_list,
-        gene_fontsize,
+        effective_gene_fontsize,
         region,
         should_plot_graph=plot_graph,
         should_plot_cycles=plot_cycles,
         should_hide_genes=hide_genes,
         should_restrict_to_bushman_genes=bushman_genes,
         should_plot_only_cyclic_walks=only_cyclic_paths,
+        font_size_multiplier=font_size,
         refgene_file=refgene_file,
         gene_subset_file=gene_subset_file,
     )
@@ -716,8 +769,22 @@ def plot_all_mode(
         bool, typer.Option(help="Do not show gene track.")
     ] = False,
     gene_fontsize: Annotated[
-        float, typer.Option(help="Change size of gene font.")
+        float,
+        typer.Option(
+            help="Change size of gene font unless --font-size is explicitly "
+            "supplied."
+        ),
     ] = 12.0,
+    font_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            callback=validate_font_size_multiplier,
+            help="Multiplier for all plot text and axis styling; 0 hides text "
+            "and axis ticks. When explicitly supplied, overrides "
+            "--gene-fontsize.",
+        ),
+    ] = 1.0,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -745,6 +812,7 @@ def plot_all_mode(
     if "/" in output_prefix:
         pathlib.Path(output_prefix).mkdir(parents=True, exist_ok=True)
     global_state.STATE_PROVIDER.should_profile = profile
+    effective_gene_fontsize = resolve_gene_fontsize(ctx, gene_fontsize)
 
     # TODO: make this into a typer validation function, re-use in score mode
     shared_dir_set = reconstruction_dir is not None
@@ -779,7 +847,8 @@ def plot_all_mode(
                     max_coverage=max_coverage,
                     min_mapq=min_mapq,
                     gene_subset_list=gene_subset_list,
-                    gene_fontsize=gene_fontsize,
+                    gene_fontsize=effective_gene_fontsize,
+                    font_size_multiplier=font_size,
                     region=region,
                     should_plot_graph=True,
                     should_plot_cycles=True if cycle_file is not None else False,
@@ -788,6 +857,7 @@ def plot_all_mode(
                     should_plot_only_cyclic_walks=only_cyclic_paths,
                     refgene_file=refgene_file,
                     gene_subset_file=gene_subset_file,
+                    legend_output_prefix=output_prefix,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -808,7 +878,8 @@ def plot_all_mode(
                         max_coverage=max_coverage,
                         min_mapq=min_mapq,
                         gene_subset_list=gene_subset_list,
-                        gene_fontsize=gene_fontsize,
+                        gene_fontsize=effective_gene_fontsize,
+                        font_size_multiplier=font_size,
                         region=region,
                         should_plot_graph=True,
                         should_plot_cycles=False,
@@ -817,6 +888,7 @@ def plot_all_mode(
                         should_plot_only_cyclic_walks=only_cyclic_paths,
                         refgene_file=refgene_file,
                         gene_subset_file=gene_subset_file,
+                        legend_output_prefix=output_prefix,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):
@@ -834,7 +906,8 @@ def plot_all_mode(
                         max_coverage=max_coverage,
                         min_mapq=min_mapq,
                         gene_subset_list=gene_subset_list,
-                        gene_fontsize=gene_fontsize,
+                        gene_fontsize=effective_gene_fontsize,
+                        font_size_multiplier=font_size,
                         region=region,
                         should_plot_graph=False,
                         should_plot_cycles=True,

@@ -284,7 +284,8 @@ At least one of `--graph` or `--cycles` must also be provided.
 | `--gene-subset-list <str> <str> <str> ...` | `[all]`                          | Only indicate positions of the gene names in this list                                                                                    |
 | `--gene-subset-file <file>`                | `[all]`                          | Text or CSV file of gene names to indicate in the plot. Gene names may be newline, whitespace, or comma delimited. Empty files emit a warning and fall back to plotting all genes unless `--gene-subset-list` is also provided. |
 | `--hide-genes`                             |                                  | Do not plot positions of genes                                                                                                            |
-| `--gene-fontsize <float>`                  | 12                               | Adjust fontsize of gene names                                                                                                             
+| `--font-size <float>`                      | 1                                | Multiply all plot text and axis styling by this non-negative value. This includes titles, axis labels, tick labels, tick marks, axis lines, legends, cycle labels, and gene names. A value of `0` hides all text and axis ticks while retaining plotted data and gene tracks. When explicitly supplied, this option overrides `--gene-fontsize`. |
+| `--gene-fontsize <float>`                  | 12                               | Set the gene-name font size when `--font-size` is not explicitly supplied. |
 | `--bushman-genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
 
@@ -300,13 +301,33 @@ In this mode, CoRAL uses the predicted CN and average coverage columns already p
 coral plot --ref hg38 --graph results/GBM39_amplicon1_graph.txt --bam sample.bam --output-prefix sample_graph_bam
 ```
 
-Plot styling remains the same as the existing graph plot except that the graph legend now documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with predicted discordant-edge CN.
+Graph plots write a separate legend figure next to the requested output prefix. The legend documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with discordant read count.
 
 Gene subsets may be supplied directly or through a file:
 
 ```bash
 coral plot --ref hg38 --graph results/GBM39_amplicon1_graph.txt --gene-subset-file genes.csv --output-prefix sample_graph_genes
 ```
+
+All plot text and axis styling can be scaled together:
+
+```bash
+# Twice the default text, label, tick, and axis sizes.
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --font-size 2 --output-prefix sample_graph_large_text
+
+# Half the default text, label, tick, and axis sizes.
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --font-size 0.5 --output-prefix sample_graph_small_text
+
+# Keep plotted data and gene tracks, but omit all text and axis ticks.
+coral plot --ref hg38 --graph sample_data/test4/amplicon1_graph.txt --font-size 0 --output-prefix sample_graph_no_text
+```
+
+`--font-size` is also accepted by `coral plot_all` and applies to every generated plot.
+
+If both `--font-size` and `--gene-fontsize` are explicitly supplied,
+`--font-size` takes precedence and CoRAL warns that `--gene-fontsize` is being
+ignored. Omitting `--font-size` preserves the existing `--gene-fontsize`
+behavior.
 
 
 ## 5. ```hsr```
