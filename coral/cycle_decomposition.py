@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import pathlib
-from collections import defaultdict
 from typing import Dict, List, Optional, cast
 
 import memray
