@@ -691,12 +691,15 @@ def cycle_decomposition_all_graphs(
     ignore_path_constraints: bool = False,
 ) -> None:
     """Caller for cycle decomposition functions"""
-    # Default all amplicons to unsolved, so that the summary file exists (and
+    # Mark all amplicons as "UNPERFORMED", so that the summary file exists (and
     # reports the correct amplicon count) from the outset, even if no amplicons
-    # were found or decomposition is interrupted partway through.
-    was_amplicon_solved: Dict[int, bool | None] = defaultdict(
-        bool, {bp_graph.amplicon_idx: None for bp_graph in bp_graphs}
-    )
+    # were found or decomposition is interrupted partway through. It is rewritten
+    # after each amplicon below, so if the run is interrupted the file on disk
+    # distinguishes amplicons that finished (SUCCESS/FAILURE) from those the
+    # loop never reached (UNPERFORMED).
+    was_amplicon_solved: Dict[int, bool | None] = {
+        bp_graph.amplicon_idx: None for bp_graph in bp_graphs
+    }
     coral.summary.output.output_summary_amplicon_stats(
         was_amplicon_solved, bp_graphs
     )
