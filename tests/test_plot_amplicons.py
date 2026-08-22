@@ -415,7 +415,7 @@ def test_cycle_plot_receives_scaled_font_sizes(
         record_plot_cycles,
     )
 
-    cycle_path = pathlib.Path("sample_data/test4/amplicon1_cycles.txt")
+    cycle_path = pathlib.Path("tests/data/amplicon1_cycles.txt")
     with cycle_path.open() as cycle_file:
         plot_amplicons.plot_amplicon(
             core_types.ReferenceGenome.hg38,
@@ -548,7 +548,7 @@ def test_plot_cli_passes_font_size_multiplier(
             "--ref",
             "hg38",
             "--graph",
-            "sample_data/test4/amplicon1_graph.txt",
+            "tests/data/amplicon1_graph.txt",
             "--output-prefix",
             str(tmp_path / "plot" / "out"),
             "--font-size",
@@ -584,7 +584,7 @@ def test_plot_cli_preserves_explicit_gene_fontsize_by_default(
             "--ref",
             "hg38",
             "--graph",
-            "sample_data/test4/amplicon1_graph.txt",
+            "tests/data/amplicon1_graph.txt",
             "--output-prefix",
             str(tmp_path / "plot" / "out"),
             "--gene-fontsize",
@@ -622,7 +622,7 @@ def test_plot_cli_explicit_global_fontsize_overrides_gene_fontsize(
             "--ref",
             "hg38",
             "--graph",
-            "sample_data/test4/amplicon1_graph.txt",
+            "tests/data/amplicon1_graph.txt",
             "--output-prefix",
             str(tmp_path / "plot" / "out"),
             "--gene-fontsize",
@@ -649,7 +649,7 @@ def test_plot_cli_rejects_invalid_font_size_multipliers() -> None:
                 "--ref",
                 "hg38",
                 "--graph",
-                "sample_data/test4/amplicon1_graph.txt",
+                "tests/data/amplicon1_graph.txt",
                 "--output-prefix",
                 "unused",
                 "--font-size",
@@ -721,7 +721,7 @@ def test_plot_all_cli_passes_font_size_multiplier(
             "--ref",
             "hg38",
             "--graph-dir",
-            "sample_data/test4",
+            "tests/data",
             "--output-prefix",
             str(tmp_path / "plot_all" / "out"),
             "--font-size",
@@ -758,7 +758,7 @@ def test_plot_all_cli_warns_once_when_global_fontsize_overrides_gene_fontsize(
             "--ref",
             "hg38",
             "--graph-dir",
-            "sample_data/test4",
+            "tests/data",
             "--output-prefix",
             str(tmp_path / "plot_all" / "out"),
             "--gene-fontsize",
@@ -800,7 +800,7 @@ def test_plot_all_cli_passes_shared_legend_prefix(
             "--ref",
             "hg38",
             "--graph-dir",
-            "sample_data/test4",
+            "tests/data",
             "--output-prefix",
             output_prefix,
         ],
