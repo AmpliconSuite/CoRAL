@@ -288,6 +288,15 @@ At least one of `--graph` or `--cycles` must also be provided.
 | `--hide-genes`                             |                                  | Do not plot positions of genes                                                                                                            |
 | `--font-size <float>`                      | 1                                | Multiply all plot text and axis styling by this non-negative value. This includes titles, axis labels, tick labels, tick marks, axis lines, legends, cycle labels, and gene names. A value of `0` hides all text and axis ticks while retaining plotted data and gene tracks. When explicitly supplied, this option overrides `--gene-fontsize`. |
 | `--gene-fontsize <float>`                  | 12                               | Set the gene-name font size when `--font-size` is not explicitly supplied. |
+| `--width <float>`                          | 12 inches                        | Set the exact output width. The PDF and PNG retain this canvas width. |
+| `--aspect-ratio <float>`                   | content-aware                    | Set height divided by width. If omitted, graphs use a 12-by-5-inch canvas and cycles choose a height from their content. |
+| `--offset <float>`                         | 0.10                             | Reserve this fraction of the horizontal canvas for gaps between displayed intervals. This is a total gap budget, so plots do not keep growing as intervals are added. |
+| `--min-coord-width <float>`                | 0                                | Label an interval's endpoint coordinates only when its genomic span is at least this fraction of the total displayed genomic span. Chromosome labels remain visible. |
+| `--coverage-scale <robust\|full>`          | robust                           | Use outlier-resistant 95th-percentile coverage scaling or retain the full observed coverage range. |
+| `--cycle-list <items>`                     | `[all]`                          | Plot an ordered comma- or whitespace-separated subset such as `p2,c1`. The `p`/`c` prefix is checked against the path/cycle type in the file. Mutually exclusive with `--num-cycles`. |
+| `--cycle-color-file <file>`                |                                  | Deprecated and ignored. Cycles use one fixed color and paths use a second fixed color. |
+| `--combined`                               | off                              | With both graph and cycle files, also write a vertically stacked `_combined` figure. Graph and cycle coordinates share one horizontal scale, and interval guides connect the panels. |
+| `--dpi <int>`                              | 300                              | Set PNG resolution. PDF output is also always written. |
 | `--bushman-genes`                          |                                  | Only plot genes found in the [Bushman lab cancer-related gene list](http://www.bushmanlab.org/links/genelists) ('Bushman group allOnco'). | 
 | `--region <chrom:pos1-pos2>`                | `[entire amplicon]`                | Only plot genome region in the interval given by `chrom:start-end`                                                                         |
 
@@ -303,7 +312,7 @@ In this mode, CoRAL uses the predicted CN and average coverage columns already p
 coral plot --ref hg38 --graph results/GBM39_amplicon1_graph.txt --bam sample.bam --output-prefix sample_graph_bam
 ```
 
-Graph plots write a separate legend figure next to the requested output prefix. The legend documents coverage source, predicted segment CN, discordant-edge orientation colors, and that discordant-edge width scales with discordant read count.
+Graph plots write a separate legend figure next to the requested output prefix. The legend documents coverage source, predicted segment CN, discordant-edge orientation colors, cycle/path colors, and that discordant-edge width scales with discordant read count.
 
 Gene subsets may be supplied directly or through a file:
 
@@ -330,6 +339,55 @@ If both `--font-size` and `--gene-fontsize` are explicitly supplied,
 `--font-size` takes precedence and CoRAL warns that `--gene-fontsize` is being
 ignored. Omitting `--font-size` preserves the existing `--gene-fontsize`
 behavior.
+
+### Recommended plot configurations
+
+For a publication figure, use a fixed column-sized canvas, robust coverage
+scaling, selective coordinate labels, and 600 DPI. Restricting the gene track
+also keeps labels legible:
+
+```bash
+coral plot --ref hg38 \
+  --graph sample_data/test4/amplicon1_graph.txt \
+  --cycles sample_data/test4/amplicon1_cycles.txt \
+  --output-prefix publication_amplicon1 \
+  --width 7.2 --aspect-ratio 0.55 --offset 0.08 \
+  --min-coord-width 0.08 --coverage-scale robust --dpi 600 \
+  --gene-fontsize 9 --bushman-genes --combined
+```
+
+For interactive exploration, use a wider canvas, retain every coordinate and
+the complete coverage range, and render at a lower DPI for faster iteration:
+
+```bash
+coral plot --ref hg38 \
+  --graph sample_data/test4/amplicon1_graph.txt \
+  --cycles sample_data/test4/amplicon1_cycles.txt \
+  --output-prefix exploration_amplicon1 \
+  --width 16 --aspect-ratio 0.5 --offset 0.12 \
+  --min-coord-width 0 --coverage-scale full --dpi 200
+```
+
+To show only selected paths/cycles, run:
+
+```bash
+coral plot --ref hg38 \
+  --graph sample_data/test4/amplicon1_graph.txt \
+  --cycles sample_data/test4/amplicon1_cycles.txt \
+  --cycle-list c1,p2 \
+  --output-prefix selected_amplicon1
+```
+
+All cycles share the cycle color and all paths share the path color shown in
+the generated legend.
+
+The default cycle style uses thin muted-blue SV edges for cycles, orange SV
+edges for paths, and higher-contrast amber genomic segments with dark outlines.
+The gene-annotation section grows with the number of occupied label lanes and
+is capped to avoid adding unnecessary whitespace to sparse or tall figures.
+
+CoRAL writes `_graph.png/.pdf`, `_cycles.png/.pdf`, and a separate graph
+legend. With `--combined`, it additionally writes `_combined.png/.pdf`.
 
 
 ## 5. ```hsr```

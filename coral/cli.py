@@ -1,7 +1,7 @@
 import logging
 import os
 import pathlib
-from typing import Annotated, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import colorama
 import typer
@@ -63,8 +63,7 @@ def resolve_gene_fontsize(
         ctx.get_parameter_source("font_size") is ParameterSource.COMMANDLINE
     )
     gene_fontsize_was_provided = (
-        ctx.get_parameter_source("gene_fontsize")
-        is ParameterSource.COMMANDLINE
+        ctx.get_parameter_source("gene_fontsize") is ParameterSource.COMMANDLINE
     )
     if not font_size_was_provided:
         return gene_fontsize
@@ -93,6 +92,14 @@ def setup_logging(log_filename: pathlib.Path, *, verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
+
+
+def run_plot_amplicon(*args: Any, **kwargs: Any) -> None:
+    """Translate plotting option errors into concise CLI validation errors."""
+    try:
+        plot_amplicons.plot_amplicon(*args, **kwargs)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
@@ -211,7 +218,9 @@ ExtraContigsArg = Annotated[
 ]
 CentromereFileArg = Annotated[
     pathlib.Path,
-    typer.Option(help="Centromere BED file (chr, start, end). See docs for format."),
+    typer.Option(
+        help="Centromere BED file (chr, start, end). See docs for format."
+    ),
 ]
 
 
@@ -250,7 +259,15 @@ def seed(
     if "/" in output_prefix:
         os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
     chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
-    run_seeding(cn_seg, output_prefix, gain, min_seed_size, max_seg_gap, centromere_file, chr_sizes)
+    run_seeding(
+        cn_seg,
+        output_prefix,
+        gain,
+        min_seed_size,
+        max_seg_gap,
+        centromere_file,
+        chr_sizes,
+    )
 
 
 @coral_app.command(help="Reconstruct focal amplifications")
@@ -563,7 +580,9 @@ def hsr_mode(
         f"{colorama.Style.RESET_ALL}"
     )
     if lr_bam:
-        global_state.STATE_PROVIDER.chr_sizes = build_chr_sizes_from_bam(lr_bam, extra_contigs)
+        global_state.STATE_PROVIDER.chr_sizes = build_chr_sizes_from_bam(
+            lr_bam, extra_contigs
+        )
     hsr.locate_hsrs(
         lr_bam,
         cycles,
@@ -595,7 +614,8 @@ def plot_mode(
         ),
     ] = None,
     num_cycles: Annotated[
-        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int],
+        typer.Option(help="Only plot the first NUM_CYCLES cycles."),
     ] = None,
     region: Annotated[
         Optional[str],
@@ -651,6 +671,64 @@ def plot_mode(
             "--gene-fontsize.",
         ),
     ] = 1.0,
+    width: Annotated[
+        Optional[float],
+        typer.Option(
+            min=0.01,
+            help="Final plot width in inches (default: 12).",
+        ),
+    ] = None,
+    aspect_ratio: Annotated[
+        Optional[float],
+        typer.Option(
+            min=0.01,
+            help="Plot height divided by width; omit for content-aware height.",
+        ),
+    ] = None,
+    offset: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            max=0.95,
+            help="Fraction of horizontal space reserved for interval gaps.",
+        ),
+    ] = plot_amplicons.DEFAULT_INTERVAL_OFFSET,
+    min_coord_width: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            max=1,
+            help="Minimum genomic-span fraction required to label both coordinates.",
+        ),
+    ] = plot_amplicons.DEFAULT_MIN_COORD_WIDTH,
+    coverage_scale: Annotated[
+        Literal["robust", "full"],
+        typer.Option(
+            help="Use robust outlier-resistant or full-range coverage scaling."
+        ),
+    ] = "robust",
+    cycle_list: Annotated[
+        Optional[str],
+        typer.Option(help="Comma-separated path/cycle IDs, e.g. p1,c2."),
+    ] = None,
+    cycle_color_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            help="Deprecated and ignored; colors are fixed by path/cycle type.",
+        ),
+    ] = None,
+    combined: Annotated[
+        bool,
+        typer.Option(
+            help="Also stack graph and cycle panels into one combined figure."
+        ),
+    ] = False,
+    dpi: Annotated[
+        int,
+        typer.Option(min=1, help="PNG resolution in dots per inch."),
+    ] = 300,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -683,8 +761,12 @@ def plot_mode(
         plot_cycles = True
     if not graph and not cycles:
         raise typer.BadParameter("Must input graph or cycles file to plot.")
+    if combined and not (graph and cycles):
+        raise typer.BadParameter(
+            "--combined requires both --graph and --cycles."
+        )
     effective_gene_fontsize = resolve_gene_fontsize(ctx, gene_fontsize)
-    plot_amplicons.plot_amplicon(
+    run_plot_amplicon(
         ref,
         bam,
         graph,
@@ -704,6 +786,15 @@ def plot_mode(
         font_size_multiplier=font_size,
         refgene_file=refgene_file,
         gene_subset_file=gene_subset_file,
+        plot_width=width,
+        aspect_ratio=aspect_ratio,
+        interval_offset=offset,
+        min_coord_width=min_coord_width,
+        coverage_scale=coverage_scale,
+        cycle_list=cycle_list,
+        cycle_color_file=cycle_color_file,
+        combine_graph_cycles=combined,
+        dpi=dpi,
     )
 
 
@@ -732,7 +823,8 @@ def plot_all_mode(
         bool, typer.Option(help="Only plot cyclic paths from cycles file.")
     ] = False,
     num_cycles: Annotated[
-        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int],
+        typer.Option(help="Only plot the first NUM_CYCLES cycles."),
     ] = None,
     max_coverage: Annotated[
         float,
@@ -785,6 +877,63 @@ def plot_all_mode(
             "--gene-fontsize.",
         ),
     ] = 1.0,
+    width: Annotated[
+        Optional[float],
+        typer.Option(
+            min=0.01, help="Final plot width in inches (default: 12)."
+        ),
+    ] = None,
+    aspect_ratio: Annotated[
+        Optional[float],
+        typer.Option(
+            min=0.01,
+            help="Plot height divided by width; omit for content-aware height.",
+        ),
+    ] = None,
+    offset: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            max=0.95,
+            help="Fraction of horizontal space reserved for interval gaps.",
+        ),
+    ] = plot_amplicons.DEFAULT_INTERVAL_OFFSET,
+    min_coord_width: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            max=1,
+            help="Minimum genomic-span fraction required to label both coordinates.",
+        ),
+    ] = plot_amplicons.DEFAULT_MIN_COORD_WIDTH,
+    coverage_scale: Annotated[
+        Literal["robust", "full"],
+        typer.Option(
+            help="Use robust outlier-resistant or full-range coverage scaling."
+        ),
+    ] = "robust",
+    cycle_list: Annotated[
+        Optional[str],
+        typer.Option(help="Comma-separated path/cycle IDs, e.g. p1,c2."),
+    ] = None,
+    cycle_color_file: Annotated[
+        Optional[pathlib.Path],
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            help="Deprecated and ignored; colors are fixed by path/cycle type.",
+        ),
+    ] = None,
+    combined: Annotated[
+        bool,
+        typer.Option(
+            help="Also stack graph and cycle panels into one combined figure."
+        ),
+    ] = False,
+    dpi: Annotated[
+        int,
+        typer.Option(min=1, help="PNG resolution in dots per inch."),
+    ] = 300,
     bushman_genes: Annotated[
         bool,
         typer.Option(
@@ -822,6 +971,11 @@ def plot_all_mode(
             "Must specify either a shared reconstruction directory or "
             "separate graph or cycles directories."
         )
+    if combined and not shared_dir_set:
+        raise typer.BadParameter(
+            "--combined requires --reconstruction-dir so graph and cycle "
+            "files can be paired."
+        )
 
     if shared_dir_set:
         reconstruction_paths = get_reconstruction_paths_from_shared_dir(
@@ -833,11 +987,13 @@ def plot_all_mode(
             )
         for graph_path, cycle_path in reconstruction_paths:
             with graph_path.open("r") as graph_file:
-                cycle_file = None if cycle_path is None else cycle_path.open("r")
+                cycle_file = (
+                    None if cycle_path is None else cycle_path.open("r")
+                )
                 amplicon_idx = int(
                     graph_path.name.split("_")[-2].split("amplicon")[1]
                 )
-                plot_amplicons.plot_amplicon(
+                run_plot_amplicon(
                     ref,
                     bam,
                     graph_file,
@@ -851,13 +1007,24 @@ def plot_all_mode(
                     font_size_multiplier=font_size,
                     region=region,
                     should_plot_graph=True,
-                    should_plot_cycles=True if cycle_file is not None else False,
+                    should_plot_cycles=True
+                    if cycle_file is not None
+                    else False,
                     should_hide_genes=hide_genes,
                     should_restrict_to_bushman_genes=bushman_genes,
                     should_plot_only_cyclic_walks=only_cyclic_paths,
                     refgene_file=refgene_file,
                     gene_subset_file=gene_subset_file,
                     legend_output_prefix=output_prefix,
+                    plot_width=width,
+                    aspect_ratio=aspect_ratio,
+                    interval_offset=offset,
+                    min_coord_width=min_coord_width,
+                    coverage_scale=coverage_scale,
+                    cycle_list=cycle_list,
+                    cycle_color_file=cycle_color_file,
+                    combine_graph_cycles=combined,
+                    dpi=dpi,
                 )
                 if cycle_file is not None:
                     cycle_file.close()
@@ -868,7 +1035,7 @@ def plot_all_mode(
                     amplicon_idx = int(
                         graph_path.name.split("_")[-2].split("amplicon")[1]
                     )
-                    plot_amplicons.plot_amplicon(
+                    run_plot_amplicon(
                         ref,
                         bam,
                         graph_file,
@@ -889,6 +1056,15 @@ def plot_all_mode(
                         refgene_file=refgene_file,
                         gene_subset_file=gene_subset_file,
                         legend_output_prefix=output_prefix,
+                        plot_width=width,
+                        aspect_ratio=aspect_ratio,
+                        interval_offset=offset,
+                        min_coord_width=min_coord_width,
+                        coverage_scale=coverage_scale,
+                        cycle_list=cycle_list,
+                        cycle_color_file=cycle_color_file,
+                        combine_graph_cycles=combined,
+                        dpi=dpi,
                     )
         if cycles_dir is not None:
             for cycles_path in cycles_dir.glob("*_cycles.txt"):
@@ -896,7 +1072,7 @@ def plot_all_mode(
                     amplicon_idx = int(
                         cycles_path.name.split("_")[-2].split("amplicon")[1]
                     )
-                    plot_amplicons.plot_amplicon(
+                    run_plot_amplicon(
                         ref,
                         bam,
                         None,
@@ -916,6 +1092,15 @@ def plot_all_mode(
                         should_plot_only_cyclic_walks=only_cyclic_paths,
                         refgene_file=refgene_file,
                         gene_subset_file=gene_subset_file,
+                        plot_width=width,
+                        aspect_ratio=aspect_ratio,
+                        interval_offset=offset,
+                        min_coord_width=min_coord_width,
+                        coverage_scale=coverage_scale,
+                        cycle_list=cycle_list,
+                        cycle_color_file=cycle_color_file,
+                        combine_graph_cycles=combined,
+                        dpi=dpi,
                     )
 
 
@@ -932,7 +1117,8 @@ def cycle2bed_mode(
     ],
     output_file: Annotated[str, typer.Option(help="Output file name.")],
     num_cycles: Annotated[
-        Optional[int], typer.Option(help="Only plot the first NUM_CYCLES cycles.")
+        Optional[int],
+        typer.Option(help="Only plot the first NUM_CYCLES cycles."),
     ] = None,
     rotate_to_min: Annotated[
         bool,
@@ -947,7 +1133,7 @@ def cycle2bed_mode(
         f"{colorama.Style.RESET_ALL}"
     )
     cycle2bed.convert_cycles_to_bed(
-        cycle_file, output_file, rotate_to_min, num_cycles, print_command = True
+        cycle_file, output_file, rotate_to_min, num_cycles, print_command=True
     )
 
 
