@@ -4,6 +4,8 @@ CoRAL is a tool which utilizes aligned, single-molecule long-read data (.bam) as
 
 **CoRAL only works on long-read whole-genome sequencing data (PacBio, Oxford Nanopore, etc.) - not targeted sequencing!**
 
+We generally recommend sequencing coverage of 10x or higher.
+
 ## Installation
 CoRAL can be installed and run on most modern Unix-like operating systems (e.g. Ubuntu 18.04+, CentOS 7+, macOS). Python >= 3.10 is required. Python 3.12 is recommended to reduce compatibility issues with some scientific dependencies.
 
