@@ -246,6 +246,28 @@ class BreakpointGraph:
             self.node_adjacencies[ce.node1].concordant = [ci]
             self.node_adjacencies[ce.node2].concordant = [ci]
 
+    def discordant_output_order(self) -> list[int]:
+        """Indices of discordant edges in the order they are written to the
+        *_graph.txt file, i.e. sorted by their lower-coordinate endpoint (see
+        `BreakpointEdge.ordered_nodes`). This can differ from the in-memory
+        order, so any `d<N>` index written to file must be mapped through
+        `discordant_output_index`.
+        """
+        return sorted(
+            range(len(self.discordant_edges)),
+            key=lambda di: (
+                self.discordant_edges[di].ordered_nodes[0].sort_key,
+                self.discordant_edges[di].ordered_nodes[1].sort_key,
+            ),
+        )
+
+    def discordant_output_index(self) -> dict[int, int]:
+        """Map each in-memory discordant edge index to its 0-based position in
+        the *_graph.txt file."""
+        return {
+            di: pos for pos, di in enumerate(self.discordant_output_order())
+        }
+
     def compute_cn_lr(self, normal_cov_lr: float) -> None:
         """Estimate CN (copy number) for each edge, using only long reads.
 

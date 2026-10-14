@@ -70,9 +70,18 @@ def path_to_edge_count(
     return edge_counts
 
 
-def path_to_str(path: Walk, edge_counts: dict[EdgeId, int]) -> str:
+def path_to_str(
+    path: Walk,
+    edge_counts: dict[EdgeId, int],
+    discordant_idx_map: dict[int, int] | None = None,
+) -> str:
     """Convert path to string for outputting to file (e.g.,
     *_graph.txt, *_cycle.txt).
+
+    `discordant_idx_map` maps in-memory discordant edge indices to their
+    position in the *_graph.txt file (see
+    `BreakpointGraph.discordant_output_index`), so that `d<N>` refers to the
+    N-th discordant line of that file.
 
         ex:
             path = [
@@ -93,7 +102,13 @@ def path_to_str(path: Walk, edge_counts: dict[EdgeId, int]) -> str:
         if i % 2 == 0:
             edge_id: EdgeId = path[i]  # type: ignore[assignment]
             edge_count = edge_counts[edge_id]
-            path_str += f"{edge_id.type.value}{edge_id.idx+1}"
+            out_idx = edge_id.idx
+            if (
+                discordant_idx_map is not None
+                and edge_id.type == datatypes.EdgeType.DISCORDANT
+            ):
+                out_idx = discordant_idx_map[edge_id.idx]
+            path_str += f"{edge_id.type.value}{out_idx+1}"
             if i < len(path) - 2:
                 next_node: Node = path[i + 1]  # type: ignore[assignment]
                 path_str += f"{next_node.strand.value}:{edge_count},"
