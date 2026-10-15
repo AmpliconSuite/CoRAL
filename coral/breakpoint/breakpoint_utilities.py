@@ -4,7 +4,6 @@ Utilities for breakpoint graph inference.
 
 from __future__ import annotations
 
-import importlib.metadata
 import io
 import logging
 from collections import Counter, defaultdict
@@ -43,6 +42,7 @@ from coral.datatypes import (
     OutputPCOptions,
     Strand,
 )
+from coral.version import get_coral_version
 
 if TYPE_CHECKING:
     from coral.breakpoint.breakpoint_graph import BreakpointGraph
@@ -692,7 +692,7 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
     with open(ogfile, "w") as fp:
         fp.write(
             text_utils.GRAPH_HEADER_TEMPLATE.format(
-                version=importlib.metadata.version("coral")
+                version=get_coral_version()
             )
             + "\n"
         )

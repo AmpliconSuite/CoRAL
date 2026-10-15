@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib.metadata
 import io
 import logging
 import os
@@ -9,6 +8,7 @@ import os
 from coral import datatypes, global_state, text_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.output.utils import get_single_cycle_str, get_single_path_str
+from coral.version import get_coral_version
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
 
 def get_summary_header(was_amplicon_solved: dict[int, bool | None]) -> str:
     version_str = text_utils.VERSION_TEMPLATE.format(
-        version=importlib.metadata.version("coral")
+        version=get_coral_version()
     )
     profile_str = text_utils.PROFILE_ENABLED_TEMPLATE.format(
         enabled=global_state.STATE_PROVIDER.should_profile
