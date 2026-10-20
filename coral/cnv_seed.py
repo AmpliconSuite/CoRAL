@@ -236,15 +236,15 @@ def run_seeding(
                     if lastseg and cns.start - lastseg.end <= max_seg_gap:
                         sum_seed_len += cns.end - cns.start
                         lastseg.end = cns.end
-                    elif lastseg is None:
+                    else:
+                        if lastseg is not None and sum_seed_len >= min_seed_size:
+                            fp.write(
+                                f"{lastseg.chr}\t{lastseg.start}\t{lastseg.end-1}\n"
+                            )
+                        # A gap always starts a new block, even when the
+                        # previous block was too short to write.
                         lastseg = copy.deepcopy(cns)
-                        sum_seed_len += len(cns)
-                    elif sum_seed_len >= min_seed_size:
-                        fp.write(
-                            f"{lastseg.chr}\t{lastseg.start}\t{lastseg.end-1}\n"
-                        )
-                        sum_seed_len = 0
-                        lastseg = cns
+                        sum_seed_len = len(cns)
                 if sum_seed_len >= min_seed_size:
                     fp.write(
                         f"{lastseg.chr}\t{lastseg.start}\t{lastseg.end-1}\n"  # type: ignore
