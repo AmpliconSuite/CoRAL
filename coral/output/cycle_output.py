@@ -63,8 +63,6 @@ def output_amplicon_walks(
 
     satisfied_path_constraints = bp_graph.path_constraints_satisfied
     longest_path_constraints = bp_graph.longest_path_constraints
-    # d<N> indices must match the discordant line order of *_graph.txt
-    disc_idx_map = bp_graph.discordant_output_index()
 
     if pc_output_option == OutputPCOptions.ALL and len(bp_graph.path_constraints) > 0:
         fp.write("List of all subpath constraints\n")
@@ -79,7 +77,6 @@ def output_amplicon_walks(
                 ),
                 basic_pc.path,
                 fp,
-                disc_idx_map,
             )
             fp.write("\n")
     elif pc_output_option == OutputPCOptions.LONGEST and len(bp_graph.longest_path_constraints) > 0:
@@ -96,7 +93,7 @@ def output_amplicon_walks(
             basic_pc = bp_graph.path_constraints[finalized_pc.pc_idx]
             basic_pc.support = finalized_pc.support
             write_path_constraint_to_file(
-                constraint_i, finalized_pc, basic_pc.path, fp, disc_idx_map
+                constraint_i, finalized_pc, basic_pc.path, fp
             )
             if constraint_i in satisfied_pc_idxs:
                 fp.write("\tSatisfied\n")
@@ -147,12 +144,10 @@ def write_path_constraint_to_file(
     finalized_pc: FinalizedPathConstraint,
     path: Walk,
     fp: io.TextIOWrapper,
-    discordant_idx_map: dict[int, int] | None = None,
 ) -> None:
     fp.write(f"Path constraint {idx + 1}\t")
     fp.write(
-        core_utils.path_to_str(
-            path, finalized_pc.edge_counts, discordant_idx_map
-        )
+        core_utils.path_to_str(path, finalized_pc.edge_counts)
     )
     fp.write(f"\tSupport={finalized_pc.support}")
+

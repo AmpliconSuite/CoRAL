@@ -1,11 +1,6 @@
-"""Tests that d<N> tokens in written path constraints refer to the N-th
+"""
+Tests that d<N> tokens in written path constraints refer to the N-th
 discordant line of the *_graph.txt file.
-
-The graph writer sorts discordant edges by their lower-coordinate endpoint
-(see ``BreakpointEdge.ordered_nodes``), which can differ from the in-memory
-order that path constraints index into. Before the fix, path constraints
-were written with in-memory indices, so they named the wrong SV whenever the
-two orders differed (e.g. CHP212 / COLO320DM ONT reconstructions).
 """
 
 from __future__ import annotations
@@ -19,6 +14,7 @@ import pytest
 from coral import core_utils
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.breakpoint.breakpoint_utilities import output_breakpoint_graph_lr
+from coral.breakpoint.parse_graph import parse_breakpoint_graph
 from coral.datatypes import (
     EdgeId,
     EdgeType,
@@ -28,7 +24,10 @@ from coral.datatypes import (
     PathConstraint,
     Strand,
 )
-from coral.output.cycle_output import write_path_constraint_to_file
+from coral.output.cycle_output import (
+    output_amplicon_walks,
+    write_path_constraint_to_file,
+)
 
 if TYPE_CHECKING:
     import pathlib
@@ -44,27 +43,29 @@ def build_graph() -> tuple[BreakpointGraph, PathConstraint]:
     g = BreakpointGraph()
     for start in (100, 200, 300, 400):
         g.add_sequence_edge("chr2", start, start + 99, lr_count=10, cn=5.0)
-    # In-memory index 0: s0 end -> s2 start (lower endpoint chr2:199)
+    # Added first: s0 end -> s2 start (lower endpoint chr2:199)
     g.add_discordant_edge(
         Node("chr2", 300, Strand.REVERSE),
         Node("chr2", 199, Strand.FORWARD),
         read_support=5,
     )
-    # In-memory index 1: s3 end -> s0 start (lower endpoint chr2:100)
+    # Added second: s3 end -> s0 start (lower endpoint chr2:100)
     g.add_discordant_edge(
         Node("chr2", 499, Strand.FORWARD),
         Node("chr2", 100, Strand.REVERSE),
         read_support=5,
     )
     # s3+ -> s0+ -> s2+
+    d_s3_s0 = g.node_adjacencies[Node("chr2", 499, Strand.FORWARD)].discordant[0]
+    d_s0_s2 = g.node_adjacencies[Node("chr2", 199, Strand.FORWARD)].discordant[0]
     path = [
         EdgeId(EdgeType.SEQUENCE, 3),
         Node("chr2", 499, Strand.FORWARD),
-        EdgeId(EdgeType.DISCORDANT, 1),
+        EdgeId(EdgeType.DISCORDANT, d_s3_s0),
         Node("chr2", 100, Strand.REVERSE),
         EdgeId(EdgeType.SEQUENCE, 0),
         Node("chr2", 199, Strand.FORWARD),
-        EdgeId(EdgeType.DISCORDANT, 0),
+        EdgeId(EdgeType.DISCORDANT, d_s0_s2),
         Node("chr2", 300, Strand.REVERSE),
         EdgeId(EdgeType.SEQUENCE, 2),
     ]
@@ -109,13 +110,6 @@ def bad_discordant_tokens(pc_str: str, seq: list, disc: list) -> list[str]:
     return bad
 
 
-def test_output_order_differs_from_memory_order() -> None:
-    """Sanity check that the fixture exercises the reordering."""
-    g, _ = build_graph()
-    assert g.discordant_output_order() == [1, 0]
-    assert g.discordant_output_index() == {1: 0, 0: 1}
-
-
 @pytest.mark.parametrize(
     "pc_option", [OutputPCOptions.LONGEST, OutputPCOptions.ALL]
 )
@@ -144,7 +138,47 @@ def test_cycles_file_pc_matches_graph_file(tmp_path: pathlib.Path) -> None:
         g.longest_path_constraints[0],
         pc.path,
         fp,
-        g.discordant_output_index(),
     )
     cycles_pc = fp.getvalue().split("\t")[1]
     assert cycles_pc == graph_pcs[0]
+
+
+OLD_GRAPH = """\
+SequenceEdge: StartPosition, EndPosition, PredictedCN, NumberOfLongReads, Size
+sequence\tchr1:1-\tchr1:100+\t2.0\t10.0\t100\t10
+sequence\tchr1:101-\tchr1:300+\t4.0\t10.0\t200\t10
+sequence\tchr1:301-\tchr1:500+\t6.0\t10.0\t200\t10
+sequence\tchr1:501-\tchr1:900+\t4.0\t10.0\t400\t10
+sequence\tchr1:901-\tchr1:1000+\t2.0\t10.0\t100\t10
+BreakpointEdge: StartPosition->EndPosition, PredictedCN, NumberOfLongReads
+concordant\tchr1:100+->chr1:101-\t2.0\t5
+concordant\tchr1:300+->chr1:301-\t4.0\t5
+concordant\tchr1:500+->chr1:501-\t4.0\t5
+concordant\tchr1:900+->chr1:901-\t2.0\t5
+discordant\tchr1:500+->chr1:301-\t2.0\t5
+discordant\tchr1:900+->chr1:101-\t2.0\t5
+PathConstraint: Path, Support
+path_constraint\te4+:1,d2-:1,e2+:1\t3
+"""
+
+
+def test_cycle_mode_keeps_input_numbering(tmp_path: pathlib.Path) -> None:
+    """`coral cycle` reads the graph from file and must write the cycles-file
+    path constraints with the input's d<N> numbering, even when the input's
+    discordant lines are not in lower-end order."""
+    g = parse_breakpoint_graph(io.StringIO(OLD_GRAPH))
+    g.sort_edges()  # as infer_amplicon_intervals() does in coral cycle
+    g.amplicon_idx = 0
+    output_amplicon_walks(
+        g, str(tmp_path / "test"), pc_output_option=OutputPCOptions.ALL
+    )
+    cycles_text = (tmp_path / "test_amplicon1_cycles.txt").read_text()
+    cycles_pcs = [
+        line.split("\t")[1]
+        for line in cycles_text.splitlines()
+        if line.startswith("Path constraint")
+    ]
+    seq, disc, _ = parse_graph_file(OLD_GRAPH)
+    assert len(cycles_pcs) == 1
+    assert "d2" in cycles_pcs[0]
+    assert bad_discordant_tokens(cycles_pcs[0], seq, disc) == []

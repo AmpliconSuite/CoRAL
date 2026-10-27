@@ -721,13 +721,8 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
             )
         # Write each SV with the lower-coordinate end first (earlier chromosome
         # first if inter-chromosomal) so the directionality matches the AA
-        # convention; internally node1/node2 are ordered by detection, not
-        # coordinate. Sort the lines by that same canonical first endpoint.
-        # This order differs from the in-memory one, so the d<N> indices in
-        # the path constraints below are remapped to it.
-        disc_idx_map = g.discordant_output_index()
-        for di in g.discordant_output_order():
-            de = g.discordant_edges[di]
+        # convention.
+        for de in g.discordant_edges:
             first, second = de.ordered_nodes
             fp.write(
                 f"discordant\t{first.chr}:{first.pos}{first.strand}->"
@@ -741,7 +736,7 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
                 basic_pc = g.path_constraints[pc.pc_idx]
                 fp.write(
                     f"path_constraint\t"
-                    f"{core_utils.path_to_str(basic_pc.path, pc.edge_counts, disc_idx_map)}\t"
+                    f"{core_utils.path_to_str(basic_pc.path, pc.edge_counts)}\t"
                     f"{pc.support}\n"
                 )
         elif pc_option == OutputPCOptions.ALL:
@@ -751,7 +746,7 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
                 edge_counts = core_utils.path_to_edge_count(path)
                 fp.write(
                     f"path_constraint\t"
-                    f"{core_utils.path_to_str(path, edge_counts, disc_idx_map)}\t"
+                    f"{core_utils.path_to_str(path, edge_counts)}\t"
                     f"{pc.support}\n"
                 )
         #fp.write("AmpliconIntervals: chr, start, end\n")
