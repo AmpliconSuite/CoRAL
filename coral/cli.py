@@ -32,6 +32,7 @@ from coral.core_utils import (
 from coral.datatypes import CycleDecompOptions, OutputPCOptions, Solver
 from coral.output import cycle_output
 from coral.scoring import score_simulation
+from coral.version import get_coral_version
 
 colorama.init()
 coral_app = typer.Typer(
@@ -41,6 +42,12 @@ coral_app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 logger = logging.getLogger(__name__)
+
+
+def version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"CoRAL {get_coral_version()}")
+        raise typer.Exit()
 
 
 def validate_font_size_multiplier(value: float) -> float:
@@ -93,6 +100,7 @@ def setup_logging(log_filename: pathlib.Path, *, verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
+    logger.info(f"CoRAL version {get_coral_version()}")
 
 
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
@@ -213,6 +221,21 @@ CentromereFileArg = Annotated[
     pathlib.Path,
     typer.Option(help="Centromere BED file (chr, start, end). See docs for format."),
 ]
+
+
+@coral_app.callback()
+def show_version(
+    version: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--version", "-v",
+            callback = version_callback,
+            is_eager = True,
+            help = "Get the CoRAL version.",
+        ),
+    ] = None,
+) -> None:
+    pass
 
 
 @coral_app.command(help="Filter and merge amplified intervals.")
@@ -1008,6 +1031,7 @@ def score_mode(
         level=logging.DEBUG,
         format="%(asctime)s:%(levelname)-4s [%(filename)s:%(lineno)d] %(message)s",
     )
+    logger.info(f"CoRAL version {get_coral_version()}")
     score_simulation.score_simulations(
         ground_truth,
         reconstruction_dir=reconstruction_dir,

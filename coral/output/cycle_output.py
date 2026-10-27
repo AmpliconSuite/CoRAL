@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.metadata
 import io
 import logging
 import pathlib
@@ -17,6 +16,7 @@ from coral.output.utils import (
     get_single_cycle_str,
     get_single_path_str,
 )
+from coral.version import get_coral_version
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def output_amplicon_walks(
     fp.write(
         text_utils.CYCLES_HEADER_TEMPLATE.format(
             method=method,
-            version=importlib.metadata.version("coral"),
+            version=get_coral_version(),
         )
         + "\n"
     )
