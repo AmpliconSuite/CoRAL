@@ -307,7 +307,7 @@ def locate_hsrs(
     plt.xlim([0, 100])
     plt.ylim([1, 500])
     plt.yscale("log")
-    plt.xticks(xtick_pos, list(range(1, 23)) + ["X", "Y"])  # type: ignore[arg-type]
+    plt.xticks(xtick_pos, [chrom[3:] if chrom.lower().startswith("chr") else chrom for chrom in chr_sizes])
     plt.title(output_prefix + " integration loci", fontsize=25)
     plt.ylabel("Long read support", fontsize=25)
     plt.tight_layout()
