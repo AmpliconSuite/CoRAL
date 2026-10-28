@@ -9,6 +9,9 @@ configs/
 *.lp
 *.pickle
 *.pdf
+*.png
+.DS_Store
+.mplconfig/
 *.ipynb
 *.code-workspace
 notebooks/
