@@ -721,11 +721,8 @@ def output_breakpoint_graph_lr(g: BreakpointGraph, ogfile: str, pc_option: Outpu
             )
         # Write each SV with the lower-coordinate end first (earlier chromosome
         # first if inter-chromosomal) so the directionality matches the AA
-        # convention; internally node1/node2 are ordered by detection, not
-        # coordinate. Sort the lines by that same canonical first endpoint.
-        for de in sorted(
-            g.discordant_edges, key=lambda e: (e.ordered_nodes[0].sort_key, e.ordered_nodes[1].sort_key)
-        ):
+        # convention.
+        for de in g.discordant_edges:
             first, second = de.ordered_nodes
             fp.write(
                 f"discordant\t{first.chr}:{first.pos}{first.strand}->"

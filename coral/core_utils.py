@@ -70,7 +70,10 @@ def path_to_edge_count(
     return edge_counts
 
 
-def path_to_str(path: Walk, edge_counts: dict[EdgeId, int]) -> str:
+def path_to_str(
+    path: Walk,
+    edge_counts: dict[EdgeId, int],
+) -> str:
     """Convert path to string for outputting to file (e.g.,
     *_graph.txt, *_cycle.txt).
 

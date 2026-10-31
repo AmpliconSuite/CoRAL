@@ -92,7 +92,9 @@ def output_amplicon_walks(
         for constraint_i, finalized_pc in enumerate(longest_path_constraints):
             basic_pc = bp_graph.path_constraints[finalized_pc.pc_idx]
             basic_pc.support = finalized_pc.support
-            write_path_constraint_to_file(constraint_i, finalized_pc, basic_pc.path, fp)
+            write_path_constraint_to_file(
+                constraint_i, finalized_pc, basic_pc.path, fp
+            )
             if constraint_i in satisfied_pc_idxs:
                 fp.write("\tSatisfied\n")
             else:
@@ -138,8 +140,14 @@ def output_amplicon_walks(
 
 
 def write_path_constraint_to_file(
-    idx: int, finalized_pc: FinalizedPathConstraint, path: Walk, fp: io.TextIOWrapper
+    idx: int,
+    finalized_pc: FinalizedPathConstraint,
+    path: Walk,
+    fp: io.TextIOWrapper,
 ) -> None:
     fp.write(f"Path constraint {idx + 1}\t")
-    fp.write(core_utils.path_to_str(path, finalized_pc.edge_counts))
+    fp.write(
+        core_utils.path_to_str(path, finalized_pc.edge_counts)
+    )
     fp.write(f"\tSupport={finalized_pc.support}")
+
