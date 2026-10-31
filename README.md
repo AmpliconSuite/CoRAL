@@ -149,7 +149,7 @@ Usage:
 * ```--global-time-limit <int>``` - Maximum running time (in seconds) reserved for the entire cycle extraction process. Default value is 21600 (i.e., 6 hours).
 * ```--postprocess-greedy-sol``` - If specified, automatically postprocess the cycles/paths returned in greedy cycle extraction, by solving the full quadratic program to minimize the number of cycles/paths starting with the greedy cycle extraction solution (as an initial solution).
 *	```--log-file <file>``` - Name of the main ```*.log``` file, which can be used to trace the status of ```reconstruct``` run(s).
-* ```--verbose```/```-v``` - Write full debug output to the ```*.log``` file, instead of only ```INFO```-level messages and above. This typically increases the size of the log by 10-50x, and is mainly useful for gathering detail when reporting an issue.
+* ```--debug```/```-d``` - Write full debug output to the ```*.log``` file, instead of only ```INFO```-level messages and above. This typically increases the size of the log by 10-50x, and is mainly useful for gathering detail when reporting an issue.
 * ```--cache-reads``` - Write a ```<output-prefix>_chimeric_alignments.pickle``` cache of the chimeric reads fetched from the ```*.BAM```, **which can exceed 1 GB on high-coverage samples**. If that cache file is already present, a subsequent run using the same ```--output-prefix``` will load it and skip re-scanning the BAM, which can substantially reduce runtime. The cache records which BAM it was built from and is ignored automatically if that BAM changes.
 
 **2.3 Expected output:**
@@ -163,7 +163,7 @@ All output files are named using the value given to ```--output-prefix```, which
 | `<prefix>_amplicon<N>_graph.txt` | amplicon | **The breakpoint graph.** Sequence, concordant, and discordant edges with predicted copy number, plus path constraints and amplicon intervals. |
 | `<prefix>_amplicon<N>_cycles.txt` | amplicon | **The reconstructed cycles and paths** with their copy counts, and which path constraints each satisfies. Not written if ```--skip-cycle-decomp``` is given. |
 | `<prefix>_summary.txt` | run | Per-amplicon summary of the reconstruction (intervals, amplicon count, whether cycle extraction succeeded). Used by downstream tools to locate the run. |
-| `<prefix>_reconstruct.log` | run | Run log. See ```--log-file``` and ```--verbose``` above. |
+| `<prefix>_reconstruct.log` | run | Run log. See ```--log-file``` and ```--debug``` above. |
 | `<prefix>_amplicon<N>_model.lp` / `.log` | amplicon | The integer program handed to the solver, in human-readable form, and the solver's own output. Diagnostic only. |
 
 The two files that matter for downstream analysis are `*_graph.txt` and `*_cycles.txt`. Both use the [AmpliconArchitect](https://github.com/AmpliconSuite/AmpliconArchitect) (AA) format and are interchangeable with AA's equivalents, which is what allows them to be passed directly to [`plot`](#4-plot), [`cycle`](#3-cycle), and [AmpliconClassifier](#6-amplicon-classification).

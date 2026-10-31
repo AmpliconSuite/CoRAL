@@ -8,7 +8,7 @@ AMPLICON_SEPARATOR = "-----------------------------------------------"
 
 # Header patterns
 VERSION_TEMPLATE = "CoRAL {version}"
-VERSION_PATTERN = re.compile(r"CoRAL (\d+\.\d+\.\d+)")
+VERSION_PATTERN = re.compile(r"CoRAL (\S+)")
 
 # File header patterns (leading line of *_graph.txt / *_cycles.txt)
 GRAPH_HEADER_TEMPLATE = "#CoRAL {version}"

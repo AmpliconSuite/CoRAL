@@ -90,7 +90,7 @@ def setup_logging(log_filename: pathlib.Path, *, verbose: bool) -> None:
     """Configure the single run log file.
 
     At the default (non-verbose) level only INFO and above are written, which
-    keeps logs to a few MB. `--verbose` additionally emits the per-read and
+    keeps logs to a few MB. `--debug` additionally emits the per-read and
     per-edge DEBUG records, which are typically 10-50x larger but are what we
     need to diagnose a bug report.
     """
@@ -138,8 +138,8 @@ ReconstructLogArg = Annotated[
 VerboseFlag = Annotated[
     bool,
     typer.Option(
-        "--verbose/--no-verbose",
-        "-v",
+        "--debug",
+        "-d",
         help="Emit full debug output to the log file (10-50x larger). "
         "Intended for diagnosing issues. ",
     ),

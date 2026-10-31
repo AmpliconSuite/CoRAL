@@ -1364,6 +1364,7 @@ class LongReadBamToBreakpointMetadata:
         )
         self.new_bp_list = [self.new_bp_list[i] for i in bp_order]
         self.new_bp_ccids = [self.new_bp_ccids[i] for i in bp_order]
+        self.new_bp_stats = [self.new_bp_stats[i] for i in bp_order]
         for bpi in range(len(self.new_bp_list)):
             bp = self.new_bp_list[bpi]
             bp_ccid = self.new_bp_ccids[bpi]
