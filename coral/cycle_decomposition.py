@@ -451,6 +451,9 @@ def maximize_weights_greedy(
         num_unsatisfied_pc = len(pc_list) - len(full_solution.satisfied_pc_set)
         for pi in curr_sol.satisfied_pc_set:
             is_pc_unsatisfied[pi] = False
+        # Record the CN-weighted length covered by the walks kept so far; the
+        # summary reports it and postprocessing uses it as its coverage floor.
+        full_solution.total_weights_included += curr_sol.total_weights_included
         remaining_weights -= curr_sol.total_weights_included
         if curr_sol.total_weights_included < cn_tol * total_weights:
             logger.debug(
