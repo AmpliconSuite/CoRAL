@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import pathlib
 import sys
+from collections.abc import Iterable
 from typing import Any
 
 import matplotlib as mpl
@@ -31,6 +32,17 @@ mpl.rc("ytick", labelsize=25)
 from coral import cigar_parsing, cycle2bed
 
 logger = logging.getLogger(__name__)
+
+
+def chr_tick_labels(chr_names: Iterable[str]) -> list[str]:
+    """Return one x-axis label per chromosome, in plotting order.
+
+    The integration-site plot draws one segment per entry of
+    ``STATE_PROVIDER.chr_sizes``, which comes from the BAM header and can
+    include chrM, omit chrY, or describe a non-human genome, so the labels must
+    come from the same names rather than a fixed hg38 list.
+    """
+    return [name.removeprefix("chr") for name in chr_names]
 
 
 def fetch(lr_bamfh):
@@ -307,7 +319,7 @@ def locate_hsrs(
     plt.xlim([0, 100])
     plt.ylim([1, 500])
     plt.yscale("log")
-    plt.xticks(xtick_pos, list(range(1, 23)) + ["X", "Y"])  # type: ignore[arg-type]
+    plt.xticks(xtick_pos, chr_tick_labels(chr_sizes))
     plt.title(output_prefix + " integration loci", fontsize=25)
     plt.ylabel("Long read support", fontsize=25)
     plt.tight_layout()
