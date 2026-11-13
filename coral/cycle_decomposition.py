@@ -22,7 +22,7 @@ import pyomo.util.infeasible
 
 import coral.output.utils
 import coral.summary
-from coral import core_utils, datatypes, models
+from coral import core_utils, datatypes, global_state, models
 from coral.breakpoint import breakpoint_graph, infer_breakpoint_graph
 from coral.breakpoint.breakpoint_graph import BreakpointGraph
 from coral.core_utils import profile_fn_with_call_counter
@@ -275,8 +275,8 @@ def greedy_solve(
         p_subpaths=p_subpaths,
         solver_options=solver_options,
     )
-    if should_postprocess:
-        lp_solution = postprocess_solution(
+    if should_postprocess and lp_solution.num_walks > 0:
+        post_solution = postprocess_solution(
             bp_graph.amplicon_idx,
             bp_graph,
             total_weights,
@@ -286,6 +286,18 @@ def greedy_solve(
             lp_solution,
             solver_options,
         )
+        if post_solution.solver_status == pyo.SolverStatus.aborted:
+            # E.g., the global time limit ran out during greedy. Keep the
+            # greedy walks rather than discarding them.
+            logger.warning(
+                "Postprocessing returned no valid solution; keeping the "
+                "greedy solution."
+            )
+        else:
+            # Keep the greedy early-stop record: postprocessing only refines
+            # the walks greedy found, so they are still incomplete.
+            post_solution.early_stop = lp_solution.early_stop
+            lp_solution = post_solution
 
     if lp_solution.num_walks == 0:
         logger.warning(
@@ -422,6 +434,12 @@ def maximize_weights_greedy(
             and curr_sol.solver_status == pyo.SolverStatus.aborted
         ):
             logger.warning("Greedy cycle decomposition timed out, stopping.")
+            full_solution.early_stop = datatypes.GreedyEarlyStop(
+                reason=_time_limit_reason(solver_options),
+                num_iterations=cycle_id,
+                target_weight_fraction=p_total_weight,
+                target_pc_fraction=p_subpaths,
+            )
             break
         full_solution.solver_status = curr_sol.solver_status
         cycle_id += 1
@@ -470,6 +488,16 @@ def maximize_weights_greedy(
         num_path_constraints=len(pc_list),
     )
     return full_solution
+
+
+def _time_limit_reason(solver_options: datatypes.SolverOptions) -> str:
+    """Name the time limit that stopped the last solve."""
+    if global_state.STATE_PROVIDER.remaining_time_s < 1:
+        return (
+            "global time limit "
+            f"({global_state.STATE_PROVIDER.time_limit_s} s)"
+        )
+    return f"per-solve time limit ({solver_options.time_limit_s} s)"
 
 
 def does_graph_require_greedy_solve(bp_graph: BreakpointGraph, k: int) -> bool:
@@ -673,6 +701,12 @@ def cycle_decomposition_single_graph(
     bp_graph.path_constraints_satisfied = lp_solution.satisfied_pc
     bp_graph.mip_gap = lp_solution.mip_gap
     bp_graph.upper_bound = lp_solution.upper_bound
+    bp_graph.explained_weight_fraction = (
+        lp_solution.total_weights_included / total_weights
+        if total_weights > 0
+        else None
+    )
+    bp_graph.early_stop = lp_solution.early_stop
     cycle_output.output_amplicon_walks(
         bp_graph,
         str(solver_options.output_dir) + "/" + solver_options.output_prefix,
