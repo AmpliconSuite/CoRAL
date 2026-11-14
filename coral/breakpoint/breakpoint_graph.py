@@ -86,6 +86,10 @@ class BreakpointGraph:
     mip_gap: float | None = None
     upper_bound: float | None = None
     model_metadata: datatypes.ModelMetadata | None = None
+    # Fraction of the CN-weighted length explained by the walks.
+    explained_weight_fraction: float | None = None
+    # Set when greedy decomposition was stopped early by a time limit.
+    early_stop: datatypes.GreedyEarlyStop | None = None
 
     # Only filled in after LP solution, when profiling is enabled
     runtime_s: float | None = None

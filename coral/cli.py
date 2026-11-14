@@ -103,6 +103,19 @@ def setup_logging(log_filename: pathlib.Path, *, verbose: bool) -> None:
     logger.info(f"CoRAL version {get_coral_version()}")
 
 
+def warn_if_not_using_gurobi(solver: Solver) -> None:
+    """Report a non-Gurobi solver once at command startup."""
+    if solver == Solver.GUROBI:
+        return
+    message = (
+        f"Using {solver.value} for cycle decomposition; Gurobi will not be used. "
+        "To use Gurobi, select --solver gurobi_direct and configure a valid "
+        "Gurobi license."
+    )
+    typer.secho(f"WARNING: {message}", fg=typer.colors.YELLOW, err=True)
+    logger.warning(message)
+
+
 def validate_cns_file(cns_file: typer.FileText) -> typer.FileText:
     cns_filename = cns_file.name
     if cns_filename.endswith((".bed", ".cns")):
@@ -331,6 +344,8 @@ def reconstruct(
     if log_file:
         log_fn = log_file
     setup_logging(log_fn, verbose=verbose)
+    if not skip_cycle_decomp:
+        warn_if_not_using_gurobi(solver)
     logging.getLogger("pyomo").setLevel(logging.INFO)
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_prefix = output_prefix
@@ -423,6 +438,7 @@ def cycle_decomposition_mode(
     if log_file:
         log_fn = log_file
     setup_logging(log_fn, verbose=verbose)
+    warn_if_not_using_gurobi(solver)
     logging.getLogger("pyomo").setLevel(logging.ERROR)
     global_state.STATE_PROVIDER.should_profile = profile
     global_state.STATE_PROVIDER.output_prefix = output_prefix
@@ -511,6 +527,7 @@ def cycle_decomposition_all_mode(
     if log_file:
         log_fn = log_file
     setup_logging(log_fn, verbose=verbose)
+    warn_if_not_using_gurobi(solver)
     logging.getLogger("pyomo").setLevel(logging.ERROR)
     logging.getLogger("gurobipy").setLevel(logging.ERROR)
 

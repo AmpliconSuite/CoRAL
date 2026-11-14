@@ -493,6 +493,23 @@ class WalkData(Generic[T]):
 
 
 @dataclass
+class GreedyEarlyStop:
+    """Why greedy decomposition stopped before reaching its own targets.
+
+    Greedy normally stops once its walks explain `target_weight_fraction` of
+    the CN-weighted length and satisfy `target_pc_fraction` of the path
+    constraints (or the next walk would be negligible). When a solver time
+    limit stops it first, the walks found so far are an incomplete
+    decomposition.
+    """
+
+    reason: str  # e.g. "global time limit (28800 s)"
+    num_iterations: int
+    target_weight_fraction: float
+    target_pc_fraction: float
+
+
+@dataclass
 class CycleSolution:
     """Container for storing MIQCP Pyomo solution state.
 
@@ -519,6 +536,9 @@ class CycleSolution:
     upper_bound: float | None = None
 
     model_metadata: ModelMetadata | None = None
+
+    # Set only when greedy decomposition was stopped early by a time limit.
+    early_stop: GreedyEarlyStop | None = None
 
     @property
     def relative_mip_gap(self) -> float | None:

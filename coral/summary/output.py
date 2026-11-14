@@ -37,6 +37,40 @@ def output_amplicon_solution(
         output_file.write(f"\t{cycle_output}")
 
 
+def output_completeness(
+    bp_graph: BreakpointGraph, output_file: io.TextIOWrapper
+) -> None:
+    """Report how much of the amplicon the walks explain.
+
+    For a PARTIAL decomposition (greedy stopped early by a time limit), also
+    report why it stopped and how far it was from its targets.
+    """
+    early_stop = bp_graph.early_stop
+    if early_stop:
+        output_file.write(
+            f"\tStopped early: {early_stop.reason} reached after "
+            f"{early_stop.num_iterations} greedy iterations.\n"
+        )
+    if (explained := bp_graph.explained_weight_fraction) is not None:
+        line = f"\tCN-weighted length explained: {explained:.1%}"
+        if early_stop:
+            line += (
+                f" (greedy normally stops at "
+                f"{early_stop.target_weight_fraction:.0%})"
+            )
+        output_file.write(line + "\n")
+    num_pc = len(bp_graph.longest_path_constraints)
+    if early_stop and num_pc > 0:
+        satisfied = set().union(
+            *bp_graph.path_constraints_satisfied.cycles,
+            *bp_graph.path_constraints_satisfied.paths,
+        )
+        output_file.write(
+            f"\tPath constraints satisfied: {len(satisfied)}/{num_pc} "
+            f"(greedy normally stops at {early_stop.target_pc_fraction:.0%})\n"
+        )
+
+
 def output_amplicon_info(
     bp_graph: BreakpointGraph, output_file: io.TextIOWrapper, was_solved: bool | None
 ) -> None:
@@ -58,11 +92,16 @@ def output_amplicon_info(
     output_file.write(f"# Source Edges: {len(bp_graph.amplicon_intervals) * 4}\n")
 
     if was_solved:
+        early_stop = bp_graph.early_stop
+        status = (
+            text_utils.CYCLE_DECOMP_STATUS_PARTIAL if early_stop else "SUCCESS"
+        )
         output_file.write(
-            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status='SUCCESS')}\n"
+            f"{text_utils.CYCLE_DECOMP_STATUS_TEMPLATE.format(status=status)}\n"
         )
         if model_metadata := bp_graph.model_metadata:
             output_file.write(f"\t{model_metadata.to_output_str()}\n")
+        output_completeness(bp_graph, output_file)
         if (
             bp_graph.relative_mip_gap is not None
             and bp_graph.relative_mip_gap > 1  # 1% gap
@@ -112,7 +151,10 @@ def add_resource_usage_summary(solver_options: datatypes.SolverOptions) -> None:
             )
 
 
-def get_summary_header(was_amplicon_solved: dict[int, bool | None]) -> str:
+def get_summary_header(
+    was_amplicon_solved: dict[int, bool | None],
+    bp_graphs: list[BreakpointGraph] | None = None,
+) -> str:
     version_str = text_utils.VERSION_TEMPLATE.format(
         version=get_coral_version()
     )
@@ -120,7 +162,14 @@ def get_summary_header(was_amplicon_solved: dict[int, bool | None]) -> str:
         enabled=global_state.STATE_PROVIDER.should_profile
     )
     header_str = f"{version_str}\n"
-    header_str += f"{sum(1 for v in was_amplicon_solved.values() if v)}/{len(was_amplicon_solved)} amplicons solved.\n"
+    # PARTIAL decompositions (stopped early by a time limit) are not solved.
+    partial = {g.amplicon_idx for g in bp_graphs or [] if g.early_stop}
+    num_solved = sum(
+        1
+        for idx, v in was_amplicon_solved.items()
+        if v and idx not in partial
+    )
+    header_str += f"{num_solved}/{len(was_amplicon_solved)} amplicons solved.\n"
     header_str += f"Runtime Limit: {global_state.STATE_PROVIDER.time_limit_s} s\n"
     header_str += f"{profile_str}\n"
 
@@ -134,7 +183,7 @@ def output_summary_amplicon_stats(
     logger.info("Outputting solution info for all amplicons.")
 
     with global_state.STATE_PROVIDER.summary_filepath.open("w") as fp:
-        fp.write(get_summary_header(was_amplicon_solved))
+        fp.write(get_summary_header(was_amplicon_solved, bp_graphs))
         for bp_graph in bp_graphs:
             output_amplicon_info(
                 bp_graph,

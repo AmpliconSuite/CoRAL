@@ -149,11 +149,17 @@ def parse_solver_output(
     # SCIP can return an infeasible pseudo-solution when the time limit is used
     # to interrupt the solver, so we need to check that the solution is actually
     # feasible.
+    # Pyomo only sets `results.solver.gap` when it can parse the statistics
+    # block at the end of the SCIP log. SCIP omits the "Dual Bound" and "Gap"
+    # lines when it stops without any solution (e.g., a time limit of ~0s once
+    # the global time limit is exhausted), so the attribute may be missing. In
+    # that case no variable values are loaded, and the `model.Objective()`
+    # check below marks the solution as aborted.
     if (
         termination_condition == pyo.TerminationCondition.maxTimeLimit
         and results.solver.status == pyo.SolverStatus.ok
         and len(model.solutions) != 0
-        and results.solver.gap == float("inf")
+        and getattr(results.solver, "gap", None) == float("inf")
     ):
         logger.warning(
             f"{bp_graph.amplicon_idx}: Solver returned infeasible solution."
